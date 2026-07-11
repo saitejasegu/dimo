@@ -143,7 +143,7 @@ export function Sheet({
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         className={cn(
-          "fixed inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] border border-b-0 border-line bg-popup px-6 pb-[max(2.25rem,env(safe-area-inset-bottom))] pt-3.5 shadow-[0_-16px_48px_rgba(0,0,0,0.28)] touch-pan-y",
+          "absolute inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] border border-b-0 border-line bg-popup px-6 pb-[max(2.25rem,env(safe-area-inset-bottom))] pt-3.5 shadow-[0_-16px_48px_rgba(0,0,0,0.28)] touch-pan-y",
           className,
         )}
       >
