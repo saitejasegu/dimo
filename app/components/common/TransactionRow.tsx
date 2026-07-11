@@ -33,7 +33,7 @@ export function TransactionRow({
       className={cn(
         "flex w-full items-center gap-3 text-left transition-colors",
         layout === "card"
-          ? "rounded-[14px] border border-line bg-surface px-3 py-[11px] hover:border-green"
+          ? "rounded-[14px] !border !border-line !bg-surface !px-3 !py-[11px] hover:!border-green"
           : "-mx-2 rounded-xl px-2 py-3 hover:bg-canvas",
         dividerTop && "border-t border-line-soft",
       )}

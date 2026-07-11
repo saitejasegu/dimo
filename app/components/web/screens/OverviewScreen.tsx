@@ -115,7 +115,7 @@ export function OverviewScreen() {
               <button
                 type="button"
                 onClick={() => actions.setView("recurring")}
-                className="text-[13px] font-medium text-green"
+                className="text-[13px] font-medium !text-green"
               >
                 See all
               </button>

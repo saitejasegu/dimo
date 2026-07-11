@@ -40,7 +40,7 @@ export function SectionHeader({
         <button
           type="button"
           onClick={onAction}
-          className="text-[13px] font-medium text-green"
+          className="text-[13px] font-medium !text-green"
         >
           {actionLabel}
         </button>

@@ -24,7 +24,10 @@ export function TabBar() {
   const { setView } = useAppActions();
 
   return (
-    <nav className="absolute inset-x-0 bottom-0 z-[15] flex items-start justify-between border-t border-line bg-canvas/90 px-[22px] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
+    <nav
+      aria-label="Primary navigation"
+      className="absolute inset-x-0 bottom-0 z-[15] flex h-[88px] items-start justify-between border-t border-line bg-canvas/90 px-[22px] pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md"
+    >
       {TABS.map((tab) => {
         const active = view === tab.key;
         return (
@@ -32,9 +35,10 @@ export function TabBar() {
             type="button"
             key={tab.key}
             onClick={() => setView(tab.key)}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "flex flex-col items-center gap-1.5 px-2 py-0.5",
-              active ? "text-green" : "text-faint",
+              "flex flex-col items-center gap-1.5 !px-2 !py-0.5",
+              active ? "!text-green" : "!text-faint",
             )}
           >
             <NavGlyph round={tab.round} className={active ? "text-green" : "text-faint"} />

@@ -23,7 +23,7 @@ export function UpcomingRow({
       className={cn(
         "flex w-full items-center gap-3 text-left transition-colors",
         !web &&
-          "rounded-[14px] border border-line bg-surface px-3 py-[11px] hover:border-green",
+          "rounded-[14px] !border !border-line !bg-surface !px-3 !py-[11px] hover:!border-green",
       )}
     >
       <CategoryTint
