@@ -1,0 +1,58 @@
+import type {
+  CategoryName,
+  Currency,
+  Frequency,
+  ID,
+  NotificationSettings,
+  OverlayKey,
+  StatsRange,
+  ViewKey,
+  WeekStart,
+} from "@/lib/types";
+
+export type Action =
+  // navigation
+  | { type: "SET_VIEW"; view: ViewKey }
+  // activity
+  | { type: "SET_FILTER"; category: CategoryName | "All" }
+  | { type: "SET_QUERY"; query: string }
+  // stats
+  | { type: "SET_STATS_RANGE"; range: StatsRange }
+  | { type: "SET_SELECTED_MONTH"; month: string }
+  | { type: "TOGGLE_MERCHANTS" }
+  | { type: "OPEN_MERCHANT"; name: string }
+  // overlays
+  | { type: "OPEN_OVERLAY"; overlay: Exclude<OverlayKey, null> }
+  | { type: "CLOSE_OVERLAY" }
+  | { type: "OPEN_DETAIL"; id: ID }
+  | { type: "CLOSE_DETAIL" }
+  | { type: "DELETE_DETAIL" }
+  // recurring toggle
+  | { type: "TOGGLE_RECURRING"; id: ID }
+  // expense draft
+  | { type: "SET_EXPENSE_AMOUNT"; amount: string }
+  | { type: "PRESS_AMOUNT_KEY"; key: string }
+  | { type: "SET_EXPENSE_NAME"; name: string }
+  | { type: "SET_EXPENSE_CATEGORY"; category: CategoryName }
+  | { type: "SAVE_EXPENSE" }
+  // recurring draft
+  | { type: "SET_RECURRING_NAME"; name: string }
+  | { type: "SET_RECURRING_AMOUNT"; amount: string }
+  | { type: "SET_RECURRING_DAY"; day: string }
+  | { type: "SET_RECURRING_FREQUENCY"; frequency: Frequency }
+  | { type: "SET_RECURRING_CATEGORY"; category: CategoryName }
+  | { type: "SAVE_RECURRING" }
+  // category draft
+  | { type: "SET_CATEGORY_NAME"; name: string }
+  | { type: "SET_CATEGORY_LIMIT"; limit: string }
+  | { type: "SAVE_CATEGORY" }
+  // account
+  | { type: "SET_PROFILE_NAME"; name: string }
+  | { type: "SET_PROFILE_EMAIL"; email: string }
+  | { type: "SET_CURRENCY"; currency: Currency }
+  | { type: "SET_WEEK_START"; weekStart: WeekStart }
+  | { type: "SET_DEFAULT_VIEW"; view: string }
+  | { type: "TOGGLE_NOTIFICATION"; key: keyof NotificationSettings }
+  // toast
+  | { type: "SHOW_TOAST"; message: string }
+  | { type: "CLEAR_TOAST" };

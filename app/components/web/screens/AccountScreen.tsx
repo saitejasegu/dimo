@@ -1,0 +1,191 @@
+"use client";
+
+import type { ReactNode } from "react";
+import { useAppActions, useAppState } from "@/store/app-store";
+import {
+  CURRENCY_OPTIONS,
+  DEFAULT_VIEW_OPTIONS,
+  NOTIFICATION_DEFS,
+  WEEK_START_OPTIONS,
+} from "@/features/account/constants";
+import { Card } from "@/components/ui/Card";
+import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
+import { TextField } from "@/components/ui/TextField";
+import { Toggle } from "@/components/ui/Toggle";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { WebScreen } from "@/components/web/WebScreen";
+
+const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
+  value: v as string,
+  label: v,
+}));
+
+function PreferenceRow({
+  label,
+  description,
+  control,
+}: {
+  label: string;
+  description: string;
+  control: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <div className="text-sm font-medium text-ink">{label}</div>
+        <div className="text-xs text-muted">{description}</div>
+      </div>
+      {control}
+    </div>
+  );
+}
+
+export function AccountScreen() {
+  const { profile, currency, weekStart, defaultView, notifications } =
+    useAppState();
+  const actions = useAppActions();
+
+  return (
+    <WebScreen>
+      <div className="mb-[22px]">
+        <div className="font-display text-[28px] font-semibold text-ink">
+          Account
+        </div>
+        <div className="mt-1 text-[13px] text-muted">
+          Manage your profile and preferences.
+        </div>
+      </div>
+
+      <Card className="mb-[18px] flex items-center gap-6 p-6">
+        <div className="flex shrink-0 flex-col items-center gap-2">
+          <Avatar
+            initial={profile.name.charAt(0).toUpperCase()}
+            size={72}
+            radius={22}
+            textClassName="text-[30px]"
+          />
+          <button
+            type="button"
+            onClick={() => actions.showToast("Photo upload — demo")}
+            className="text-xs font-medium text-green"
+          >
+            Change photo
+          </button>
+        </div>
+        <div className="grid flex-1 grid-cols-2 gap-4">
+          <TextField
+            label="Full name"
+            value={profile.name}
+            onChange={actions.setProfileName}
+          />
+          <TextField
+            label="Email"
+            value={profile.email}
+            onChange={actions.setProfileEmail}
+          />
+          <div>
+            <div className="mb-1.5 text-xs text-muted">Member since</div>
+            <div className="py-[11px] text-sm font-medium text-ink">
+              March 2024
+            </div>
+          </div>
+          <div className="flex items-end justify-end">
+            <Button size="sm" onClick={actions.saveProfile}>
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <div className="mb-[18px] grid grid-cols-2 items-start gap-[18px]">
+        <Card className="p-[22px]">
+          <h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">
+            Preferences
+          </h2>
+          <div className="flex flex-col gap-[18px]">
+            <PreferenceRow
+              label="Currency"
+              description="Used across the whole app"
+              control={
+                <SegmentedControl
+                  options={CURRENCY_OPTIONS}
+                  value={currency}
+                  onChange={actions.setCurrency}
+                  fill={false}
+                />
+              }
+            />
+            <div className="h-px bg-line-soft" />
+            <PreferenceRow
+              label="Week starts on"
+              description="Affects weekly summaries"
+              control={
+                <SegmentedControl
+                  options={WEEK_START_OPTIONS}
+                  value={weekStart}
+                  onChange={actions.setWeekStart}
+                  fill={false}
+                />
+              }
+            />
+            <div className="h-px bg-line-soft" />
+            <PreferenceRow
+              label="Default view"
+              description="Screen shown when you open Dimo"
+              control={
+                <SegmentedControl
+                  options={VIEW_OPTIONS}
+                  value={defaultView}
+                  onChange={actions.setDefaultView}
+                  fill={false}
+                />
+              }
+            />
+          </div>
+        </Card>
+
+        <Card className="p-[22px]">
+          <h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">
+            Notifications
+          </h2>
+          <div className="flex flex-col gap-4">
+            {NOTIFICATION_DEFS.map((def) => (
+              <div
+                key={def.key}
+                className="flex items-center justify-between gap-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-ink">{def.label}</div>
+                  <div className="text-xs text-muted">{def.sub}</div>
+                </div>
+                <Toggle
+                  checked={notifications[def.key]}
+                  onChange={() => actions.toggleNotification(def.key)}
+                  label={def.label}
+                />
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => actions.showToast("Signed out — demo")}
+        >
+          Sign out
+        </Button>
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={() => actions.showToast("Account deletion — demo")}
+        >
+          Delete account
+        </Button>
+      </div>
+    </WebScreen>
+  );
+}
