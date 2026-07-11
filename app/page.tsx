@@ -4,6 +4,7 @@ import { AppStoreProvider, useAppState } from "@/store/app-store";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MobileApp } from "@/components/mobile/MobileApp";
 import { WebApp } from "@/components/web/WebApp";
+import { UpdateBanner } from "@/components/common/UpdateBanner";
 
 function ResponsiveApp() {
   const isMobile = useIsMobile();
@@ -13,7 +14,12 @@ function ResponsiveApp() {
     return <div className="min-h-dvh bg-canvas" />;
   }
 
-  return isMobile ? <MobileApp /> : <WebApp />;
+  return (
+    <>
+      {isMobile ? <MobileApp /> : <WebApp />}
+      <UpdateBanner />
+    </>
+  );
 }
 
 export default function Page() {

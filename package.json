@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/write-version.mjs && next build",
     "start": "npx --yes serve out",
     "test": "npm run test:unit && npm run build",
     "test:unit": "vitest run",

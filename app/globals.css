@@ -118,4 +118,16 @@
     outline: 3px solid rgba(31, 157, 99, 0.28);
     outline-offset: 2px;
   }
+
+  /* Horizontal scroll still works; the bar itself stays hidden. */
+  *::-webkit-scrollbar:horizontal {
+    display: none;
+    height: 0;
+  }
+
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
 }
