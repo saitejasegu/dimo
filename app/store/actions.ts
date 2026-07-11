@@ -72,7 +72,7 @@ export type Action =
   | { type: "SET_CURRENCY"; currency: Currency }
   | { type: "SET_WEEK_START"; weekStart: WeekStart }
   | { type: "SET_THEME"; theme: ThemePreference }
-  | { type: "SET_DEFAULT_VIEW"; view: string }
+  | { type: "SET_NAV_GLASS_OPACITY"; opacity: number }
   | { type: "SET_DEFAULT_STATS_RANGE"; range: StatsRange }
   | { type: "TOGGLE_NOTIFICATION"; key: keyof NotificationSettings }
   // toast

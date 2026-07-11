@@ -72,6 +72,8 @@ export interface PreferencesEntity {
   currency: Currency;
   weekStart: WeekStart;
   theme: ThemePreference;
+  /** Mobile nav glass fill, 40–100. */
+  navGlassOpacity: number;
   defaultView: ViewKey;
   defaultStatsRange: StatsRange;
   notifications: NotificationSettings;
@@ -154,6 +156,7 @@ export const DEFAULT_PREFERENCES: PreferencesEntity = {
   currency: "INR",
   weekStart: "Mon",
   theme: "light",
+  navGlassOpacity: 40,
   defaultView: "home",
   defaultStatsRange: "1Y",
   notifications: { bills: true, budget: true, weekly: false, large: true },

@@ -104,7 +104,7 @@ export interface AppActions {
   setProfileEmail: (email: string) => void; saveProfile: () => void;
   setCurrency: (currency: Currency) => void; setWeekStart: (weekStart: WeekStart) => void;
   setTheme: (theme: ThemePreference) => void;
-  setDefaultView: (view: string) => void;
+  setNavGlassOpacity: (opacity: number, options?: { persist?: boolean }) => void;
   setDefaultStatsRange: (range: StatsRange) => void;
   manageStatsDefaults: () => void;
   toggleNotification: (key: keyof NotificationSettings) => void;
@@ -117,11 +117,6 @@ export interface SyncState extends SyncMetaRecord {
   configured: boolean;
 }
 
-const viewToLabel = (view: ViewKey) => view === "tx" ? "Home" : view[0].toUpperCase() + view.slice(1);
-const labelToView = (label: string): ViewKey => label === "Activity" ? "home" :
-  (["home", "stats", "recurring", "budgets", "settings", "account"].includes(label.toLowerCase())
-    ? label.toLowerCase() as ViewKey : "home");
-
 function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}): PreferencesEntity {
   const defaultMethod = state.paymentMethods.find((method) => method.isDefault)?.id ?? CASH_PAYMENT_METHOD.id;
   return {
@@ -131,11 +126,12 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
     currency: state.currency,
     weekStart: state.weekStart,
     theme: state.theme,
-    defaultView: labelToView(state.defaultView),
+    navGlassOpacity: state.navGlassOpacity,
     defaultStatsRange: state.defaultStatsRange,
     notifications: state.notifications,
     defaultPaymentMethodId: defaultMethod,
     ...patch,
+    defaultView: "home",
   };
 }
 
@@ -473,7 +469,12 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setCurrency: (currency) => { dispatch({ type: "SET_CURRENCY", currency }); persist(saveEntity("preferences", preferencesFrom(getState(), { currency }))); },
     setWeekStart: (weekStart) => { dispatch({ type: "SET_WEEK_START", weekStart }); persist(saveEntity("preferences", preferencesFrom(getState(), { weekStart }))); },
     setTheme: (theme) => { dispatch({ type: "SET_THEME", theme }); persist(saveEntity("preferences", preferencesFrom(getState(), { theme }))); },
-    setDefaultView: (view) => { dispatch({ type: "SET_DEFAULT_VIEW", view }); persist(saveEntity("preferences", preferencesFrom(getState(), { defaultView: labelToView(view) }))); },
+    setNavGlassOpacity: (opacity, options) => {
+      const next = Math.min(100, Math.max(40, Math.round(opacity)));
+      dispatch({ type: "SET_NAV_GLASS_OPACITY", opacity: next });
+      if (options?.persist === false) return;
+      persist(saveEntity("preferences", preferencesFrom(getState(), { navGlassOpacity: next })));
+    },
     setDefaultStatsRange: (range) => {
       dispatch({ type: "SET_DEFAULT_STATS_RANGE", range });
       persist(
@@ -576,7 +577,7 @@ export function AppStoreProvider({
     state: {
       ...state,
       profile: { name: user.name, email: user.email, photoUrl: user.photoUrl },
-      defaultView: viewToLabel(labelToView(state.defaultView)),
+      defaultView: "home",
     },
     actions,
     sync,

@@ -22,7 +22,7 @@ export function MobileScreen({
       )}
       <div
         className={cn(
-          "bubble-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-none px-[22px] pb-6 pt-4",
+          "bubble-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-none px-[22px] pb-[calc(7.25rem+env(safe-area-inset-bottom,0px))] pt-4",
           className,
         )}
       >

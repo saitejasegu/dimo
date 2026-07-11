@@ -25,10 +25,7 @@ export const WEEK_START_OPTIONS: { value: WeekStart; label: string }[] = [
 ];
 
 export const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
-  { value: "system", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
+  { value: "system", label: "System" },
 ];
-
-/** Screens that can be chosen as the landing view. */
-export const DEFAULT_VIEW_OPTIONS = ["Home", "Stats"] as const;

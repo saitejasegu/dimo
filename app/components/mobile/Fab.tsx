@@ -25,7 +25,7 @@ export function Fab() {
       type="button"
       onClick={() => openOverlay(action.overlay)}
       aria-label={action.label}
-      className="absolute bottom-5 right-5 z-[15] flex h-[54px] w-[54px] items-center justify-center rounded-[18px] !bg-green !text-white shadow-[0_12px_28px_-8px_rgba(31,157,99,0.6)]"
+      className="absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] right-5 z-[15] flex h-[54px] w-[54px] items-center justify-center rounded-[18px] !bg-green !text-white shadow-[0_12px_28px_-8px_rgba(31,157,99,0.6)]"
     >
       <PlusIcon />
     </button>

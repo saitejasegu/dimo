@@ -77,6 +77,8 @@ export const preferencesValidator = v.object({
   theme: v.optional(
     v.union(v.literal("system"), v.literal("light"), v.literal("dark")),
   ),
+  // Optional so preferences written by older clients continue to sync.
+  navGlassOpacity: v.optional(v.number()),
   defaultView: v.union(
     v.literal("home"),
     v.literal("tx"),

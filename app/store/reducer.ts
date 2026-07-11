@@ -84,7 +84,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         ...action.data,
         dataReady: true,
-        view: state.dataReady ? state.view : action.data.preferences.defaultView,
+        view: state.dataReady ? state.view : "home",
         statsRange: state.dataReady
           ? state.statsRange
           : action.data.preferences.defaultStatsRange,
@@ -98,7 +98,8 @@ export function reducer(state: AppState, action: Action): AppState {
         currency: action.data.preferences.currency,
         weekStart: action.data.preferences.weekStart,
         theme: action.data.preferences.theme ?? "light",
-        defaultView: action.data.preferences.defaultView,
+        navGlassOpacity: action.data.preferences.navGlassOpacity ?? 40,
+        defaultView: "home",
         defaultStatsRange: action.data.preferences.defaultStatsRange,
         notifications: action.data.preferences.notifications,
       };
@@ -598,8 +599,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "SET_THEME":
       return { ...state, theme: action.theme };
 
-    case "SET_DEFAULT_VIEW":
-      return { ...state, defaultView: action.view };
+    case "SET_NAV_GLASS_OPACITY":
+      return { ...state, navGlassOpacity: action.opacity };
 
     case "SET_DEFAULT_STATS_RANGE":
       return {

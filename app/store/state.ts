@@ -90,6 +90,8 @@ export interface AppState {
   currency: Currency;
   weekStart: WeekStart;
   theme: ThemePreference;
+  /** Mobile liquid-glass nav opacity, 40–100. */
+  navGlassOpacity: number;
   defaultView: string;
   defaultStatsRange: StatsRange;
   notifications: NotificationSettings;
@@ -160,6 +162,7 @@ export function createInitialState(
     currency: DEFAULT_PREFERENCES.currency,
     weekStart: DEFAULT_PREFERENCES.weekStart,
     theme: DEFAULT_PREFERENCES.theme,
+    navGlassOpacity: DEFAULT_PREFERENCES.navGlassOpacity,
     defaultView: DEFAULT_PREFERENCES.defaultView,
     defaultStatsRange: DEFAULT_PREFERENCES.defaultStatsRange,
     notifications: DEFAULT_PREFERENCES.notifications,

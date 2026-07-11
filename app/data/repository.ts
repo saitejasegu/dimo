@@ -126,9 +126,7 @@ export function sanitizePayload<T extends EntityType>(
       const currency = value.currency;
       const weekStart = value.weekStart;
       const theme = value.theme;
-      const defaultView = value.defaultView;
       const defaultStatsRange = value.defaultStatsRange;
-      const views = ["home", "tx", "stats", "recurring", "budgets", "settings", "account"] as const;
       const statsRanges = ["1W", "M", "3M", "6M", "1Y", "2Y"] as const;
       return {
         id: "preferences",
@@ -137,9 +135,11 @@ export function sanitizePayload<T extends EntityType>(
         currency: currency === "USD" || currency === "EUR" ? currency : "INR",
         weekStart: weekStart === "Sun" ? "Sun" : "Mon",
         theme: theme === "light" || theme === "dark" || theme === "system" ? theme : "light",
-        defaultView: views.includes(defaultView as (typeof views)[number])
-          ? defaultView === "tx" ? "home" : defaultView
-          : "home",
+        navGlassOpacity: (() => {
+          const opacity = Number(value.navGlassOpacity);
+          return Number.isFinite(opacity) ? Math.min(100, Math.max(40, Math.round(opacity))) : 40;
+        })(),
+        defaultView: "home",
         defaultStatsRange: statsRanges.includes(
           defaultStatsRange as (typeof statsRanges)[number],
         )
