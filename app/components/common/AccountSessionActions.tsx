@@ -7,6 +7,7 @@ import { deleteAccountAndSignOut, signOutAndClearLocal } from "@/auth/signOut";
 import { useAppActions } from "@/store/app-store";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { TransactionDataActions } from "@/components/common/TransactionDataActions";
 
 /** Sign out and delete-account actions for the bottom of Account. */
 export function AccountSessionActions() {
@@ -42,6 +43,7 @@ export function AccountSessionActions() {
         >
           Sign out
         </Button>
+        <TransactionDataActions />
         <Button
           variant="danger"
           fullWidth
