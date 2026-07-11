@@ -23,7 +23,7 @@ export function OverviewScreen() {
   } = useOverview();
 
   const firstName = profile.name.split(" ")[0];
-  const monthSub = `${transactionCount} transactions · ${money(totals.left, currency)} of budget left`;
+  const monthSub = `${transactionCount} transactions`;
 
   return (
     <WebScreen>

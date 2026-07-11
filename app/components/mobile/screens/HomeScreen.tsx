@@ -21,7 +21,7 @@ export function HomeScreen() {
   } = useOverview();
 
   const initial = profile.name.charAt(0).toUpperCase();
-  const monthSub = `${transactionCount} transactions · ${money(totals.left, currency)} of budget left`;
+  const monthSub = `${transactionCount} transactions`;
 
   return (
     <MobileScreen

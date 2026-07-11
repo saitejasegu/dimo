@@ -7,6 +7,7 @@ import { localDateKey, nextOccurrence, occurrencesThrough } from "@/lib/dates";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { categoryNames } from "@/features/transactions/selectors";
 import { TextField } from "@/components/ui/TextField";
+import { DateField } from "@/components/ui/DateField";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -109,11 +110,10 @@ export function AddRecurringForm({
         inputMode="numeric"
         className="mb-3.5"
       />
-      <TextField
+      <DateField
         label={editing ? "Next due date" : "Start date"}
         value={recurringDraft.anchorDate}
         onChange={actions.setRecurringAnchorDate}
-        type="date"
         min={editing ? today : undefined}
         className="mb-3.5"
       />

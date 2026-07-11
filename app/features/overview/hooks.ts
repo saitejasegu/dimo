@@ -13,6 +13,14 @@ export function useOverview() {
   return useMemo(() => {
     const totals = budgetTotals(transactions, limits);
     const active = activeRecurring(recurring);
+    const now = new Date();
+    const monthTransactions = transactions.filter((t) => {
+      const date = new Date(t.occurredAt ?? 0);
+      return (
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth()
+      );
+    });
     return {
       totals,
       recurringTotal: monthlyRecurringTotal(recurring),
@@ -20,7 +28,7 @@ export function useOverview() {
       recent: transactions,
       upcoming: upcomingBills(recurring, 4),
       topCategories: topCategories(transactions, 4),
-      transactionCount: transactions.length,
+      transactionCount: monthTransactions.length,
     };
   }, [transactions, recurring, limits]);
 }
