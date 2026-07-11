@@ -22,7 +22,7 @@ export function RecurringScreen() {
             Recurring
           </div>
           <div className="mt-1 text-[13px] text-muted">
-            Click a bill to pause or resume it.
+            Manage upcoming bills and subscriptions.
           </div>
         </div>
         <Button
@@ -53,7 +53,7 @@ export function RecurringScreen() {
             key={rec.id}
             recurring={rec}
             currency={currency}
-            onToggle={() => actions.toggleRecurring(rec.id)}
+            onClick={() => actions.openEditRecurring(rec.id)}
           />
         ))}
       </div>

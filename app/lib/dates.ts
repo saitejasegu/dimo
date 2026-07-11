@@ -64,6 +64,59 @@ export function nextOccurrence(recurring: Pick<RecurringEntity, "anchorDate" | "
   return candidate;
 }
 
+/**
+ * Every occurrence from the anchor/start date through today (inclusive).
+ * Future start dates return an empty list.
+ */
+export function occurrencesThrough(
+  recurring: Pick<RecurringEntity, "anchorDate" | "frequency">,
+  now = new Date(),
+): Date[] {
+  const anchor = parseLocalDate(recurring.anchorDate);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (anchor > today) return [];
+
+  const dates: Date[] = [];
+  const day = anchor.getDate();
+
+  if (recurring.frequency === "monthly") {
+    let year = anchor.getFullYear();
+    let month = anchor.getMonth();
+    while (dates.length < 1200) {
+      const date = new Date(year, month, Math.min(day, daysInMonth(year, month)));
+      if (date > today) break;
+      dates.push(date);
+      month += 1;
+      if (month > 11) {
+        month = 0;
+        year += 1;
+      }
+    }
+    return dates;
+  }
+
+  let year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  while (dates.length < 200) {
+    const date = new Date(year, month, Math.min(day, daysInMonth(year, month)));
+    if (date > today) break;
+    dates.push(date);
+    year += 1;
+  }
+  return dates;
+}
+
+export function occurrenceTimestamp(date: Date) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    12,
+    0,
+    0,
+  ).getTime();
+}
+
 export function recurringDueLabel(recurring: Pick<RecurringEntity, "anchorDate" | "frequency">, now = new Date()) {
   const due = nextOccurrence(recurring, now);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

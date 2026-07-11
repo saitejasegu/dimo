@@ -9,7 +9,7 @@ import { PlusIcon } from "@/components/ui/icons";
 import { MobileScreen } from "@/components/mobile/MobileScreen";
 
 export function BudgetsScreen() {
-  const { currency } = useAppState();
+  const { currency, categories } = useAppState();
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
 
@@ -51,23 +51,32 @@ export function BudgetsScreen() {
       </HeroCard>
 
       <div className="flex flex-col gap-3">
-        {budgets.map((b) => (
-          <Card key={b.category} className="p-4">
-            <div className="mb-2.5 flex items-baseline justify-between">
-              <span className="text-sm font-medium text-ink">{b.category}</span>
-              <span className="text-[13px] text-muted">
-                {b.hasLimit
-                  ? `${money(b.spent, currency)} of ${money(b.limit as number, currency)}`
-                  : `${money(b.spent, currency)} · no budget`}
-              </span>
-            </div>
-            <ProgressBar
-              value={b.hasLimit ? b.pct : 0}
-              tone={b.over ? "danger" : "green"}
-              height={8}
-            />
-          </Card>
-        ))}
+        {budgets.map((b) => {
+          const category = categories.find((c) => c.name === b.category);
+          return (
+            <Card
+              key={b.category}
+              className="p-4"
+              onClick={() => {
+                if (category) actions.openEditCategory(category.id);
+              }}
+            >
+              <div className="mb-2.5 flex items-baseline justify-between">
+                <span className="text-sm font-medium text-ink">{b.category}</span>
+                <span className="text-[13px] text-muted">
+                  {b.hasLimit
+                    ? `${money(b.spent, currency)} of ${money(b.limit as number, currency)}`
+                    : `${money(b.spent, currency)} · no budget`}
+                </span>
+              </div>
+              <ProgressBar
+                value={b.hasLimit ? b.pct : 0}
+                tone={b.over ? "danger" : "green"}
+                height={8}
+              />
+            </Card>
+          );
+        })}
       </div>
     </MobileScreen>
   );

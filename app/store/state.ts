@@ -30,6 +30,8 @@ export interface ExpenseDraft {
 }
 
 export interface RecurringDraft {
+  /** Set when editing an existing recurring bill; null when creating. */
+  id: string | null;
   name: string;
   amount: string;
   anchorDate: string;
@@ -38,6 +40,8 @@ export interface RecurringDraft {
 }
 
 export interface CategoryDraft {
+  /** Set when editing an existing category; null when creating. */
+  id: string | null;
   name: string;
   limit: string;
 }
@@ -95,6 +99,7 @@ export const EMPTY_EXPENSE_DRAFT: ExpenseDraft = {
 };
 
 export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
+  id: null,
   name: "",
   amount: "",
   anchorDate: "",
@@ -103,6 +108,7 @@ export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
 };
 
 export const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
+  id: null,
   name: "",
   limit: "",
 };

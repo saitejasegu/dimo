@@ -137,7 +137,7 @@ export function PaymentMethodsManager({ className }: { className?: string }) {
         </div>
         {editingId ? null : (
           <Button size="sm" onClick={startAdd}>
-            Add method
+            Add
           </Button>
         )}
       </div>

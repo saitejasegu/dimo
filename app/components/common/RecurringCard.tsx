@@ -15,16 +15,16 @@ function subtitleClass(rec: Recurring): string {
 export function RecurringCard({
   recurring,
   currency,
-  onToggle,
+  onClick,
 }: {
   recurring: Recurring;
   currency: Currency;
-  onToggle: () => void;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={onClick}
       className={cn(
         "w-full rounded-2xl border border-line bg-surface p-[18px] text-left transition-colors hover:border-green",
         recurring.paused && "opacity-70",

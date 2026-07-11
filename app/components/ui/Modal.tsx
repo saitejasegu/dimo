@@ -7,11 +7,19 @@ interface ModalProps {
   /** Panel width in pixels (design uses 420–460). */
   width?: number;
   title?: string;
+  headerRight?: ReactNode;
   className?: string;
 }
 
 /** Web centered modal: dimmed backdrop + pop-in panel. */
-export function Modal({ onClose, children, width = 440, title, className }: ModalProps) {
+export function Modal({
+  onClose,
+  children,
+  width = 440,
+  title,
+  headerRight,
+  className,
+}: ModalProps) {
   return (
     <div
       role="presentation"
@@ -28,10 +36,17 @@ export function Modal({ onClose, children, width = 440, title, className }: Moda
           className,
         )}
       >
-        {title ? (
-          <h2 className="mb-5 font-display text-[19px] font-semibold text-ink">
-            {title}
-          </h2>
+        {title || headerRight ? (
+          <div className="mb-5 flex items-center justify-between gap-3">
+            {title ? (
+              <h2 className="font-display text-[19px] font-semibold text-ink">
+                {title}
+              </h2>
+            ) : (
+              <span />
+            )}
+            {headerRight}
+          </div>
         ) : null}
         {children}
       </div>

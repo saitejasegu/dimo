@@ -10,14 +10,32 @@ import { Button } from "@/components/ui/Button";
 const PRESETS = [1000, 2500, 5000, 10000];
 
 export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
-  const { categoryDraft, limits } = useAppState();
+  const { categoryDraft, categories } = useAppState();
   const actions = useAppActions();
 
+  const editing = Boolean(categoryDraft.id);
   const name = categoryDraft.name.trim();
-  const duplicate = Object.keys(limits).some(
-    (c) => c.toLowerCase() === name.toLowerCase(),
+  const duplicate = categories.some(
+    (c) =>
+      c.name.toLowerCase() === name.toLowerCase() &&
+      c.id !== categoryDraft.id,
   );
-  const valid = name.length > 0 && !duplicate;
+  const original = editing
+    ? categories.find((c) => c.id === categoryDraft.id)
+    : undefined;
+  const originalLimit =
+    original?.monthlyBudgetMinor == null
+      ? ""
+      : String(original.monthlyBudgetMinor / 100);
+  const dirty =
+    !editing ||
+    name !== (original?.name ?? "") ||
+    categoryDraft.limit !== originalLimit;
+  const valid =
+    name.length > 0 &&
+    !duplicate &&
+    (!editing || dirty);
+
   const selectedLimit =
     parseInt(categoryDraft.limit.replace(/[^0-9]/g, ""), 10) || 0;
 
@@ -63,7 +81,7 @@ export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
           </Button>
         ) : null}
         <Button onClick={actions.saveCategory} enabled={valid} className="flex-1">
-          Create category
+          {editing ? "Save category" : "Create category"}
         </Button>
       </div>
     </div>

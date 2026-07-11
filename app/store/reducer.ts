@@ -1,4 +1,5 @@
-import { paymentMethodLabel, type Recurring, type Transaction } from "@/lib/types";
+import { paymentMethodLabel, type Frequency, type Recurring, type Transaction } from "@/lib/types";
+import { localDateKey, nextOccurrence } from "@/lib/dates";
 import type { Action } from "@/store/actions";
 import {
   AppState,
@@ -51,12 +52,27 @@ function sanitizeDecimal(value: string): string {
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "HYDRATE_DATA":
+    case "HYDRATE_DATA": {
+      const categoryNames = new Set(action.data.categories.map((c) => c.name));
+      const fallbackCategory = action.data.categories[0]?.name ?? "";
+      const expenseCategory = categoryNames.has(state.expenseDraft.category)
+        ? state.expenseDraft.category
+        : fallbackCategory;
+      const recurringCategory = categoryNames.has(state.recurringDraft.category)
+        ? state.recurringDraft.category
+        : fallbackCategory;
+      const filter =
+        state.filter === "All" || categoryNames.has(state.filter)
+          ? state.filter
+          : "All";
       return {
         ...state,
         ...action.data,
         dataReady: true,
         view: state.dataReady ? state.view : action.data.preferences.defaultView,
+        filter,
+        expenseDraft: { ...state.expenseDraft, category: expenseCategory },
+        recurringDraft: { ...state.recurringDraft, category: recurringCategory },
         profile: {
           name: action.data.preferences.profileName,
           email: action.data.preferences.profileEmail,
@@ -66,6 +82,7 @@ export function reducer(state: AppState, action: Action): AppState {
         defaultView: action.data.preferences.defaultView,
         notifications: action.data.preferences.notifications,
       };
+    }
     case "SET_VIEW":
       return { ...state, view: action.view };
 
@@ -337,6 +354,31 @@ export function reducer(state: AppState, action: Action): AppState {
       );
 
     // ----- Recurring draft -----
+    case "OPEN_EDIT_RECURRING": {
+      const item = state.recurring.find((r) => r.id === action.id);
+      if (!item?.anchorDate) return state;
+      const frequency: Frequency =
+        item.frequency === "yearly" ? "Yearly" : "Monthly";
+      const dueDate = localDateKey(
+        nextOccurrence({
+          anchorDate: item.anchorDate,
+          frequency: item.frequency ?? "monthly",
+        }),
+      );
+      return {
+        ...state,
+        overlay: "recurring",
+        recurringDraft: {
+          id: item.id,
+          name: item.name,
+          amount: String(Math.round(item.amount)),
+          anchorDate: dueDate,
+          frequency,
+          category: item.category,
+        },
+      };
+    }
+
     case "SET_RECURRING_NAME":
       return {
         ...state,
@@ -352,7 +394,14 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
 
-    case "SET_RECURRING_ANCHOR_DATE":
+    case "SET_RECURRING_ANCHOR_DATE": {
+      if (
+        state.recurringDraft.id &&
+        action.anchorDate &&
+        action.anchorDate < localDateKey(new Date())
+      ) {
+        return state;
+      }
       return {
         ...state,
         recurringDraft: {
@@ -360,6 +409,7 @@ export function reducer(state: AppState, action: Action): AppState {
           anchorDate: action.anchorDate,
         },
       };
+    }
 
     case "SET_RECURRING_FREQUENCY":
       return {
@@ -421,6 +471,20 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     // ----- Category draft -----
+    case "OPEN_EDIT_CATEGORY": {
+      const category = state.categories.find((c) => c.id === action.id);
+      if (!category) return state;
+      const limit =
+        category.monthlyBudgetMinor == null
+          ? ""
+          : String(category.monthlyBudgetMinor / 100);
+      return {
+        ...state,
+        overlay: "category",
+        categoryDraft: { id: category.id, name: category.name, limit },
+      };
+    }
+
     case "SET_CATEGORY_NAME":
       return {
         ...state,
@@ -435,28 +499,6 @@ export function reducer(state: AppState, action: Action): AppState {
           limit: action.limit.replace(/[^0-9]/g, ""),
         },
       };
-
-    case "SAVE_CATEGORY": {
-      const name = state.categoryDraft.name.trim();
-      const existing = Object.keys(state.limits).some(
-        (c) => c.toLowerCase() === name.toLowerCase(),
-      );
-      if (name.length === 0 || existing) return state;
-
-      const limit =
-        parseInt(state.categoryDraft.limit.replace(/[^0-9]/g, ""), 10) || 0;
-
-      return withToast(
-        {
-          ...state,
-          limits: { ...state.limits, [name]: limit || null },
-          overlay: null,
-          view: "budgets",
-          categoryDraft: EMPTY_CATEGORY_DRAFT,
-        },
-        `${name} category added`,
-      );
-    }
 
     // ----- Account -----
     case "SET_PROFILE_NAME":

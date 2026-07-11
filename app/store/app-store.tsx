@@ -27,7 +27,7 @@ import {
   saveEntity,
   setLastPaymentMethod,
 } from "@/data/repository";
-import { formatTransactionDay, formatTransactionTime, nextOccurrence, recurringDueLabel } from "@/lib/dates";
+import { formatTransactionDay, formatTransactionTime, localDateKey, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel } from "@/lib/dates";
 import {
   paymentMethodLabel,
   type CategoryName,
@@ -59,6 +59,7 @@ export interface AppActions {
   openOverlay: (overlay: Exclude<OverlayKey, null>) => void; closeOverlay: () => void;
   openDetail: (id: ID) => void; closeDetail: () => void; deleteDetail: () => void;
   toggleRecurring: (id: ID) => void;
+  openEditRecurring: (id: ID) => void;
   setExpenseAmount: (amount: string) => void; pressAmountKey: (key: string) => void;
   setExpenseName: (name: string) => void; setExpenseCategory: (category: CategoryName) => void;
   setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void; saveExpense: () => void;
@@ -71,8 +72,11 @@ export interface AppActions {
   setRecurringAnchorDate: (date: string) => void; setRecurringDay: (day: string) => void;
   setRecurringFrequency: (frequency: Frequency) => void;
   setRecurringCategory: (category: CategoryName) => void; saveRecurring: () => void;
+  deleteRecurring: () => void;
   setCategoryName: (name: string) => void; setCategoryLimit: (limit: string) => void;
-  saveCategory: () => void; setProfileName: (name: string) => void;
+  openEditCategory: (id: ID) => void;
+  saveCategory: () => void; deleteCategory: () => void;
+  setProfileName: (name: string) => void;
   setProfileEmail: (email: string) => void; saveProfile: () => void;
   setCurrency: (currency: Currency) => void; setWeekStart: (weekStart: WeekStart) => void;
   setDefaultView: (view: string) => void;
@@ -125,8 +129,12 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     toggleRecurring: (id) => {
       const row = getState().recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;
       const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: row.paymentMethodId ?? null, frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused };
-      persist(saveEntity("recurring", entity), () => dispatch({ type: "SHOW_TOAST", message: entity.paused ? `${entity.name} paused` : `${entity.name} resumed` }));
+      persist(saveEntity("recurring", entity), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({ type: "SHOW_TOAST", message: entity.paused ? `${entity.name} paused` : `${entity.name} resumed` });
+      });
     },
+    openEditRecurring: (id) => dispatch({ type: "OPEN_EDIT_RECURRING", id }),
     setExpenseAmount: (amount) => dispatch({ type: "SET_EXPENSE_AMOUNT", amount }), pressAmountKey: (key) => dispatch({ type: "PRESS_AMOUNT_KEY", key }),
     setExpenseName: (name) => dispatch({ type: "SET_EXPENSE_NAME", name }), setExpenseCategory: (category) => dispatch({ type: "SET_EXPENSE_CATEGORY", category }),
     setExpensePaymentMethod: (paymentMethod) => dispatch({ type: "SET_EXPENSE_PAYMENT_METHOD", paymentMethod }),
@@ -164,16 +172,143 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),
     setRecurringFrequency: (frequency) => dispatch({ type: "SET_RECURRING_FREQUENCY", frequency }), setRecurringCategory: (category) => dispatch({ type: "SET_RECURRING_CATEGORY", category }),
     saveRecurring: () => {
-      const state = getState(); const draft = state.recurringDraft; const category = state.categories.find((c) => c.name === draft.category); const amount = Number(draft.amount);
+      const state = getState();
+      const draft = state.recurringDraft;
+      const category = state.categories.find((c) => c.name === draft.category);
+      const amount = Number(draft.amount);
       if (!category || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.anchorDate)) return;
-      const entity: RecurringEntity = { id: crypto.randomUUID(), name: draft.name.trim(), amountMinor: Math.round(amount * 100), categoryId: category.id, paymentMethodId: null, frequency: draft.frequency.toLowerCase() as "monthly" | "yearly", anchorDate: draft.anchorDate, paused: false };
-      persist(saveEntity("recurring", entity), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SHOW_TOAST", message: `${entity.name} added` }); });
+
+      if (draft.id) {
+        const current = state.recurring.find((item) => item.id === draft.id);
+        if (!current?.categoryId) return;
+        if (draft.anchorDate < localDateKey(new Date())) return;
+        const entity: RecurringEntity = {
+          id: draft.id,
+          name: draft.name.trim(),
+          amountMinor: Math.round(amount * 100),
+          categoryId: category.id,
+          paymentMethodId: current.paymentMethodId ?? null,
+          frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
+          anchorDate: draft.anchorDate,
+          paused: current.paused,
+        };
+        persist(saveEntity("recurring", entity), () => {
+          dispatch({ type: "CLOSE_OVERLAY" });
+          dispatch({ type: "SHOW_TOAST", message: `${entity.name} updated` });
+        });
+        return;
+      }
+
+      const entity: RecurringEntity = {
+        id: crypto.randomUUID(),
+        name: draft.name.trim(),
+        amountMinor: Math.round(amount * 100),
+        categoryId: category.id,
+        paymentMethodId: null,
+        frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
+        anchorDate: draft.anchorDate,
+        paused: false,
+      };
+      const backfill = occurrencesThrough({
+        anchorDate: entity.anchorDate,
+        frequency: entity.frequency,
+      }).map((date) => {
+        const tx: TransactionEntity = {
+          id: crypto.randomUUID(),
+          name: entity.name,
+          amountMinor: entity.amountMinor,
+          occurredAt: occurrenceTimestamp(date),
+          categoryId: entity.categoryId,
+          paymentMethodId: null,
+        };
+        return saveEntity("transaction", tx);
+      });
+      persist(Promise.all([saveEntity("recurring", entity), ...backfill]), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({
+          type: "SHOW_TOAST",
+          message:
+            backfill.length > 0
+              ? `${entity.name} added · ${backfill.length} transaction${backfill.length === 1 ? "" : "s"}`
+              : `${entity.name} added`,
+        });
+      });
+    },
+    deleteRecurring: () => {
+      const state = getState();
+      const id = state.recurringDraft.id;
+      if (!id) return;
+      const current = state.recurring.find((item) => item.id === id);
+      if (!current) return;
+      persist(removeEntity("recurring", id), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({ type: "SHOW_TOAST", message: `${current.name} deleted` });
+      });
     },
     setCategoryName: (name) => dispatch({ type: "SET_CATEGORY_NAME", name }), setCategoryLimit: (limit) => dispatch({ type: "SET_CATEGORY_LIMIT", limit }),
+    openEditCategory: (id) => dispatch({ type: "OPEN_EDIT_CATEGORY", id }),
     saveCategory: () => {
-      const state = getState(); const name = state.categoryDraft.name.trim(); if (!name || state.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) return;
-      const amount = Number(state.categoryDraft.limit); const entity: CategoryEntity = { id: crypto.randomUUID(), name, monthlyBudgetMinor: amount > 0 ? Math.round(amount * 100) : null, tint: "neutral", sortOrder: state.categories.length, system: false };
-      persist(saveEntity("category", entity), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "budgets" }); dispatch({ type: "SHOW_TOAST", message: `${name} category added` }); });
+      const state = getState();
+      const name = state.categoryDraft.name.trim();
+      if (!name) return;
+      const amount = Number(state.categoryDraft.limit);
+      const monthlyBudgetMinor = amount > 0 ? Math.round(amount * 100) : null;
+      const editingId = state.categoryDraft.id;
+
+      if (editingId) {
+        const current = state.categories.find((c) => c.id === editingId);
+        if (!current) return;
+        const duplicate = state.categories.some(
+          (c) => c.id !== editingId && c.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (duplicate) return;
+        const entity: CategoryEntity = {
+          ...current,
+          name,
+          monthlyBudgetMinor,
+        };
+        persist(saveEntity("category", entity), () => {
+          dispatch({ type: "CLOSE_OVERLAY" });
+          dispatch({ type: "SHOW_TOAST", message: `${name} updated` });
+        });
+        return;
+      }
+
+      if (state.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) return;
+      const entity: CategoryEntity = {
+        id: crypto.randomUUID(),
+        name,
+        monthlyBudgetMinor,
+        tint: "neutral",
+        sortOrder: state.categories.length,
+        system: false,
+      };
+      persist(saveEntity("category", entity), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({ type: "SET_VIEW", view: "budgets" });
+        dispatch({ type: "SHOW_TOAST", message: `${name} category added` });
+      });
+    },
+    deleteCategory: () => {
+      const state = getState();
+      const id = state.categoryDraft.id;
+      if (!id) return;
+      const category = state.categories.find((c) => c.id === id);
+      if (!category) return;
+
+      const tasks: Promise<unknown>[] = [
+        removeEntity("category", id),
+        ...state.transactions
+          .filter((t) => t.categoryId === id)
+          .map((t) => removeEntity("transaction", t.id)),
+        ...state.recurring
+          .filter((r) => r.categoryId === id)
+          .map((r) => removeEntity("recurring", r.id)),
+      ];
+      persist(Promise.all(tasks), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({ type: "SHOW_TOAST", message: `${category.name} deleted` });
+      });
     },
     setProfileName: (name) => dispatch({ type: "SET_PROFILE_NAME", name }), setProfileEmail: (email) => dispatch({ type: "SET_PROFILE_EMAIL", email }),
     saveProfile: () => persist(saveEntity("preferences", preferencesFrom(getState())), () => dispatch({ type: "SHOW_TOAST", message: "Profile saved" })),

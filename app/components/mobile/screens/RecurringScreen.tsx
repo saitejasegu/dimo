@@ -39,15 +39,13 @@ export function RecurringScreen() {
         <div className="text-xs text-side-sub">{subtitle}</div>
       </HeroCard>
 
-      <p className="mb-3 text-xs text-muted">Tap a bill to pause or resume it.</p>
-
       <div className="flex flex-col gap-2">
         {all.map((rec) => (
           <RecurringRow
             key={rec.id}
             recurring={rec}
             currency={currency}
-            onToggle={() => actions.toggleRecurring(rec.id)}
+            onClick={() => actions.openEditRecurring(rec.id)}
           />
         ))}
       </div>

@@ -8,6 +8,7 @@ interface TextFieldProps {
   label?: ReactNode;
   inputMode?: "text" | "numeric" | "decimal";
   type?: "text" | "date" | "email";
+  min?: string;
   autoFocus?: boolean;
   className?: string;
 }
@@ -20,6 +21,7 @@ export function TextField({
   label,
   inputMode = "text",
   type = "text",
+  min,
   autoFocus,
   className,
 }: TextFieldProps) {
@@ -34,8 +36,9 @@ export function TextField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         inputMode={inputMode}
+        min={min}
         autoFocus={autoFocus}
-        className="w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-sm text-ink outline-none placeholder:text-faint"
+        className="w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint"
       />
     </label>
   );

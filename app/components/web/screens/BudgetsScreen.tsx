@@ -11,7 +11,7 @@ import { PlusIcon } from "@/components/ui/icons";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function BudgetsScreen() {
-  const { currency } = useAppState();
+  const { currency, categories } = useAppState();
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
 
@@ -58,30 +58,39 @@ export function BudgetsScreen() {
       </HeroCard>
 
       <div className="grid grid-cols-3 gap-4">
-        {budgets.map((b) => (
-          <Card key={b.category} className="p-5">
-            <div className="mb-3.5 flex items-center justify-between">
-              <span className="text-[15px] font-semibold text-ink">
-                {b.category}
-              </span>
-              <Badge
-                label={b.hasLimit ? `${b.pct}%` : "No budget"}
-                tone={!b.hasLimit ? "muted" : b.over ? "danger" : "green"}
+        {budgets.map((b) => {
+          const category = categories.find((c) => c.name === b.category);
+          return (
+            <Card
+              key={b.category}
+              className="p-5"
+              onClick={() => {
+                if (category) actions.openEditCategory(category.id);
+              }}
+            >
+              <div className="mb-3.5 flex items-center justify-between">
+                <span className="text-[15px] font-semibold text-ink">
+                  {b.category}
+                </span>
+                <Badge
+                  label={b.hasLimit ? `${b.pct}%` : "No budget"}
+                  tone={!b.hasLimit ? "muted" : b.over ? "danger" : "green"}
+                />
+              </div>
+              <ProgressBar
+                value={b.hasLimit ? b.pct : 0}
+                tone={b.over ? "danger" : "green"}
+                height={9}
+                className="mb-3"
               />
-            </div>
-            <ProgressBar
-              value={b.hasLimit ? b.pct : 0}
-              tone={b.over ? "danger" : "green"}
-              height={9}
-              className="mb-3"
-            />
-            <div className="text-[13px] text-muted">
-              {b.hasLimit
-                ? `${money(b.spent, currency)} of ${money(b.limit as number, currency)}`
-                : `${money(b.spent, currency)} spent`}
-            </div>
-          </Card>
-        ))}
+              <div className="text-[13px] text-muted">
+                {b.hasLimit
+                  ? `${money(b.spent, currency)} of ${money(b.limit as number, currency)}`
+                  : `${money(b.spent, currency)} spent`}
+              </div>
+            </Card>
+          );
+        })}
       </div>
     </WebScreen>
   );

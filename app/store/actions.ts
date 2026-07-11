@@ -48,6 +48,7 @@ export type Action =
   | { type: "SET_PAYMENT_METHOD_ARCHIVED"; id: ID; archived: boolean }
   | { type: "SAVE_TRANSACTION_EDITS"; id: ID; input: TransactionEditInput }
   // recurring draft
+  | { type: "OPEN_EDIT_RECURRING"; id: ID }
   | { type: "SET_RECURRING_NAME"; name: string }
   | { type: "SET_RECURRING_AMOUNT"; amount: string }
   | { type: "SET_RECURRING_ANCHOR_DATE"; anchorDate: string }
@@ -55,6 +56,7 @@ export type Action =
   | { type: "SET_RECURRING_CATEGORY"; category: CategoryName }
   | { type: "SAVE_RECURRING" }
   // category draft
+  | { type: "OPEN_EDIT_CATEGORY"; id: ID }
   | { type: "SET_CATEGORY_NAME"; name: string }
   | { type: "SET_CATEGORY_LIMIT"; limit: string }
   | { type: "SAVE_CATEGORY" }
