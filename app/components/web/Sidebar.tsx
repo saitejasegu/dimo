@@ -91,7 +91,9 @@ export function Sidebar() {
       <div className="flex-1" />
 
       <div className="mb-3 rounded-[14px] bg-side-card px-3.5 py-3">
-        <div className="mb-1.5 text-[11px] text-side-sub">Budget left in July</div>
+        <div className="mb-1.5 text-[11px] text-side-sub">
+          Budget left in {new Date().toLocaleDateString(undefined, { month: "long" })}
+        </div>
         <div className="font-display text-[19px] font-semibold text-green-bright">
           {money(totals.left, currency)}
         </div>

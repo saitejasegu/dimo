@@ -1,217 +1,70 @@
 import type { CategoryName, StatsRange, Transaction } from "@/lib/types";
 import { compactMoney, money, percent } from "@/lib/format";
-import {
-  CATEGORY_SHARES,
-  MERCHANT_EXTRAS,
-  MonthPoint,
-  PERIOD_NAME,
-  RANGE_DAYS,
-  RANGE_MONTHS,
-  SPENT_LABEL,
-  STATS_HISTORY,
-} from "@/features/stats/constants";
+import { RANGE_MONTHS } from "@/features/stats/constants";
+
+function monthStart(date: Date, offset = 0) {
+  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
+}
+
+function inRange(transactions: Transaction[], range: StatsRange, now = new Date()) {
+  const start = monthStart(now, -(RANGE_MONTHS[range] - 1)).getTime();
+  return transactions.filter((t) => (t.occurredAt ?? 0) >= start && (t.occurredAt ?? 0) <= now.getTime());
+}
 
 export interface StatsScope {
   rangeMonths: number;
   scopeTotal: number;
-  /** Portion of the scope total that predates the current month. */
   scopePast: number;
   spentLabel: string;
   averageLabel: string;
+  transactions: Transaction[];
 }
 
-/** History plus the live current month, used for the by-month chart. */
-export function buildTimeline(currentMonthSpent: number): MonthPoint[] {
-  return [...STATS_HISTORY, { label: "Jul", amount: currentMonthSpent, now: true }];
-}
-
-export function statsScope(
-  range: StatsRange,
-  currentMonthSpent: number,
-): StatsScope {
-  const timeline = buildTimeline(currentMonthSpent);
-  const rangeMonths = RANGE_MONTHS[range];
-  const scopeTotal = timeline
-    .slice(-rangeMonths)
-    .reduce((sum, m) => sum + m.amount, 0);
-
-  const average = money(Math.round(scopeTotal / RANGE_DAYS[range]));
-  const averageLabel =
-    `${average} avg per day` + (range === "M" ? " · Jul 1–8" : "");
-
+export function statsScope(range: StatsRange, transactions: Transaction[], now = new Date()): StatsScope {
+  const scoped = inRange(transactions, range, now);
+  const scopeTotal = scoped.reduce((sum, t) => sum + t.amount, 0);
+  const start = monthStart(now, -(RANGE_MONTHS[range] - 1));
+  const days = Math.max(1, Math.floor((now.getTime() - start.getTime()) / 86_400_000) + 1);
   return {
-    rangeMonths,
+    rangeMonths: RANGE_MONTHS[range],
     scopeTotal,
-    scopePast: scopeTotal - currentMonthSpent,
-    spentLabel: SPENT_LABEL[range],
-    averageLabel,
+    scopePast: 0,
+    spentLabel: range === "M" ? "Spent this month" : `Spent in the last ${RANGE_MONTHS[range]} months`,
+    averageLabel: `${money(scopeTotal / days)} avg per day`,
+    transactions: scoped,
   };
 }
 
-export interface MonthBar {
-  label: string;
-  amount: number;
-  /** Compact label shown above the bar (empty when hidden for density). */
-  display: string;
-  selected: boolean;
-  /** Height as a fraction (0–1) of the tallest bar in the range. */
-  heightRatio: number;
-  /** Whether the range is dense enough to shrink bars/labels. */
-  wide: boolean;
+export interface MonthBar { key: string; label: string; amount: number; display: string; selected: boolean; heightRatio: number; wide: boolean; }
+export interface MonthBars { visible: boolean; caption: string; bars: MonthBar[]; }
+
+export function monthBars(range: StatsRange, transactions: Transaction[], selectedMonth: string | null, now = new Date()): MonthBars {
+  if (range === "M") return { visible: false, caption: "", bars: [] };
+  const count = RANGE_MONTHS[range];
+  const months = Array.from({ length: count }, (_, index) => {
+    const date = monthStart(now, index - count + 1);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    const amount = transactions.filter((t) => { const d = new Date(t.occurredAt ?? 0); return `${d.getFullYear()}-${d.getMonth()}` === key; }).reduce((sum, t) => sum + t.amount, 0);
+    return { key, label: date.toLocaleDateString(undefined, { month: "short" }), amount };
+  });
+  const selectedKey = months.find((m) => m.key === selectedMonth)?.key ?? months.at(-1)!.key;
+  const selected = months.find((m) => m.key === selectedKey)!;
+  const max = Math.max(1, ...months.map((m) => m.amount)); const wide = count > 6;
+  return { visible: true, caption: `${selected.label}: ${money(selected.amount)}`, bars: months.map((m) => ({ key: m.key, label: m.label, amount: m.amount, display: !wide || m.key === selectedKey ? compactMoney(m.amount) : "", selected: m.key === selectedKey, heightRatio: m.amount / max, wide })) };
 }
 
-export interface MonthBars {
-  visible: boolean;
-  caption: string;
-  bars: MonthBar[];
+export interface StatCategory { category: CategoryName; amount: number; caption: string; relative: number; primary: boolean; }
+export function statCategories(scope: StatsScope): StatCategory[] {
+  const totals = new Map<string, number>();
+  for (const t of scope.transactions) totals.set(t.category, (totals.get(t.category) ?? 0) + t.amount);
+  const entries = [...totals].sort((a, b) => b[1] - a[1]); const max = entries[0]?.[1] ?? 1;
+  return entries.map(([category, amount], index) => ({ category, amount, caption: `${money(amount)} · ${percent(amount, scope.scopeTotal)}%`, relative: Math.max(4, Math.round(amount / max * 100)), primary: index === 0 }));
 }
 
-export function monthBars(
-  range: StatsRange,
-  currentMonthSpent: number,
-  selectedMonth: string | null,
-): MonthBars {
-  if (range === "M") {
-    return { visible: false, caption: "", bars: [] };
-  }
-
-  const timeline = buildTimeline(currentMonthSpent);
-  const rangeMonths = RANGE_MONTHS[range];
-  const months = timeline.slice(-rangeMonths);
-  const max = Math.max(...months.map((m) => m.amount), 1);
-  const wide = rangeMonths > 6;
-
-  const selectedLabel =
-    selectedMonth && months.some((m) => m.label === selectedMonth)
-      ? selectedMonth
-      : "Jul";
-  const selected = months.find((m) => m.label === selectedLabel)!;
-
-  return {
-    visible: true,
-    caption: `${selected.label}: ${money(selected.amount)}`,
-    bars: months.map((m) => {
-      const on = m.label === selectedLabel;
-      return {
-        label: m.label,
-        amount: m.amount,
-        display: on || !wide ? compactMoney(m.amount) : "",
-        selected: on,
-        heightRatio: m.amount / max,
-        wide,
-      };
-    }),
-  };
-}
-
-export interface StatCategory {
-  category: CategoryName;
-  amount: number;
-  caption: string;
-  /** Bar width relative to the largest category (percent). */
-  relative: number;
-  primary: boolean;
-}
-
-export function statCategories(
-  transactions: Transaction[],
-  range: StatsRange,
-  scope: StatsScope,
-): StatCategory[] {
-  const byCategory = new Map<CategoryName, number>();
-  for (const t of transactions) {
-    byCategory.set(t.category, (byCategory.get(t.category) ?? 0) + t.amount);
-  }
-
-  if (range !== "M") {
-    for (const category of Object.keys(CATEGORY_SHARES)) {
-      const base = byCategory.get(category) ?? 0;
-      byCategory.set(
-        category,
-        Math.round(base + CATEGORY_SHARES[category] * scope.scopePast),
-      );
-    }
-  }
-
-  const entries = [...byCategory.entries()].sort((a, b) => b[1] - a[1]);
-  const max = entries.length ? entries[0][1] : 1;
-
-  return entries.map(([category, amount], index) => ({
-    category,
-    amount,
-    caption: `${money(amount)} · ${percent(amount, scope.scopeTotal)}%`,
-    relative: Math.max(4, Math.round((amount / max) * 100)),
-    primary: index === 0,
-  }));
-}
-
-export interface MerchantStat {
-  name: string;
-  count: number;
-  amount: number;
-  green: boolean;
-  sub: string;
-  /** Bar width relative to the top merchant (percent). */
-  relative: number;
-}
-
-interface MerchantTotals {
-  amount: number;
-  count: number;
-  green: boolean;
-}
-
-export function topMerchants(
-  transactions: Transaction[],
-  range: StatsRange,
-  scope: StatsScope,
-  limit: number,
-): { merchants: MerchantStat[]; total: number } {
-  const byMerchant = new Map<string, MerchantTotals>();
-
-  for (const t of transactions) {
-    const existing = byMerchant.get(t.name);
-    if (existing) {
-      existing.amount += t.amount;
-      existing.count += 1;
-    } else {
-      byMerchant.set(t.name, {
-        amount: t.amount,
-        count: 1,
-        green: !!t.green,
-      });
-    }
-  }
-
-  const extras = MERCHANT_EXTRAS[range];
-  for (const [name, [amount, count]] of Object.entries(extras)) {
-    if (!amount) continue;
-    const existing = byMerchant.get(name);
-    if (existing) {
-      existing.amount += amount;
-      existing.count += count;
-    } else {
-      byMerchant.set(name, { amount, count, green: false });
-    }
-  }
-
-  const sorted = [...byMerchant.entries()].sort(
-    (a, b) => b[1].amount - a[1].amount,
-  );
-  const maxAmount = sorted.length ? sorted[0][1].amount : 1;
-  const periodName = PERIOD_NAME[range];
-  const take = limit >= sorted.length ? sorted.length : limit;
-
-  const merchants = sorted.slice(0, take).map(([name, totals]) => ({
-    name,
-    count: totals.count,
-    amount: totals.amount,
-    green: totals.green,
-    sub:
-      `${totals.count} ${totals.count === 1 ? "transaction" : "transactions"}` +
-      ` · ${percent(totals.amount, scope.scopeTotal)}% of ${periodName}`,
-    relative: Math.max(6, Math.round((totals.amount / maxAmount) * 100)),
-  }));
-
-  return { merchants, total: sorted.length };
+export interface MerchantStat { name: string; count: number; amount: number; green: boolean; sub: string; relative: number; }
+export function topMerchants(scope: StatsScope, limit: number): { merchants: MerchantStat[]; total: number } {
+  const totals = new Map<string, { amount: number; count: number; green: boolean }>();
+  for (const t of scope.transactions) { const current = totals.get(t.name) ?? { amount: 0, count: 0, green: false }; current.amount += t.amount; current.count += 1; current.green ||= Boolean(t.green); totals.set(t.name, current); }
+  const sorted = [...totals].sort((a, b) => b[1].amount - a[1].amount); const max = sorted[0]?.[1].amount ?? 1;
+  return { total: sorted.length, merchants: sorted.slice(0, Number.isFinite(limit) ? limit : undefined).map(([name, value]) => ({ name, ...value, sub: `${value.count} ${value.count === 1 ? "transaction" : "transactions"} · ${percent(value.amount, scope.scopeTotal)}%`, relative: Math.max(6, Math.round(value.amount / max * 100)) })) };
 }

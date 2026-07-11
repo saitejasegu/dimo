@@ -36,7 +36,9 @@ export function HomeScreen() {
       </div>
 
       <HeroCard className="mb-3.5 p-[22px]">
-        <div className="mb-2 text-[13px] text-side-muted">Spent in July</div>
+        <div className="mb-2 text-[13px] text-side-muted">
+          Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
+        </div>
         <div className="mb-2 font-display text-[34px] font-semibold">
           {money(totals.totalSpent, currency)}
         </div>
@@ -58,21 +60,25 @@ export function HomeScreen() {
         </Card>
       </div>
 
-      <SectionHeader
-        title="Upcoming this month"
-        actionLabel="See all"
-        onAction={() => actions.setView("recurring")}
-      />
-      <div className="mb-[22px] flex flex-col gap-2">
-        {upcoming.slice(0, 3).map((rec) => (
-          <UpcomingRow
-            key={rec.id}
-            recurring={rec}
-            currency={currency}
-            onClick={() => actions.setView("recurring")}
+      {upcoming.length > 0 && (
+        <>
+          <SectionHeader
+            title="Upcoming this month"
+            actionLabel="See all"
+            onAction={() => actions.setView("recurring")}
           />
-        ))}
-      </div>
+          <div className="mb-[22px] flex flex-col gap-2">
+            {upcoming.slice(0, 3).map((rec) => (
+              <UpcomingRow
+                key={rec.id}
+                recurring={rec}
+                currency={currency}
+                onClick={() => actions.setView("recurring")}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       <SectionHeader
         title="Recent"

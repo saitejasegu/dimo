@@ -23,7 +23,9 @@ function spentByCategory(
   transactions: Transaction[],
   category: CategoryName,
 ): number {
+  const now = new Date();
   return transactions
+    .filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); })
     .filter((t) => t.category === category)
     .reduce((sum, t) => sum + t.amount, 0);
 }
@@ -52,7 +54,9 @@ export function budgetTotals(
   transactions: Transaction[],
   limits: CategoryLimits,
 ): BudgetTotals {
-  const totalSpent = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const now = new Date();
+  const current = transactions.filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); });
+  const totalSpent = current.reduce((sum, t) => sum + t.amount, 0);
   const totalLimit = Object.values(limits).reduce<number>(
     (sum, limit) => sum + (limit ?? 0),
     0,
@@ -80,6 +84,8 @@ export function topCategories(
   transactions: Transaction[],
   limit: number,
 ): TopCategory[] {
+  const now = new Date();
+  transactions = transactions.filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); });
   const byCategory = new Map<CategoryName, number>();
   let total = 0;
 

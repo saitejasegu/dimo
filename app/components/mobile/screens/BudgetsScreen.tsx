@@ -46,7 +46,7 @@ export function BudgetsScreen() {
           className="mb-2"
         />
         <div className="text-xs text-side-sub">
-          {money(totals.left, currency)} left · 23 days to go in July
+          {money(totals.left, currency)} left · {new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate()} days to go
         </div>
       </HeroCard>
 

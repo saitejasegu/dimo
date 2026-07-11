@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { useAppState } from "@/store/app-store";
-import { totalSpent } from "@/features/transactions/selectors";
 import {
   monthBars,
   statCategories,
@@ -13,11 +12,8 @@ export function useStats() {
     useAppState();
 
   return useMemo(() => {
-    const currentMonthSpent = totalSpent(transactions);
-    const scope = statsScope(statsRange, currentMonthSpent);
+    const scope = statsScope(statsRange, transactions);
     const { merchants, total } = topMerchants(
-      transactions,
-      statsRange,
       scope,
       merchantsExpanded ? Number.POSITIVE_INFINITY : 3,
     );
@@ -25,8 +21,8 @@ export function useStats() {
     return {
       range: statsRange,
       scope,
-      bars: monthBars(statsRange, currentMonthSpent, selectedMonth),
-      categories: statCategories(transactions, statsRange, scope),
+      bars: monthBars(statsRange, transactions, selectedMonth),
+      categories: statCategories(scope),
       merchants,
       merchantCount: total,
       merchantsExpanded,

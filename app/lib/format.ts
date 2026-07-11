@@ -12,7 +12,11 @@ const CURRENCY_SYMBOL: Record<Currency, string> = {
  */
 export function money(amount: number, currency: Currency = "INR"): string {
   const symbol = CURRENCY_SYMBOL[currency] ?? "₹";
-  return symbol + Math.round(amount).toLocaleString("en-IN");
+  const hasFraction = Math.abs(amount % 1) > 0.0001;
+  return symbol + amount.toLocaleString("en-IN", {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 /** Money prefixed with a minus sign, used for outgoing transaction amounts. */
@@ -32,7 +36,7 @@ export function compactMoney(amount: number, currency: Currency = "INR"): string
   if (amount >= 1000) {
     return symbol + (amount / 1000).toFixed(1).replace(/\.0$/, "") + "k";
   }
-  return symbol + String(amount);
+  return symbol + Number(amount.toFixed(2)).toString();
 }
 
 export function currencySymbol(currency: Currency = "INR"): string {

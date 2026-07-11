@@ -1,135 +1,88 @@
 # Dimo — Expenses
 
-A client-side personal spending tracker built with **Next.js 16**, **React 19**,
-and **Tailwind CSS 4**. It renders two distinct, pixel-faithful experiences from
-a single shared state layer:
+Dimo is a local-first personal spending tracker built with Next.js 16 and React 19. The same application ships as a browser app, an Electron desktop app, and a Capacitor iOS app.
 
-- a **mobile** app (phone frame, bottom tab bar, bottom sheets) — Capacitor iOS
-- a **web** app (window chrome, sidebar navigation, centered modals) — browser + Electron
+## Data architecture
 
-The UI is data-driven from in-memory seed data. There is no backend yet — the
-architecture is intentionally structured so a real backend can be dropped in by
-replacing the data/selector layers without touching components.
+IndexedDB is the application database on every platform. Dexie provides typed tables and reactive queries. Transactions, recurring expenses, categories, payment methods, and preferences are read locally, so the app starts quickly and remains fully usable offline.
+
+Every local entity write and its outbox operation commit in one IndexedDB transaction. When a Convex deployment is configured, the sync coordinator:
+
+1. Pulls cloud changes after its durable revision cursor.
+2. Merges them using hybrid logical versions.
+3. Pushes pending operations in idempotent batches.
+4. Pulls once more to confirm canonical cloud state.
+
+Synchronization runs while the app is open after local writes, reconnects, window focus, visibility changes, and Convex revision notifications. Account contains detailed status and a manual **Sync now** action.
+
+> **Security warning:** authentication and authorization are deliberately not implemented yet. Every client configured with the deployment URL reads and writes the single `global` workspace. Do not expose this deployment to untrusted users or use it for sensitive production data.
+
+The empty D1/Drizzle files in this starter are not connected to application data and must not be used for dual writes.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
+- A Convex account for cloud synchronization
 
-## Quick Start
+## Local development
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
+npm run dev
 ```
+
+Without a Convex URL, Dimo runs in **Local only** mode and all features except cloud replication work normally.
+
+To link a new Convex development project:
+
+```bash
+npm run convex:dev
+```
+
+The interactive command creates/selects the project, generates deployment-specific bindings, and writes the ignored `.env.local` containing `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`. Keep it running beside `npm run dev` while changing backend functions.
+
+For a production deployment:
+
+```bash
+npm run convex:deploy
+NEXT_PUBLIC_CONVEX_URL=https://YOUR_DEPLOYMENT.convex.cloud npm run build
+```
+
+`NEXT_PUBLIC_CONVEX_URL` is embedded at build time. Set it before browser hosting, Electron packaging, or Capacitor synchronization.
 
 ## Scripts
 
-- `npm run dev` — start the dev server (Turbopack).
-- `npm run build` — static production export to `out/` (also what `npm test` runs).
-- `npm run start` — serve the `out/` folder locally.
-- `npm run lint` — ESLint (the reference `design/` mockups are ignored).
-- `npm run ios` — build, sync Capacitor, open the Xcode iOS project.
-- `npm run cap:sync` — build + sync web assets into `ios/` without opening Xcode.
-- `npm run electron:dev` — Next.js + Electron together (desktop shell against the dev server).
-- `npm run electron:preview` — build the static export, then open it in Electron.
-- `npm run electron:pack` — build an unpackaged app under `release/` (for smoke-testing).
-- `npm run electron:dist` — build installers (macOS `.dmg`, Windows NSIS, Linux AppImage).
+- `npm run dev` — Next.js development server.
+- `npm run build` — static production export to `out/`.
+- `npm test` — unit/Convex protocol tests followed by the production build.
+- `npm run test:unit` — Vitest suite only.
+- `npm run test:watch` — Vitest watch mode.
+- `npm run lint` — ESLint.
+- `npm run convex:dev` — link/run the Convex development deployment and regenerate bindings.
+- `npm run convex:deploy` — deploy the Convex schema and functions.
+- `npm run ios` — build, sync, and open the Capacitor iOS project.
+- `npm run electron:dev` — run Next.js and Electron together.
+- `npm run electron:preview` — open the static export in Electron.
+- `npm run electron:dist` — package desktop installers.
 
-## Desktop (Electron)
+## Fresh-install behavior
 
-Electron hosts the **web** UI in a desktop window (`electron/`, app ID `app.dimo.expenses`).
+A fresh local database contains standard Dining, Groceries, Bills, Transit, and Shopping categories, Cash as the default payment method, and default preferences. It contains no sample transactions or recurring expenses.
 
-```bash
-npm run electron:dev      # develop against localhost:3000
-npm run electron:preview # production static export in Electron
-npm run electron:dist    # package installers into release/
-```
+For development, clear the `dimo-expenses` IndexedDB database in browser developer tools to simulate a fresh installation. Reloading normally preserves all local records and pending sync work.
 
-## iOS / App Store
+## Sync troubleshooting
 
-The mobile UI ships inside a Capacitor iOS shell (`ios/`, bundle ID `app.dimo.expenses`).
+- **Local only:** `NEXT_PUBLIC_CONVEX_URL` was not present at build time.
+- **Offline:** local writes continue and will upload after connectivity returns.
+- **Pending:** operations are safely stored in IndexedDB but not yet acknowledged.
+- **Error:** open Account for the transport error and retry with **Sync now**.
+- If the schema or generated bindings changed, run `npm run convex:dev` again.
 
-1. Install full **Xcode** (not only Command Line Tools) and join the Apple Developer Program.
-2. Run `npm run ios`, set your signing team, then Run / Archive.
-3. Follow `store/SUBMIT.md` for TestFlight, listing copy, screenshots, and review submission.
-4. Host the static `out/` site so App Store Connect can use `https://YOUR_DOMAIN/privacy`.
+Tombstones are intentionally retained indefinitely so a device that has been offline for a long time cannot resurrect deleted data.
 
-Store listing draft: `store/listing.json`. App icon: `store/AppIcon-1024.png`.
+## Platform notes
 
-## Architecture
+Electron and Capacitor both bundle the static `out/` export. Background sync means asynchronous synchronization while the app process is open; suspended iOS background execution is not included.
 
-All application code lives under `app/`. The import alias `@/*` maps to
-`./app/*` (see `tsconfig.json`), so modules import each other as `@/lib/...`,
-`@/features/...`, `@/store/...`, `@/components/...`.
-
-```
-app/
-  layout.tsx            # root layout + fonts (Space Grotesk, IBM Plex Sans)
-  globals.css           # Tailwind theme tokens (colors, fonts, animations)
-  page.tsx              # responsive entry: picks MobileApp vs WebApp
-
-  lib/                  # framework-agnostic primitives
-    types.ts            # domain types (Transaction, Recurring, ...)
-    format.ts           # money / percent / compact formatting
-    cn.ts               # className helper
-
-  data/
-    seed.ts             # initial mock data — the backend swap-in point
-
-  features/             # domain logic, grouped by feature
-    transactions/       # selectors (filter/search/group) + hook
-    recurring/          # selectors (active total, upcoming) + hook
-    budgets/            # selectors (per-category, totals, top) + hook
-    stats/              # constants + selectors (scope, bars, merchants) + hook
-    overview/           # composed hook for the home/overview screen
-    account/            # settings option definitions
-
-  store/                # single reducer-based store (UI + data state)
-    state.ts            # AppState shape + initial state
-    actions.ts          # typed action union
-    reducer.ts          # pure reducer (all mutations + save/validation logic)
-    app-store.tsx       # provider, bound action creators, toast lifecycle
-
-  hooks/
-    useIsMobile.ts      # viewport breakpoint (900px) with hydration guard
-
-  components/
-    ui/                 # reusable primitives (Button, Card, Chip, Sheet, Modal, ...)
-    common/             # shared composites (TransactionRow, CategoryBar, MonthBars, ...)
-    forms/              # shared form bodies reused by mobile sheets + web modals
-    mobile/             # phone frame, tab bar, FAB, screens, bottom sheets
-    web/                # window chrome, sidebar, screens, modals
-```
-
-### Data flow
-
-1. **`data/seed.ts`** provides the initial state.
-2. **`store/`** holds all state and exposes typed actions via
-   `useAppState()` / `useAppActions()`.
-3. **`features/*/selectors.ts`** are pure functions that derive view data from
-   state; **`features/*/hooks.ts`** are thin, memoized adapters over the store.
-4. **`components/`** are presentational and consume hooks + actions only.
-
-### Mobile vs web
-
-`page.tsx` wraps the tree in `AppStoreProvider` and swaps between `MobileApp`
-and `WebApp` based on `useIsMobile()` (900px breakpoint). Both platforms read
-the same store and reuse `components/ui`, `components/common`, and
-`components/forms`; only the layout compositions differ (bottom sheets on
-mobile, modals on web).
-
-## Design reference
-
-The `design/` folder contains the original static HTML mockups
-(`mobile.dc.html`, `web.dc.html`) the UI is built to match. These are reference
-artifacts only and are excluded from lint and the build.
-
-## Adding a backend
-
-Because components depend only on domain types and store hooks, integrating a
-backend is localized:
-
-1. Replace the constants in `app/data/seed.ts` with data fetched from your API.
-2. Feed that data into the store (or replace the reducer's data slices with
-   server state) — the domain types in `app/lib/types.ts` are the contract.
-3. Selectors, hooks, and components remain unchanged.
+The Convex folder contains strict payload validators, revision-indexed pull queries, and an idempotent last-write-wins push mutation. A future authentication phase can replace the constant workspace with an authenticated workspace ID without changing the local outbox or revision protocol.

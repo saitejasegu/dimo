@@ -14,7 +14,7 @@ export function useRecurring() {
       all: recurring,
       active,
       total: monthlyRecurringTotal(recurring),
-      subtitle: `${active.length} active · next due in 2 days`,
+      subtitle: active.length ? `${active.length} active · ${active[0].due.toLowerCase()}` : "No active recurring expenses",
     };
   }, [recurring]);
 }

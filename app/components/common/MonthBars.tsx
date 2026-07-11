@@ -59,8 +59,8 @@ export function MonthBars({
         return (
           <button
             type="button"
-            key={bar.label}
-            onClick={() => onSelect(bar.label)}
+            key={bar.key}
+            onClick={() => onSelect(bar.key)}
             className={cn(
               "flex h-full flex-1 flex-col items-center justify-end",
               cfg.gap,
