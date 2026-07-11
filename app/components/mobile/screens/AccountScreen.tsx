@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { useAppActions, useAppState } from "@/store/app-store";
+import { useAccountSwipeBack } from "@/hooks/useAccountSwipeBack";
 import { Card } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
 import { TextField } from "@/components/ui/TextField";
@@ -11,9 +13,14 @@ import { AccountSessionActions } from "@/components/common/AccountSessionActions
 export function AccountScreen() {
   const { profile } = useAppState();
   const actions = useAppActions();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useAccountSwipeBack(panelRef, actions.closeAccount);
 
   return (
-    <div className="absolute inset-0 z-[18] flex animate-screen-in flex-col overflow-hidden bg-canvas">
+    <div
+      ref={panelRef}
+      className="absolute inset-0 z-[18] flex animate-account-in flex-col overflow-hidden bg-canvas shadow-[-12px_0_32px_rgba(0,0,0,0.12)]"
+    >
       <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.75rem,calc(env(safe-area-inset-top)+0.75rem))]">
         <div className="flex items-center gap-3.5">
           <button

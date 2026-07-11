@@ -3,29 +3,22 @@
 import { useEffect } from "react";
 
 const EDGE_WIDTH = 28;
-const BACK_THRESHOLD = 72;
 
 /**
- * Prevent browser back/forward edge swipes. On the Account screen, a deliberate
- * swipe from the left edge is translated into the app's own back action.
+ * Prevent browser back/forward edge swipes so in-app navigation stays in control.
+ * Account dismiss is handled separately by useAccountSwipeBack.
  */
-export function useBrowserSwipeGuard({
-  accountBackEnabled,
-  onAccountBack,
-}: {
-  accountBackEnabled: boolean;
-  onAccountBack: () => void;
-}) {
+export function useBrowserSwipeGuard({ enabled = true }: { enabled?: boolean } = {}) {
   useEffect(() => {
+    if (!enabled) return;
+
     let startX: number | null = null;
     let startY = 0;
     let edge: "left" | "right" | null = null;
-    let handled = false;
 
     const reset = () => {
       startX = null;
       edge = null;
-      handled = false;
     };
 
     const onTouchStart = (event: TouchEvent) => {
@@ -42,7 +35,6 @@ export function useBrowserSwipeGuard({
 
       startX = edge ? touch.clientX : null;
       startY = touch.clientY;
-      handled = false;
     };
 
     const onTouchMove = (event: TouchEvent) => {
@@ -58,16 +50,6 @@ export function useBrowserSwipeGuard({
 
       // Cancel the browser's own back/forward navigation gesture.
       event.preventDefault();
-
-      if (
-        !handled &&
-        accountBackEnabled &&
-        edge === "left" &&
-        deltaX >= BACK_THRESHOLD
-      ) {
-        handled = true;
-        onAccountBack();
-      }
     };
 
     document.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -81,5 +63,5 @@ export function useBrowserSwipeGuard({
       document.removeEventListener("touchend", reset);
       document.removeEventListener("touchcancel", reset);
     };
-  }, [accountBackEnabled, onAccountBack]);
+  }, [enabled]);
 }

@@ -20,9 +20,9 @@ const TABS: TabDef[] = [
 ];
 
 export function TabBar() {
-  const { view, navGlassOpacity } = useAppState();
+  const { view, accountReturnView, navGlassOpacity } = useAppState();
   const { setView } = useAppActions();
-
+  const activeView = view === "account" ? (accountReturnView ?? view) : view;
   return (
     <nav
       aria-label="Primary navigation"
@@ -35,7 +35,7 @@ export function TabBar() {
       />
       <div className="liquid-glass pointer-events-auto relative mx-auto grid max-w-md grid-cols-5 items-center gap-0.5 rounded-full px-1.5 py-1.5">
         {TABS.map((tab) => {
-          const active = view === tab.key;
+          const active = activeView === tab.key;
           return (
             <button
               type="button"

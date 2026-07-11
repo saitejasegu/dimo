@@ -55,6 +55,8 @@ export interface AppState {
   dataReady: boolean;
   /** Active top-level view. */
   view: ViewKey;
+  /** Screen to restore when leaving Account (keeps underlay mounted on mobile). */
+  accountReturnView: Exclude<ViewKey, "account" | "tx"> | null;
 
   // ----- Data (backend-owned in the future) -----
   transactions: Transaction[];
@@ -137,6 +139,7 @@ export function createInitialState(
   return {
     dataReady: false,
     view: "home",
+    accountReturnView: null,
     transactions: [],
     recurring: [],
     categories: DEFAULT_CATEGORY_ENTITIES,

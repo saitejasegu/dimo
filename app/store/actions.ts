@@ -19,6 +19,8 @@ export type Action =
   | { type: "HYDRATE_DATA"; data: HydratedData }
   // navigation
   | { type: "SET_VIEW"; view: ViewKey }
+  | { type: "OPEN_ACCOUNT" }
+  | { type: "CLOSE_ACCOUNT" }
   // activity
   | { type: "SET_FILTER"; category: CategoryName | "All" }
   | { type: "SET_PAYMENT_FILTER"; paymentMethod: PaymentMethod | "All" }

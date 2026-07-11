@@ -140,8 +140,8 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
   const persist = (work: Promise<unknown>, onSaved?: () => void) => void work.then(onSaved).catch(fail);
   return {
     setView: (view) => dispatch({ type: "SET_VIEW", view }),
-    openAccount: () => dispatch({ type: "SET_VIEW", view: "account" }),
-    closeAccount: () => dispatch({ type: "SET_VIEW", view: "home" }),
+    openAccount: () => dispatch({ type: "OPEN_ACCOUNT" }),
+    closeAccount: () => dispatch({ type: "CLOSE_ACCOUNT" }),
     setFilter: (category) => dispatch({ type: "SET_FILTER", category }),
     setPaymentFilter: (paymentMethod) =>
       dispatch({ type: "SET_PAYMENT_FILTER", paymentMethod }),

@@ -1,13 +1,15 @@
 "use client";
 
 import { lazy, Suspense } from "react";
-import { useAppActions, useAppState } from "@/store/app-store";
+import { useAppState } from "@/store/app-store";
 import { usePrefetchOnMount } from "@/hooks/usePrefetchOnMount";
 import { useBrowserSwipeGuard } from "@/hooks/useBrowserSwipeGuard";
 import { TabBar } from "@/components/mobile/TabBar";
 import { Fab } from "@/components/mobile/Fab";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
 import { Toaster } from "@/components/common/Toaster";
+import { cn } from "@/lib/cn";
+import type { ViewKey } from "@/lib/types";
 
 const loadSettingsScreen = () =>
   import("@/components/mobile/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
@@ -54,9 +56,8 @@ function ScreenFallback() {
   return <div className="h-full bg-canvas" />;
 }
 
-function CurrentScreen() {
-  const { view } = useAppState();
-  switch (view) {
+function CurrentScreen({ screen }: { screen: ViewKey }) {
+  switch (screen) {
     case "home":
       return <HomeScreen />;
     case "tx":
@@ -70,19 +71,16 @@ function CurrentScreen() {
     case "settings":
       return <SettingsScreen />;
     default:
-      // Account renders as a full-screen overlay above the tab bar.
-      return null;
+      return <HomeScreen />;
   }
 }
 
 export function MobileApp() {
-  const { view, overlay, detailId } = useAppState();
-  const actions = useAppActions();
+  const { view, accountReturnView, overlay, detailId } = useAppState();
   usePrefetchOnMount(PREFETCH);
-  useBrowserSwipeGuard({
-    accountBackEnabled: view === "account" && overlay == null && detailId == null,
-    onAccountBack: actions.closeAccount,
-  });
+  useBrowserSwipeGuard();
+
+  const underlayView = view === "account" ? (accountReturnView ?? "home") : view;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-canvas font-body">
@@ -95,9 +93,12 @@ export function MobileApp() {
         className="pointer-events-none absolute inset-x-0 top-0 z-[40] h-[env(safe-area-inset-top,0px)] min-h-[env(safe-area-inset-top,0px)] bg-canvas"
       />
       <div className="relative min-h-0 flex-1">
-        <div key={view} className="h-full animate-screen-in">
+        <div
+          key={underlayView}
+          className={cn("h-full", view !== "account" && "animate-screen-in")}
+        >
           <Suspense fallback={<ScreenFallback />}>
-            <CurrentScreen />
+            <CurrentScreen screen={underlayView} />
           </Suspense>
         </div>
         <Fab />

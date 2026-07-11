@@ -104,8 +104,26 @@ export function reducer(state: AppState, action: Action): AppState {
         notifications: action.data.preferences.notifications,
       };
     }
-    case "SET_VIEW":
-      return { ...state, view: action.view === "tx" ? "home" : action.view };
+    case "SET_VIEW": {
+      const next = action.view === "tx" ? "home" : action.view;
+      if (next === "account") {
+        if (state.view === "account") return state;
+        const from = state.view === "tx" ? "home" : state.view;
+        return { ...state, view: "account", accountReturnView: from };
+      }
+      return { ...state, view: next, accountReturnView: null };
+    }
+    case "OPEN_ACCOUNT": {
+      if (state.view === "account") return state;
+      const from = state.view === "tx" ? "home" : state.view;
+      return { ...state, view: "account", accountReturnView: from };
+    }
+    case "CLOSE_ACCOUNT":
+      return {
+        ...state,
+        view: state.accountReturnView ?? "home",
+        accountReturnView: null,
+      };
 
     case "SET_FILTER":
       if (action.category === "All") return { ...state, filter: [] };
