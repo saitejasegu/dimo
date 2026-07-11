@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, type SyncMetaRecord } from "@/data/db";
+import { useConvex } from "convex/react";
+import { activateUserDatabase, db, type SyncMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -330,15 +331,38 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
 interface AppStoreValue { state: AppState; actions: AppActions; sync: SyncState; ready: boolean; }
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 
-export function AppStoreProvider({ children, userName }: { children: ReactNode; userName?: string }) {
-  const [state, dispatch] = useReducer(reducer, userName, createInitialState);
+export function AppStoreProvider({
+  children,
+  user,
+}: {
+  children: ReactNode;
+  user: { id: string; name: string; email: string; photoUrl: string | null };
+}) {
+  activateUserDatabase(user.id);
+  const convex = useConvex();
+  const [state, dispatch] = useReducer(reducer, user.name, createInitialState);
   const entities = useLiveQuery(() => db.entities.toArray(), [], undefined);
   const device = useLiveQuery(() => db.deviceMeta.get("device"), [], undefined);
   const meta = useLiveQuery(() => db.syncMeta.get(WORKSPACE_ID), [], undefined);
   const pending = useLiveQuery(() => db.outbox.where("status").equals("pending").count(), [], 0) ?? 0;
   const blocked = useLiveQuery(() => db.outbox.where("status").equals("blocked").count(), [], 0) ?? 0;
 
-  useEffect(() => { void initializeLocalDatabase().then(() => { startSync(); }).catch((error) => dispatch({ type: "SHOW_TOAST", message: `Local database failed: ${String(error)}` })); return () => stopSync(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void initializeLocalDatabase()
+      .then(() => {
+        if (!cancelled) startSync(convex);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          dispatch({ type: "SHOW_TOAST", message: `Local database failed: ${String(error)}` });
+        }
+      });
+    return () => {
+      cancelled = true;
+      stopSync();
+    };
+  }, [convex]);
 
   useEffect(() => {
     if (!entities?.length) return;
@@ -365,7 +389,16 @@ export function AppStoreProvider({ children, userName }: { children: ReactNode; 
   useEffect(() => { if (!state.toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [state.toast, state.toastNonce]);
   const actions = useMemo(() => createActions(dispatch, () => state), [state]);
   const sync: SyncState = useMemo(() => ({ workspaceId: WORKSPACE_ID, lastPulledRevision: meta?.lastPulledRevision ?? 0, lastSyncedAt: meta?.lastSyncedAt ?? null, error: meta?.error ?? null, syncing: meta?.syncing ?? false, pending, blocked, configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL) }), [meta, pending, blocked]);
-  const value = useMemo(() => ({ state: { ...state, defaultView: viewToLabel(labelToView(state.defaultView)) }, actions, sync, ready: state.dataReady }), [state, actions, sync]);
+  const value = useMemo(() => ({
+    state: {
+      ...state,
+      profile: { name: user.name, email: user.email, photoUrl: user.photoUrl },
+      defaultView: viewToLabel(labelToView(state.defaultView)),
+    },
+    actions,
+    sync,
+    ready: state.dataReady,
+  }), [state, actions, sync, user]);
   return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;
 }
 

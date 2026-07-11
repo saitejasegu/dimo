@@ -15,7 +15,7 @@ Every local entity write and its outbox operation commit in one IndexedDB transa
 
 Synchronization runs while the app is open after local writes, reconnects, window focus, visibility changes, and Convex revision notifications. Account contains detailed status and a manual **Sync now** action.
 
-> **Security warning:** authentication and authorization are deliberately not implemented yet. Every client configured with the deployment URL reads and writes the single `global` workspace. Do not expose this deployment to untrusted users or use it for sensitive production data.
+WorkOS AuthKit authenticates every cloud sync call. Convex derives ownership from the verified token rather than a client-provided user ID, and each WorkOS user has an isolated revision stream. Local IndexedDB databases are also separated by WorkOS user ID, preventing account switches on a shared device from exposing another user's local transactions.
 
 The empty D1/Drizzle files in this starter are not connected to application data and must not be used for dual writes.
 
@@ -23,6 +23,7 @@ The empty D1/Drizzle files in this starter are not connected to application data
 
 - Node.js `>=22.13.0`
 - A Convex account for cloud synchronization
+- A WorkOS AuthKit environment with Google and Apple social login enabled
 
 ## Local development
 
@@ -31,15 +32,29 @@ npm install
 npm run dev
 ```
 
-Without a Convex URL, Dimo runs in **Local only** mode and all features except cloud replication work normally.
-
-To link a new Convex development project:
+To link a Convex development project and provision a Convex-managed WorkOS environment:
 
 ```bash
 npm run convex:dev
 ```
 
-The interactive command creates/selects the project, generates deployment-specific bindings, and writes the ignored `.env.local` containing `CONVEX_DEPLOYMENT` and `NEXT_PUBLIC_CONVEX_URL`. Keep it running beside `npm run dev` while changing backend functions.
+The first run is interactive. It creates/selects the Convex project, offers to provision a managed WorkOS team, deploys the JWT configuration, and writes the ignored `.env.local` values used by the app. Keep it running beside `npm run dev` while changing backend functions.
+
+For an existing WorkOS team, configure the deployment first:
+
+```bash
+npx convex env set WORKOS_CLIENT_ID client_...
+npx convex env set WORKOS_API_KEY sk_test_...
+```
+
+Then add these browser-safe values to `.env.local`:
+
+```bash
+NEXT_PUBLIC_WORKOS_CLIENT_ID=client_...
+NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback
+```
+
+In the WorkOS dashboard, enable only Google and Apple under Authentication → Social Login, disable the other authentication methods, and add `http://localhost:3000/callback` as an allowed redirect. Google and Apple must both be configured there before their buttons can complete sign-in.
 
 For a production deployment:
 
@@ -48,7 +63,7 @@ npm run convex:deploy
 NEXT_PUBLIC_CONVEX_URL=https://YOUR_DEPLOYMENT.convex.cloud npm run build
 ```
 
-`NEXT_PUBLIC_CONVEX_URL` is embedded at build time. Set it before browser hosting, Electron packaging, or Capacitor synchronization.
+`NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_WORKOS_CLIENT_ID`, and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` are embedded at build time. Set the production values before browser hosting, Electron packaging, or Capacitor synchronization.
 
 ## Scripts
 
@@ -73,7 +88,7 @@ For development, clear the `dimo-expenses` IndexedDB database in browser develop
 
 ## Sync troubleshooting
 
-- **Local only:** `NEXT_PUBLIC_CONVEX_URL` was not present at build time.
+- **Authentication setup required:** one of the public Convex or WorkOS build variables is missing.
 - **Offline:** local writes continue and will upload after connectivity returns.
 - **Pending:** operations are safely stored in IndexedDB but not yet acknowledged.
 - **Error:** open Account for the transport error and retry with **Sync now**.
@@ -83,6 +98,6 @@ Tombstones are intentionally retained indefinitely so a device that has been off
 
 ## Platform notes
 
-Electron and Capacitor both bundle the static `out/` export. Background sync means asynchronous synchronization while the app process is open; suspended iOS background execution is not included.
+Electron and Capacitor both bundle the static `out/` export. Background sync means asynchronous synchronization while the app process is open; suspended iOS background execution is not included. WorkOS recommends separate application records for web, desktop, and mobile surfaces so each can use a platform-appropriate client ID, redirect URI, and session policy.
 
-The Convex folder contains strict payload validators, revision-indexed pull queries, and an idempotent last-write-wins push mutation. A future authentication phase can replace the constant workspace with an authenticated workspace ID without changing the local outbox or revision protocol.
+The Convex folder contains strict payload validators, authenticated owner-scoped indexes, revision-indexed pull queries, and an idempotent last-write-wins push mutation.

@@ -106,6 +106,7 @@ export interface NotificationSettings {
 export interface Profile {
   name: string;
   email: string;
+  photoUrl?: string | null;
 }
 
 /** All top-level destinations shared by mobile and web. */

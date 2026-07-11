@@ -113,6 +113,7 @@ export function Sidebar() {
       >
         <Avatar
           initial={profile.name.charAt(0).toUpperCase()}
+          src={profile.photoUrl}
           size={36}
           radius={11}
           tone="dark"

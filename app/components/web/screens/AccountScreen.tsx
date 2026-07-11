@@ -17,6 +17,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { WebScreen } from "@/components/web/WebScreen";
+import { useAuth } from "@workos-inc/authkit-react";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -47,6 +48,7 @@ export function AccountScreen() {
   const { profile, currency, weekStart, defaultView, notifications } =
     useAppState();
   const actions = useAppActions();
+  const { signOut } = useAuth();
 
   return (
     <WebScreen>
@@ -63,33 +65,32 @@ export function AccountScreen() {
         <div className="flex shrink-0 flex-col items-center gap-2">
           <Avatar
             initial={profile.name.charAt(0).toUpperCase()}
+            src={profile.photoUrl}
             size={72}
             radius={22}
             textClassName="text-[30px]"
           />
-          <button
-            type="button"
-            onClick={() => actions.showToast("Photo upload coming soon")}
-            className="text-xs font-medium text-green"
-          >
-            Change photo
-          </button>
+          <div className="text-center text-xs text-muted">Managed by your sign-in provider</div>
         </div>
         <div className="grid flex-1 grid-cols-2 gap-4">
           <TextField
             label="Full name"
             value={profile.name}
-            onChange={actions.setProfileName}
+            readOnly
           />
           <TextField
             label="Email"
             value={profile.email}
-            onChange={actions.setProfileEmail}
+            readOnly
           />
           <div />
           <div className="flex items-end justify-end">
-            <Button size="sm" onClick={actions.saveProfile}>
-              Save changes
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => void signOut({ returnTo: window.location.origin })}
+            >
+              Sign out
             </Button>
           </div>
         </div>

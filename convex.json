@@ -1,3 +1,32 @@
 {
-  "functions": "convex/"
+  "$schema": "./node_modules/convex/schemas/convex.schema.json",
+  "functions": "convex/",
+  "authKit": {
+    "dev": {
+      "configure": {
+        "redirectUris": ["http://localhost:3000/callback"],
+        "appHomepageUrl": "http://localhost:3000",
+        "corsOrigins": ["http://localhost:3000"]
+      },
+      "localEnvVars": {
+        "NEXT_PUBLIC_WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}",
+        "NEXT_PUBLIC_WORKOS_REDIRECT_URI": "http://localhost:3000/callback"
+      }
+    },
+    "preview": {
+      "configure": {
+        "redirectUris": ["https://${buildEnv.VERCEL_BRANCH_URL}/callback"],
+        "appHomepageUrl": "https://${buildEnv.VERCEL_BRANCH_URL}",
+        "corsOrigins": ["https://${buildEnv.VERCEL_BRANCH_URL}"]
+      }
+    },
+    "prod": {
+      "environmentType": "production",
+      "configure": {
+        "redirectUris": ["https://dimo-silk.vercel.app/callback"],
+        "appHomepageUrl": "https://dimo-silk.vercel.app",
+        "corsOrigins": ["https://dimo-silk.vercel.app"]
+      }
+    }
+  }
 }

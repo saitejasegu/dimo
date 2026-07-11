@@ -27,6 +27,8 @@
   "dependencies": {
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
+    "@convex-dev/workos": "^0.0.3",
+    "@workos-inc/authkit-react": "^0.16.1",
     "convex": "^1.42.1",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",

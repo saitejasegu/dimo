@@ -16,6 +16,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
+import { useAuth } from "@workos-inc/authkit-react";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -26,6 +27,7 @@ export function AccountScreen() {
   const { profile, currency, weekStart, defaultView, notifications } =
     useAppState();
   const actions = useAppActions();
+  const { signOut } = useAuth();
 
   return (
     <div className="fixed inset-0 z-[18] flex flex-col overflow-hidden bg-canvas">
@@ -48,6 +50,7 @@ export function AccountScreen() {
         <div className="mb-4 flex items-center gap-4">
           <Avatar
             initial={profile.name.charAt(0).toUpperCase()}
+            src={profile.photoUrl}
             size={60}
             radius={18}
             textClassName="text-[26px]"
@@ -56,29 +59,27 @@ export function AccountScreen() {
             <div className="font-display text-[17px] font-semibold text-ink">
               {profile.name}
             </div>
-            <button
-              type="button"
-              onClick={() => actions.showToast("Photo upload coming soon")}
-              className="mt-0.5 text-xs font-medium text-green"
-            >
-              Change photo
-            </button>
+            <div className="mt-0.5 text-xs text-muted">Managed by your sign-in provider</div>
           </div>
         </div>
         <TextField
           label="Full name"
           value={profile.name}
-          onChange={actions.setProfileName}
+          readOnly
           className="mb-3"
         />
         <TextField
           label="Email"
           value={profile.email}
-          onChange={actions.setProfileEmail}
+          readOnly
           className="mb-4"
         />
-        <Button onClick={actions.saveProfile} fullWidth>
-          Save changes
+        <Button
+          onClick={() => void signOut({ returnTo: window.location.origin })}
+          variant="secondary"
+          fullWidth
+        >
+          Sign out
         </Button>
       </Card>
 

@@ -3,12 +3,13 @@ import { cn } from "@/lib/cn";
 
 interface TextFieldProps {
   value: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
   placeholder?: string;
   label?: ReactNode;
   inputMode?: "text" | "numeric" | "decimal";
   type?: "text" | "email";
   autoFocus?: boolean;
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -21,6 +22,7 @@ export function TextField({
   inputMode = "text",
   type = "text",
   autoFocus,
+  readOnly = false,
   className,
 }: TextFieldProps) {
   return (
@@ -31,11 +33,15 @@ export function TextField({
       <input
         type={type}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => onChange?.(e.target.value)}
         placeholder={placeholder}
         inputMode={inputMode}
         autoFocus={autoFocus}
-        className="w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint"
+        readOnly={readOnly}
+        className={cn(
+          "w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint",
+          readOnly && "cursor-default text-body",
+        )}
       />
     </label>
   );

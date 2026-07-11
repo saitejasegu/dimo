@@ -4,6 +4,9 @@ import { entityTypeValidator, payloadValidator, versionValidator } from "./value
 
 export default defineSchema({
   entities: defineTable({
+    // Optional only so pre-auth rows can remain orphaned during rollout. All
+    // authenticated reads and writes require and index by this value.
+    ownerId: v.optional(v.string()),
     workspaceId: v.string(),
     entityType: entityTypeValidator,
     entityId: v.string(),
@@ -12,10 +15,20 @@ export default defineSchema({
     deleted: v.boolean(),
     revision: v.number(),
   })
-    .index("by_workspace_entity", ["workspaceId", "entityType", "entityId"])
-    .index("by_workspace_revision", ["workspaceId", "revision"]),
+    .index("by_owner_and_workspace_and_entity", [
+      "ownerId",
+      "workspaceId",
+      "entityType",
+      "entityId",
+    ])
+    .index("by_owner_and_workspace_and_revision", [
+      "ownerId",
+      "workspaceId",
+      "revision",
+    ]),
   workspaces: defineTable({
+    ownerId: v.optional(v.string()),
     workspaceId: v.string(),
     revision: v.number(),
-  }).index("by_workspace", ["workspaceId"]),
+  }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
 });

@@ -38,4 +38,13 @@ export class DimoDatabase extends Dexie {
   }
 }
 
-export const db = new DimoDatabase();
+let activeUserId: string | null = null;
+export let db = new DimoDatabase("dimo-expenses:unconfigured");
+
+/** Select a separate local-first database before rendering a user's app. */
+export function activateUserDatabase(userId: string) {
+  if (activeUserId === userId) return;
+  db.close();
+  activeUserId = userId;
+  db = new DimoDatabase(`dimo-expenses:${encodeURIComponent(userId)}`);
+}

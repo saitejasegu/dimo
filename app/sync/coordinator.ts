@@ -190,14 +190,10 @@ export class SyncCoordinator {
   }
 }
 
-let sharedClient: ConvexReactClient | null = null;
 let sharedCoordinator: SyncCoordinator | null = null;
 
-export function startSync() {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) return null;
-  sharedClient ??= new ConvexReactClient(url);
-  sharedCoordinator ??= new SyncCoordinator(sharedClient);
+export function startSync(client: ConvexReactClient) {
+  sharedCoordinator ??= new SyncCoordinator(client);
   sharedCoordinator.start();
   return sharedCoordinator;
 }
@@ -205,8 +201,6 @@ export function startSync() {
 export function stopSync() {
   sharedCoordinator?.stop();
   sharedCoordinator = null;
-  void sharedClient?.close();
-  sharedClient = null;
 }
 
 export function requestSync() {

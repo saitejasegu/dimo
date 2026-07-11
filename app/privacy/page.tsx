@@ -26,11 +26,12 @@ export default function PrivacyPage() {
           </h2>
           <p>
             Expense entries, budgets, recurring bills, payment method labels,
-            and profile preferences you enter in the app are stored on your
-            device for the purpose of running Dimo. When cloud sync is enabled,
-            an encrypted network connection sends a replica to the configured
-            Convex deployment so the same data can be restored and synchronized
-            across devices.
+            and app preferences are stored on your device for the purpose of
+            running Dimo. Your sign-in provider supplies your full name, email
+            address, and optional profile photo; these fields are read-only in
+            Dimo. An encrypted network connection sends your app data to the
+            configured Convex deployment so it can be restored and synchronized
+            across your devices.
           </p>
         </section>
 
@@ -39,9 +40,8 @@ export default function PrivacyPage() {
             Data we do not collect
           </h2>
           <p>
-            Dimo does not sell personal data. The current version does not
-            require an account and does not use your expense data for analytics,
-            advertising, or profiling.
+            Dimo does not sell personal data and does not use your expense data
+            for analytics, advertising, or profiling.
           </p>
         </section>
 
@@ -50,9 +50,12 @@ export default function PrivacyPage() {
             Third parties
           </h2>
           <p>
+            WorkOS AuthKit provides account authentication, and Convex provides
+            private cloud data synchronization. Google or Apple processes your
+            social sign-in under the privacy policy for the provider you choose.
             If you install Dimo from the App Store, Apple may collect standard
             install and diagnostics information under Apple&apos;s privacy
-            policy. Dimo itself does not embed third-party ad or tracking SDKs.
+            policy. Dimo does not embed third-party ad or tracking SDKs.
           </p>
         </section>
 

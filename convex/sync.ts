@@ -8,6 +8,12 @@ import { operationValidator } from "./values";
 
 type Version = { timestamp: number; counter: number; deviceId: string };
 
+async function requireOwnerId(ctx: { auth: { getUserIdentity(): Promise<{ tokenIdentifier: string } | null> } }) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not authenticated");
+  return identity.tokenIdentifier;
+}
+
 function compareVersions(a: Version, b: Version) {
   if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
   if (a.counter !== b.counter) return a.counter - b.counter;
@@ -37,12 +43,15 @@ export const push = mutationGeneric({
     operations: v.array(operationValidator),
   },
   handler: async (ctx, { workspaceId, operations }) => {
+    const ownerId = await requireOwnerId(ctx);
     if (workspaceId !== "global") throw new Error("Unsupported workspace");
     if (operations.length > 50) throw new Error("A push may contain at most 50 operations");
 
     let workspace = await ctx.db
       .query("workspaces")
-      .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_owner_and_workspace", (q: any) =>
+        q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+      )
       .unique();
     let revision = workspace?.revision ?? 0;
     const acknowledgements: Array<{
@@ -76,8 +85,9 @@ export const push = mutationGeneric({
 
       const current = await ctx.db
         .query("entities")
-        .withIndex("by_workspace_entity", (q: any) =>
+        .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
           q
+            .eq("ownerId", ownerId)
             .eq("workspaceId", workspaceId)
             .eq("entityType", operation.entityType)
             .eq("entityId", operation.entityId),
@@ -87,6 +97,7 @@ export const push = mutationGeneric({
       if (applied) {
         revision += 1;
         const value = {
+          ownerId,
           workspaceId,
           entityType: operation.entityType,
           entityId: operation.entityId,
@@ -106,7 +117,7 @@ export const push = mutationGeneric({
     }
 
     if (!workspace) {
-      const id = await ctx.db.insert("workspaces", { workspaceId, revision });
+      const id = await ctx.db.insert("workspaces", { ownerId, workspaceId, revision });
       workspace = await ctx.db.get(id);
     } else if (workspace.revision !== revision) {
       await ctx.db.patch(workspace._id, { revision });
@@ -122,11 +133,16 @@ export const pull = queryGeneric({
     limit: v.number(),
   },
   handler: async (ctx, { workspaceId, afterRevision, limit }) => {
+    const ownerId = await requireOwnerId(ctx);
+    if (workspaceId !== "global") throw new Error("Unsupported workspace");
     const take = Math.max(1, Math.min(200, Math.floor(limit)));
     const rows = await ctx.db
       .query("entities")
-      .withIndex("by_workspace_revision", (q: any) =>
-        q.eq("workspaceId", workspaceId).gt("revision", afterRevision),
+      .withIndex("by_owner_and_workspace_and_revision", (q: any) =>
+        q
+          .eq("ownerId", ownerId)
+          .eq("workspaceId", workspaceId)
+          .gt("revision", afterRevision),
       )
       .take(take + 1);
     const entities = rows.slice(0, take).map((row) => ({
@@ -140,7 +156,9 @@ export const pull = queryGeneric({
     }));
     const workspace = await ctx.db
       .query("workspaces")
-      .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_owner_and_workspace", (q: any) =>
+        q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+      )
       .unique();
     return {
       entities,
@@ -153,9 +171,13 @@ export const pull = queryGeneric({
 export const currentRevision = queryGeneric({
   args: { workspaceId: v.string() },
   handler: async (ctx, { workspaceId }) => {
+    const ownerId = await requireOwnerId(ctx);
+    if (workspaceId !== "global") throw new Error("Unsupported workspace");
     const workspace = await ctx.db
       .query("workspaces")
-      .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_owner_and_workspace", (q: any) =>
+        q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+      )
       .unique();
     return workspace?.revision ?? 0;
   },

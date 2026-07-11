@@ -34,7 +34,7 @@ export function HomeScreen() {
                 {profile.name}
               </div>
             </div>
-            <Avatar initial={initial} onClick={actions.openAccount} />
+            <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openAccount} />
           </div>
 
           <HeroCard className="mb-3.5 p-[22px]">
