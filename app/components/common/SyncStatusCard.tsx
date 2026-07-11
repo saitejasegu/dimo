@@ -13,7 +13,7 @@ export function SyncStatusCard() {
       ? "Syncing"
       : offline
         ? "Offline"
-        : sync.error
+        : sync.error || sync.blocked > 0
           ? "Error"
           : sync.pending > 0
             ? "Pending"

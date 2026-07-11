@@ -9,6 +9,7 @@ import {
 } from "@/data/model";
 import {
   acknowledgeOperations,
+  enqueueFullUpload,
   mergeRemotePage,
   onLocalWrite,
 } from "@/data/repository";
@@ -24,6 +25,16 @@ type PushResult = {
   latestRevision: number;
 };
 
+type ClearResult = {
+  deleted: number;
+  hasMore: boolean;
+};
+
+type PushOperation = Omit<
+  SyncOperation,
+  "key" | "status" | "attempts" | "lastError" | "createdAt"
+>;
+
 const pullRef = makeFunctionReference<"query", {
   workspaceId: string;
   afterRevision: number;
@@ -31,15 +42,39 @@ const pullRef = makeFunctionReference<"query", {
 }, PullResult>("sync:pull");
 const pushRef = makeFunctionReference<"mutation", {
   workspaceId: string;
-  operations: Array<Omit<SyncOperation, "key" | "status" | "attempts" | "lastError" | "createdAt">>;
+  operations: Array<PushOperation>;
 }, PushResult>("sync:push");
 const revisionRef = makeFunctionReference<"query", { workspaceId: string }, number>(
   "sync:currentRevision",
 );
+const clearRef = makeFunctionReference<"mutation", {
+  workspaceId: string;
+  limit?: number;
+}, ClearResult>("sync:clearWorkspace");
+
+/** Only treat known client/server validation failures as permanent. */
+export function isPermanentSyncError(message: string) {
+  return /ArgumentValidationError|Payload does not match|Entity ID mismatch|Workspace mismatch|Unsupported workspace|Invalid logical version|Invalid minor-unit amount|Invalid recurring anchor date|A push may contain at most 50/i.test(
+    message,
+  );
+}
+
+function toPushPayload(operations: SyncOperation[]): PushOperation[] {
+  return operations.map((op) => ({
+    operationId: op.operationId,
+    workspaceId: op.workspaceId,
+    entityType: op.entityType,
+    entityId: op.entityId,
+    version: op.version,
+    payload: op.payload,
+    deleted: op.deleted,
+  }));
+}
 
 export class SyncCoordinator {
   private running: Promise<void> | null = null;
   private requested = false;
+  private fullReplace = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
@@ -89,30 +124,58 @@ export class SyncCoordinator {
     return this.running;
   }
 
+  /** Manual Sync now: wipe cloud workspace data, then upload the full local snapshot. */
+  requestFullSync() {
+    this.fullReplace = true;
+    return this.request();
+  }
+
   private async runLoop() {
     while (this.requested) {
       this.requested = false;
+      const replace = this.fullReplace;
+      this.fullReplace = false;
       if (!navigator.onLine) {
         await db.syncMeta.update(WORKSPACE_ID, { syncing: false, error: "Offline" });
         return;
       }
       await db.syncMeta.update(WORKSPACE_ID, { syncing: true, error: null });
       try {
-        await this.pullAll();
-        await this.pushAll();
-        await this.pullAll();
+        if (replace) {
+          await this.clearRemote();
+          await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
+          await enqueueFullUpload();
+          await this.pushAll();
+          await this.pullAll();
+        } else {
+          await this.pullAll();
+          await this.pushAll();
+          await this.pullAll();
+        }
         this.retryAttempt = 0;
         if (this.retryTimer) clearTimeout(this.retryTimer);
+        const blocked = await db.outbox.where("status").equals("blocked").first();
         await db.syncMeta.update(WORKSPACE_ID, {
           syncing: false,
-          error: null,
-          lastSyncedAt: Date.now(),
+          error: blocked?.lastError ?? null,
+          ...(blocked ? {} : { lastSyncedAt: Date.now() }),
         });
       } catch (error) {
+        if (replace) this.fullReplace = true;
         await this.setError(error);
         this.scheduleRetry();
         return;
       }
+    }
+  }
+
+  private async clearRemote() {
+    while (true) {
+      const result = await this.client.mutation(clearRef, {
+        workspaceId: WORKSPACE_ID,
+        limit: 100,
+      });
+      if (!result.hasMore) return;
     }
   }
 
@@ -143,24 +206,20 @@ export class SyncCoordinator {
     while (true) {
       const operations = await db.outbox.where("status").equals("pending").limit(50).toArray();
       if (!operations.length) return;
-      const payload = operations.map((op) => ({
-        operationId: op.operationId,
-        workspaceId: op.workspaceId,
-        entityType: op.entityType,
-        entityId: op.entityId,
-        version: op.version,
-        payload: op.payload,
-        deleted: op.deleted,
-      }));
-      try {
-        const result = await this.client.mutation(pushRef, {
-          workspaceId: WORKSPACE_ID,
-          operations: payload,
-        });
-        await acknowledgeOperations(result.acknowledgements);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const permanent = /validation|payload|mismatch|unsupported|invalid|at most 50/i.test(message);
+      await this.pushBatch(operations);
+    }
+  }
+
+  private async pushBatch(operations: SyncOperation[]) {
+    try {
+      const result = await this.client.mutation(pushRef, {
+        workspaceId: WORKSPACE_ID,
+        operations: toPushPayload(operations),
+      });
+      await acknowledgeOperations(result.acknowledgements);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!isPermanentSyncError(message)) {
         await db.transaction("rw", db.outbox, async () => {
           for (const operation of operations) {
             const current = await db.outbox.get(operation.key);
@@ -168,12 +227,23 @@ export class SyncCoordinator {
             await db.outbox.update(operation.key, {
               attempts: operation.attempts + 1,
               lastError: message,
-              status: permanent ? "blocked" : "pending",
             });
           }
         });
-        if (!permanent) throw error;
+        throw error;
       }
+      if (operations.length > 1) {
+        const mid = Math.max(1, Math.floor(operations.length / 2));
+        await this.pushBatch(operations.slice(0, mid));
+        await this.pushBatch(operations.slice(mid));
+        return;
+      }
+      const operation = operations[0];
+      await db.outbox.update(operation.key, {
+        attempts: operation.attempts + 1,
+        lastError: message,
+        status: "blocked",
+      });
     }
   }
 
@@ -205,4 +275,8 @@ export function stopSync() {
 
 export function requestSync() {
   return sharedCoordinator?.request() ?? Promise.resolve();
+}
+
+export function requestFullSync() {
+  return sharedCoordinator?.requestFullSync() ?? Promise.resolve();
 }

@@ -110,7 +110,7 @@ export function PaymentMethodSelect({
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
-          className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-surface p-1.5 shadow-[0_16px_40px_rgba(13,21,18,0.14)]"
+          className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.28)]"
         >
           {methods.map((method, index) => {
             const label = paymentMethodLabel(method);

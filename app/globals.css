@@ -9,9 +9,11 @@
   /* surfaces */
   --color-ink: #14231c;
   --color-ink-deep: #0d1512;
+  --color-inverse: #14231c;
   --color-canvas: #f5f8f6;
   --color-canvas-deep: #eef2f0;
   --color-surface: #ffffff;
+  --color-popup: #ffffff;
   --color-line: #e4eae7;
   --color-line-soft: #f0f3f1;
   --color-hairline: #dbe4df;
@@ -34,6 +36,10 @@
   --color-danger: #c4573c;
   --color-danger-soft: #fdf3f0;
   --color-danger-line: #f2d9d3;
+  --color-danger-hover: #b04a33;
+  --color-disabled: #c3cdc7;
+  --color-toggle-off: #d7ded9;
+  --color-on-green: #ffffff;
 
   /* dark sidebar / hero cards */
   --color-side-text: #eaf5ef;
@@ -77,7 +83,69 @@
   }
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #f2f7f4;
+  --color-canvas: #0c1210;
+  --color-canvas-deep: #151e1a;
+  --color-surface: #1a2620;
+  --color-popup: #24332c;
+  --color-line: #51665c;
+  --color-line-soft: #35453d;
+  --color-hairline: #6a8076;
+  --color-muted: #b4c4bb;
+  --color-faint: #95a69d;
+  --color-body: #d0dbd5;
+  --color-green: #4fd598;
+  --color-green-deep: #3cc184;
+  --color-green-soft: #153727;
+  --color-on-green: #0d1512;
+  --color-bar: #254c39;
+  --color-bar-soft: #37684e;
+  --color-warn: #f0a080;
+  --color-danger: #f08b72;
+  --color-danger-soft: #3a201c;
+  --color-danger-line: #653329;
+  --color-danger-hover: #ff9b82;
+  --color-disabled: #879990;
+  --color-toggle-off: #39473f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-ink: #f2f7f4;
+    --color-canvas: #0c1210;
+    --color-canvas-deep: #151e1a;
+    --color-surface: #1a2620;
+    --color-popup: #24332c;
+    --color-line: #51665c;
+    --color-line-soft: #35453d;
+    --color-hairline: #6a8076;
+    --color-muted: #b4c4bb;
+    --color-faint: #95a69d;
+    --color-body: #d0dbd5;
+    --color-green: #4fd598;
+    --color-green-deep: #3cc184;
+    --color-green-soft: #153727;
+    --color-on-green: #0d1512;
+    --color-bar: #254c39;
+    --color-bar-soft: #37684e;
+    --color-warn: #f0a080;
+    --color-danger: #f08b72;
+    --color-danger-soft: #3a201c;
+    --color-danger-line: #653329;
+    --color-danger-hover: #ff9b82;
+    --color-disabled: #879990;
+    --color-toggle-off: #39473f;
+  }
+}
+
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
   html,
   body {
     margin: 0;

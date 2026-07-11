@@ -17,7 +17,7 @@ export function Toggle({ checked, onChange, label }: ToggleProps) {
       onClick={onChange}
       className={cn(
         "relative h-[26px] w-[46px] shrink-0 rounded-full transition-colors",
-        checked ? "bg-green" : "bg-[#d7ded9]",
+        checked ? "bg-green" : "bg-toggle-off",
       )}
     >
       <span

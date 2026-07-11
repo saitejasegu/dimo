@@ -38,13 +38,33 @@ export class DimoDatabase extends Dexie {
   }
 }
 
+const DB_PREFIX = "dimo-expenses";
 let activeUserId: string | null = null;
-export let db = new DimoDatabase("dimo-expenses:unconfigured");
+export let db = new DimoDatabase(`${DB_PREFIX}:unconfigured`);
 
 /** Select a separate local-first database before rendering a user's app. */
 export function activateUserDatabase(userId: string) {
   if (activeUserId === userId) return;
   db.close();
   activeUserId = userId;
-  db = new DimoDatabase(`dimo-expenses:${encodeURIComponent(userId)}`);
+  db = new DimoDatabase(`${DB_PREFIX}:${encodeURIComponent(userId)}`);
+}
+
+/** Wipe every local Dimo IndexedDB database (used on sign-out). */
+export async function deleteAllLocalDatabases() {
+  const currentName = db.name;
+  db.close();
+  activeUserId = null;
+
+  if (typeof indexedDB.databases === "function") {
+    const databases = await indexedDB.databases();
+    const names = databases
+      .map((entry) => entry.name)
+      .filter((name): name is string => !!name && name.startsWith(DB_PREFIX));
+    await Promise.all(names.map((name) => Dexie.delete(name)));
+  } else {
+    await Dexie.delete(currentName);
+  }
+
+  db = new DimoDatabase(`${DB_PREFIX}:unconfigured`);
 }

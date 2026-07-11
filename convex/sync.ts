@@ -182,3 +182,38 @@ export const currentRevision = queryGeneric({
     return workspace?.revision ?? 0;
   },
 });
+
+/** Deletes owner-scoped workspace entities in pages so Sync now can re-upload local data. */
+export const clearWorkspace = mutationGeneric({
+  args: {
+    workspaceId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { workspaceId, limit }) => {
+    const ownerId = await requireOwnerId(ctx);
+    if (workspaceId !== "global") throw new Error("Unsupported workspace");
+    const take = Math.max(1, Math.min(200, Math.floor(limit ?? 100)));
+    const rows = await ctx.db
+      .query("entities")
+      .withIndex("by_owner_and_workspace_and_revision", (q: any) =>
+        q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+      )
+      .take(take);
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+    const hasMore = rows.length === take;
+    if (!hasMore) {
+      const workspace = await ctx.db
+        .query("workspaces")
+        .withIndex("by_owner_and_workspace", (q: any) =>
+          q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+        )
+        .unique();
+      if (workspace && workspace.revision !== 0) {
+        await ctx.db.patch(workspace._id, { revision: 0 });
+      }
+    }
+    return { deleted: rows.length, hasMore };
+  },
+});

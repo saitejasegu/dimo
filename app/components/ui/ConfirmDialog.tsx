@@ -33,7 +33,7 @@ export function ConfirmDialog({
     <div
       role="presentation"
       onClick={onCancel}
-      className="fixed inset-0 z-40 flex animate-dim-in items-center justify-center bg-ink-deep/50 px-6"
+      className="fixed inset-0 z-40 flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
     >
       <div
         role="alertdialog"
@@ -41,7 +41,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         aria-describedby="confirm-dialog-message"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-[360px] animate-pop-in rounded-[22px] bg-surface p-6 shadow-[0_18px_50px_rgba(13,21,18,0.18)]"
+        className="w-full max-w-[360px] animate-pop-in rounded-[22px] border border-line bg-popup p-6 shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
       >
         <h2
           id="confirm-dialog-title"
@@ -69,7 +69,7 @@ export function ConfirmDialog({
             className={cn(
               "flex-1",
               tone === "danger" &&
-                "!border-danger !bg-danger !text-white hover:!bg-[#b04a33]",
+                "!border-danger !bg-danger !text-white hover:!bg-danger-hover",
             )}
           >
             {confirmLabel}

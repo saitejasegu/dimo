@@ -2,6 +2,7 @@ import type {
   Currency,
   NotificationSettings,
   PaymentMethodType,
+  ThemePreference,
   ViewKey,
   WeekStart,
 } from "@/lib/types";
@@ -69,6 +70,7 @@ export interface PreferencesEntity {
   profileEmail: string;
   currency: Currency;
   weekStart: WeekStart;
+  theme: ThemePreference;
   defaultView: ViewKey;
   notifications: NotificationSettings;
   defaultPaymentMethodId: string;
@@ -149,6 +151,7 @@ export const DEFAULT_PREFERENCES: PreferencesEntity = {
   profileEmail: "",
   currency: "INR",
   weekStart: "Mon",
+  theme: "system",
   defaultView: "home",
   notifications: { bills: true, budget: true, weekly: false, large: true },
   defaultPaymentMethodId: CASH_PAYMENT_METHOD.id,

@@ -57,9 +57,9 @@ export function TrashIcon({ className, size = 18 }: IconProps) {
       aria-hidden
     >
       <path
-        d="M4 6h12M8 3h4l1 3H7l1-3Zm-2 3 .7 11h6.6L16 6M8.5 9v5M11.5 9v5"
+        d="M3.5 5.5h13M8 5.5V4a1 1 0 011-1h2a1 1 0 011 1v1.5M5.5 5.5l.8 10.5a1.5 1.5 0 001.5 1.4h4.4a1.5 1.5 0 001.5-1.4l.8-10.5"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth={1.6}
         strokeLinecap="round"
         strokeLinejoin="round"
       />

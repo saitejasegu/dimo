@@ -11,6 +11,7 @@ import type {
   Profile,
   Recurring,
   StatsRange,
+  ThemePreference,
   Transaction,
   ViewKey,
   WeekStart,
@@ -84,6 +85,7 @@ export interface AppState {
   profile: Profile;
   currency: Currency;
   weekStart: WeekStart;
+  theme: ThemePreference;
   defaultView: string;
   notifications: NotificationSettings;
 
@@ -149,6 +151,7 @@ export function createInitialState(
     },
     currency: DEFAULT_PREFERENCES.currency,
     weekStart: DEFAULT_PREFERENCES.weekStart,
+    theme: DEFAULT_PREFERENCES.theme,
     defaultView: DEFAULT_PREFERENCES.defaultView,
     notifications: DEFAULT_PREFERENCES.notifications,
     toast: null,

@@ -1,4 +1,4 @@
-import type { Currency, NotificationSettings, WeekStart } from "@/lib/types";
+import type { Currency, NotificationSettings, ThemePreference, WeekStart } from "@/lib/types";
 
 export interface NotificationDef {
   key: keyof NotificationSettings;
@@ -22,6 +22,12 @@ export const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
 export const WEEK_START_OPTIONS: { value: WeekStart; label: string }[] = [
   { value: "Mon", label: "Monday" },
   { value: "Sun", label: "Sunday" },
+];
+
+export const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
 ];
 
 /** Screens that can be chosen as the landing view. */

@@ -79,6 +79,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         currency: action.data.preferences.currency,
         weekStart: action.data.preferences.weekStart,
+        theme: action.data.preferences.theme ?? "system",
         defaultView: action.data.preferences.defaultView,
         notifications: action.data.preferences.notifications,
       };
@@ -523,6 +524,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_WEEK_START":
       return { ...state, weekStart: action.weekStart };
+
+    case "SET_THEME":
+      return { ...state, theme: action.theme };
 
     case "SET_DEFAULT_VIEW":
       return { ...state, defaultView: action.view };

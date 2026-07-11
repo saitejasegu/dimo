@@ -5,6 +5,7 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import {
   CURRENCY_OPTIONS,
   DEFAULT_VIEW_OPTIONS,
+  THEME_OPTIONS,
   WEEK_START_OPTIONS,
 } from "@/features/account/constants";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +17,7 @@ import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager"
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { WebScreen } from "@/components/web/WebScreen";
 import { useAuth } from "@workos-inc/authkit-react";
+import { signOutAndClearLocal } from "@/auth/signOut";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -43,7 +45,7 @@ function PreferenceRow({
 }
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, defaultView } =
+  const { profile, currency, weekStart, theme, defaultView } =
     useAppState();
   const actions = useAppActions();
   const { signOut } = useAuth();
@@ -86,7 +88,7 @@ export function AccountScreen() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => void signOut({ returnTo: window.location.origin })}
+              onClick={() => void signOutAndClearLocal(signOut)}
             >
               Sign out
             </Button>
@@ -100,6 +102,19 @@ export function AccountScreen() {
             Preferences
           </h2>
           <div className="flex flex-col gap-[18px]">
+            <PreferenceRow
+              label="Appearance"
+              description="Use your system setting or choose a theme"
+              control={
+                <SegmentedControl
+                  options={THEME_OPTIONS}
+                  value={theme}
+                  onChange={actions.setTheme}
+                  fill={false}
+                />
+              }
+            />
+            <div className="h-px bg-line-soft" />
             <PreferenceRow
               label="Currency"
               description="Used across the whole app"

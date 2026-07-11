@@ -30,18 +30,31 @@ export function ActivityScreen() {
         <SearchInput value={query} onChange={actions.setQuery} className="w-80 py-2.5" />
       </div>
 
-      <div className="mb-[22px] flex flex-wrap gap-2.5">
-        {options.map((option) => {
-          const emoji = option === "All" ? null : emojiByName.get(option);
-          return (
-          <Chip
-            key={option}
-            label={emoji ? `${emoji} ${option}` : option}
-            selected={filter === option}
-            onClick={() => actions.setFilter(option)}
-          />
-          );
-        })}
+      <div className="mb-[22px] flex min-w-0 items-center gap-2.5">
+        <Chip
+          label="All"
+          selected={filter === "All"}
+          onClick={() => actions.setFilter("All")}
+        />
+        <div
+          aria-hidden
+          className="h-5 w-px shrink-0 bg-hairline"
+        />
+        <div className="flex min-w-0 flex-1 flex-nowrap gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {options
+            .filter((option) => option !== "All")
+            .map((option) => {
+              const emoji = emojiByName.get(option);
+              return (
+                <Chip
+                  key={option}
+                  label={emoji ? `${emoji} ${option}` : option}
+                  selected={filter === option}
+                  onClick={() => actions.setFilter(option)}
+                />
+              );
+            })}
+        </div>
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-5">

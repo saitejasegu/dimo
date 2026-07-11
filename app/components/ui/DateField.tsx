@@ -355,7 +355,7 @@ export function DateField({
                 }
               : { visibility: "hidden", top: 0, left: 0 }
           }
-          className="fixed z-[80] rounded-2xl border border-line bg-surface p-3.5 shadow-[0_16px_40px_rgba(13,21,18,0.14)]"
+          className="fixed z-[80] rounded-2xl border border-line bg-popup p-3.5 shadow-[0_16px_40px_rgba(0,0,0,0.28)]"
         >
           <div className="mb-3 flex items-center justify-between gap-2">
             <div

@@ -41,7 +41,7 @@ export function HeroCard({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-[20px] bg-ink text-side-text", className)}>
+    <div className={cn("rounded-[20px] bg-inverse text-side-text", className)}>
       {children}
     </div>
   );

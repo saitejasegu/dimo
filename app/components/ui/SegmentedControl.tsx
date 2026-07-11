@@ -40,7 +40,7 @@ export function SegmentedControl<T extends string>({
               "rounded-full text-center text-xs transition-colors",
               fill ? "flex-1 px-0 py-[7px]" : "px-3.5 py-1.5",
               active
-                ? "bg-ink font-semibold text-white"
+                ? "bg-ink font-semibold text-canvas"
                 : "font-medium text-muted",
             )}
           >

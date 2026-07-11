@@ -132,7 +132,7 @@ export function Sheet({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute inset-0 z-30 animate-dim-in bg-ink-deep/45"
+        className="fixed inset-0 z-30 animate-dim-in bg-ink-deep/60"
       />
       <div
         ref={panelRef}
@@ -143,7 +143,7 @@ export function Sheet({
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
         className={cn(
-          "absolute inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] bg-surface px-6 pb-[max(2.25rem,env(safe-area-inset-bottom))] pt-3.5 touch-pan-y",
+          "fixed inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] border border-b-0 border-line bg-popup px-6 pb-[max(2.25rem,env(safe-area-inset-bottom))] pt-3.5 shadow-[0_-16px_48px_rgba(0,0,0,0.28)] touch-pan-y",
           className,
         )}
       >

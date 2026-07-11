@@ -24,7 +24,7 @@ export function Chip({
       className={cn(
         "shrink-0 whitespace-nowrap rounded-full px-3.5 py-[7px] text-[13px] transition-colors",
         selected
-          ? "bg-ink font-medium text-white"
+          ? "bg-ink font-medium text-canvas"
           : cn(
               "border border-line text-body",
               surface === "white" ? "bg-surface" : "bg-canvas",

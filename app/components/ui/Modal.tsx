@@ -24,7 +24,7 @@ export function Modal({
     <div
       role="presentation"
       onClick={onClose}
-      className="absolute inset-0 z-30 flex animate-dim-in items-center justify-center bg-ink-deep/50 px-6"
+      className="absolute inset-0 z-30 flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
     >
       <div
         role="dialog"
@@ -32,7 +32,7 @@ export function Modal({
         onClick={(e) => e.stopPropagation()}
         style={{ width }}
         className={cn(
-          "max-w-full animate-pop-in rounded-[22px] bg-surface p-7",
+          "max-w-full animate-pop-in rounded-[22px] border border-line bg-popup p-7 shadow-[0_24px_60px_rgba(0,0,0,0.35)]",
           className,
         )}
       >

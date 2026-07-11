@@ -14,8 +14,8 @@ import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 import { Button } from "@/components/ui/Button";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { TextField } from "@/components/ui/TextField";
-import { TrashIcon } from "@/components/ui/icons";
 
 function nextAmount(current: string, key: string): string {
   if (key === "⌫") return current.slice(0, -1);
@@ -77,21 +77,17 @@ export function EditExpenseForm({
     <div>
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-display text-lg font-semibold text-ink">Edit expense</h2>
-        <button
-          type="button"
+        <DeleteIconButton
           onClick={actions.deleteDetail}
           aria-label="Delete expense"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-danger-line bg-danger-soft text-danger transition-colors hover:bg-[#fbe9e3]"
-        >
-          <TrashIcon />
-        </button>
+        />
       </div>
 
       {mobile ? (
         <div
           className={cn(
             "mb-3.5 text-center font-display text-[40px] font-semibold",
-            valid ? "text-ink" : "text-[#c3cdc7]",
+            valid ? "text-ink" : "text-disabled",
           )}
         >
           {currencySymbol(currency)}

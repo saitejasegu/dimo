@@ -96,6 +96,8 @@ export type Currency = "INR" | "USD" | "EUR";
 
 export type WeekStart = "Mon" | "Sun";
 
+export type ThemePreference = "system" | "light" | "dark";
+
 export interface NotificationSettings {
   bills: boolean;
   budget: boolean;

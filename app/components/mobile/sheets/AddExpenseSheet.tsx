@@ -22,7 +22,7 @@ export function AddExpenseSheet() {
       <div
         className={cn(
           "mb-3.5 text-center font-display text-[40px] font-semibold",
-          amountOk ? "text-ink" : "text-[#c3cdc7]",
+          amountOk ? "text-ink" : "text-disabled",
         )}
       >
         {currencySymbol(currency)}

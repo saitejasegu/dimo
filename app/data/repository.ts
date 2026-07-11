@@ -2,16 +2,22 @@ import { db, type DeviceMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_ENTITIES,
+  DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   WORKSPACE_ID,
   compareVersions,
   entityKey,
   type CategoryEntity,
+  type EntityPayload,
   type EntityPayloadMap,
   type EntityType,
   type LogicalVersion,
+  type PaymentMethodEntity,
+  type PreferencesEntity,
+  type RecurringEntity,
   type StoredEntity,
   type SyncOperation,
+  type TransactionEntity,
 } from "@/data/model";
 
 const BOOTSTRAP_VERSION = 2;
@@ -57,26 +63,116 @@ async function nextVersion(): Promise<LogicalVersion> {
   return { timestamp, counter, deviceId: device.deviceId };
 }
 
+/** Strip unknown fields and coerce shapes so Convex validators accept local rows. */
+export function sanitizePayload<T extends EntityType>(
+  entityType: T,
+  payload: EntityPayloadMap[T] | EntityPayload,
+): EntityPayloadMap[T] {
+  switch (entityType) {
+    case "category": {
+      const value = payload as CategoryEntity & { emoji?: string };
+      return {
+        id: value.id,
+        name: value.name,
+        emoji: value.emoji || DEFAULT_CATEGORY_EMOJI,
+        monthlyBudgetMinor:
+          value.monthlyBudgetMinor == null ? null : Math.round(Number(value.monthlyBudgetMinor)),
+        tint: value.tint === "green" ? "green" : "neutral",
+        sortOrder: Number(value.sortOrder) || 0,
+        system: Boolean(value.system),
+      } as EntityPayloadMap[T];
+    }
+    case "paymentMethod": {
+      const value = payload as PaymentMethodEntity;
+      const type = value.type;
+      const allowed = ["UPI", "Card", "Wallet", "Cash", "Bank"] as const;
+      return {
+        id: value.id,
+        name: value.name,
+        type: allowed.includes(type as (typeof allowed)[number]) ? type : "Cash",
+        detail: value.detail ?? "",
+        archived: Boolean(value.archived),
+      } as EntityPayloadMap[T];
+    }
+    case "transaction": {
+      const value = payload as TransactionEntity;
+      return {
+        id: value.id,
+        name: value.name,
+        amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
+        occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
+        categoryId: value.categoryId,
+        paymentMethodId: value.paymentMethodId ?? null,
+      } as EntityPayloadMap[T];
+    }
+    case "recurring": {
+      const value = payload as RecurringEntity;
+      const anchor = String(value.anchorDate ?? "");
+      return {
+        id: value.id,
+        name: value.name,
+        amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
+        categoryId: value.categoryId,
+        paymentMethodId: value.paymentMethodId ?? null,
+        frequency: value.frequency === "yearly" ? "yearly" : "monthly",
+        anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(anchor)
+          ? anchor
+          : new Date().toISOString().slice(0, 10),
+        paused: Boolean(value.paused),
+      } as EntityPayloadMap[T];
+    }
+    case "preferences": {
+      const value = payload as PreferencesEntity;
+      const currency = value.currency;
+      const weekStart = value.weekStart;
+      const theme = value.theme;
+      const defaultView = value.defaultView;
+      const views = ["home", "tx", "stats", "recurring", "budgets", "account"] as const;
+      return {
+        id: "preferences",
+        profileName: value.profileName ?? "",
+        profileEmail: value.profileEmail ?? "",
+        currency: currency === "USD" || currency === "EUR" ? currency : "INR",
+        weekStart: weekStart === "Sun" ? "Sun" : "Mon",
+        theme: theme === "light" || theme === "dark" ? theme : "system",
+        defaultView: views.includes(defaultView as (typeof views)[number])
+          ? defaultView
+          : "home",
+        notifications: {
+          bills: Boolean(value.notifications?.bills),
+          budget: Boolean(value.notifications?.budget),
+          weekly: Boolean(value.notifications?.weekly),
+          large: Boolean(value.notifications?.large),
+        },
+        defaultPaymentMethodId: value.defaultPaymentMethodId || CASH_PAYMENT_METHOD.id,
+      } as EntityPayloadMap[T];
+    }
+    default:
+      return payload as EntityPayloadMap[T];
+  }
+}
+
 async function putInCurrentTransaction<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
   deleted = false,
 ) {
   const version = await nextVersion();
-  const key = entityKey(entityType, payload.id);
+  const clean = sanitizePayload(entityType, payload);
+  const key = entityKey(entityType, clean.id);
   const entity: StoredEntity<T> = {
     key,
     workspaceId: WORKSPACE_ID,
     entityType,
-    entityId: payload.id,
+    entityId: clean.id,
     version,
-    payload,
+    payload: clean,
     deleted,
     serverRevision: 0,
   };
   const operation: SyncOperation<T> = {
     operationId: randomId(), key, workspaceId: WORKSPACE_ID,
-    entityType, entityId: payload.id, version, payload, deleted,
+    entityType, entityId: clean.id, version, payload: clean, deleted,
     status: "pending",
     attempts: 0,
     lastError: null,
@@ -224,6 +320,43 @@ export async function acknowledgeOperations(
       }
     }
   });
+}
+
+/** Queue every local entity (including tombstones) so Sync now can replace cloud state. */
+export async function enqueueFullUpload() {
+  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+    const entities = (await db.entities.toArray()).filter(
+      (row) => row.workspaceId === WORKSPACE_ID,
+    );
+    const now = Date.now();
+    for (const entity of entities) {
+      const version = await nextVersion();
+      const payload = sanitizePayload(entity.entityType, entity.payload);
+      const next: StoredEntity = {
+        ...entity,
+        version,
+        payload,
+        serverRevision: 0,
+      };
+      const operation: SyncOperation = {
+        operationId: randomId(),
+        key: entity.key,
+        workspaceId: WORKSPACE_ID,
+        entityType: entity.entityType,
+        entityId: entity.entityId,
+        version,
+        payload,
+        deleted: entity.deleted,
+        status: "pending",
+        attempts: 0,
+        lastError: null,
+        createdAt: now,
+      };
+      await db.entities.put(next);
+      await db.outbox.put(operation);
+    }
+  });
+  notifyWrite();
 }
 
 export async function activeEntities<T extends EntityType>(type: T) {

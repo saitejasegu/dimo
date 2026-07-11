@@ -8,6 +8,7 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const push = makeFunctionReference<"mutation">("sync:push");
 const pull = makeFunctionReference<"query">("sync:pull");
 const currentRevision = makeFunctionReference<"query">("sync:currentRevision");
+const clearWorkspace = makeFunctionReference<"mutation">("sync:clearWorkspace");
 
 const operation = {
   operationId: "op-1",
@@ -37,6 +38,9 @@ describe("Convex sync protocol", () => {
     ).rejects.toThrow("Not authenticated");
     await expect(
       t.query(currentRevision, { workspaceId: "global" }),
+    ).rejects.toThrow("Not authenticated");
+    await expect(
+      t.mutation(clearWorkspace, { workspaceId: "global" }),
     ).rejects.toThrow("Not authenticated");
   });
 
@@ -108,5 +112,41 @@ describe("Convex sync protocol", () => {
     expect(bobResult.entities[0].payload.name).toBe("Bob's coffee");
     expect(aliceResult.latestRevision).toBe(1);
     expect(bobResult.latestRevision).toBe(1);
+  });
+
+  it("clears only the authenticated owner's workspace for a full re-upload", async () => {
+    const base = convexTest(schema, modules);
+    const alice = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|alice" });
+    const bob = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|bob" });
+
+    await alice.mutation(push, { workspaceId: "global", operations: [operation] });
+    await bob.mutation(push, {
+      workspaceId: "global",
+      operations: [{
+        ...operation,
+        operationId: "bob-op",
+        payload: { ...operation.payload, name: "Bob's coffee" },
+      }],
+    });
+
+    const cleared = await alice.mutation(clearWorkspace, { workspaceId: "global" });
+    expect(cleared.deleted).toBe(1);
+    expect(cleared.hasMore).toBe(false);
+
+    const aliceAfter = await alice.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(aliceAfter.entities).toEqual([]);
+    expect(aliceAfter.latestRevision).toBe(0);
+
+    const bobAfter = await bob.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(bobAfter.entities).toHaveLength(1);
+    expect(bobAfter.latestRevision).toBe(1);
   });
 });

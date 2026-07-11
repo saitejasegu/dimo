@@ -17,10 +17,10 @@ interface ButtonProps {
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-green text-white",
-  secondary: "border border-hairline bg-surface text-ink hover:bg-canvas",
+  primary: "bg-green text-on-green",
+  secondary: "border border-line bg-canvas text-ink hover:bg-canvas-deep",
   danger: "border border-danger-line bg-danger-soft text-danger",
-  accent: "bg-green text-white hover:bg-green-deep",
+  accent: "bg-green text-on-green hover:bg-green-deep",
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
@@ -49,7 +49,7 @@ export function Button({
         "inline-flex items-center justify-center gap-2 rounded-xl text-center font-semibold transition-colors",
         SIZE_CLASSES[size],
         disabled
-          ? "pointer-events-none bg-canvas-deep text-faint"
+          ? "pointer-events-none border border-line bg-canvas-deep text-muted"
           : VARIANT_CLASSES[variant],
         fullWidth && "w-full",
         className,

@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/data/db";
 import { entityKey } from "@/data/model";
-import { initializeLocalDatabase, saveEntity } from "@/data/repository";
+import { initializeLocalDatabase, saveEntity, enqueueFullUpload } from "@/data/repository";
 
 describe("local repository", () => {
   beforeEach(async () => {
@@ -31,5 +31,15 @@ describe("local repository", () => {
     expect(second?.operationId).not.toBe(first?.operationId);
     expect((second?.payload as typeof payload).name).toBe("Updated");
     expect(await db.entities.count()).toBe(8);
+  });
+
+  it("enqueues every local entity for a full cloud re-upload", async () => {
+    await initializeLocalDatabase();
+    await db.outbox.clear();
+    expect(await db.outbox.count()).toBe(0);
+    await enqueueFullUpload();
+    expect(await db.outbox.count()).toBe(await db.entities.count());
+    const blocked = await db.outbox.where("status").equals("blocked").count();
+    expect(blocked).toBe(0);
   });
 });

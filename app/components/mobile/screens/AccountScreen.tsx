@@ -4,6 +4,7 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import {
   CURRENCY_OPTIONS,
   DEFAULT_VIEW_OPTIONS,
+  THEME_OPTIONS,
   WEEK_START_OPTIONS,
 } from "@/features/account/constants";
 import { Card } from "@/components/ui/Card";
@@ -15,6 +16,7 @@ import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { useAuth } from "@workos-inc/authkit-react";
+import { signOutAndClearLocal } from "@/auth/signOut";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -22,7 +24,7 @@ const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
 }));
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, defaultView } =
+  const { profile, currency, weekStart, theme, defaultView } =
     useAppState();
   const actions = useAppActions();
   const { signOut } = useAuth();
@@ -73,7 +75,7 @@ export function AccountScreen() {
           className="mb-4"
         />
         <Button
-          onClick={() => void signOut({ returnTo: window.location.origin })}
+          onClick={() => void signOutAndClearLocal(signOut)}
           variant="secondary"
           fullWidth
         >
@@ -89,6 +91,13 @@ export function AccountScreen() {
         <h2 className="mb-4 font-display text-base font-semibold text-ink">
           Preferences
         </h2>
+        <p className="mb-2 text-[13px] font-medium text-ink">Appearance</p>
+        <SegmentedControl
+          options={THEME_OPTIONS}
+          value={theme}
+          onChange={actions.setTheme}
+          className="mb-4"
+        />
         <p className="mb-2 text-[13px] font-medium text-ink">Currency</p>
         <SegmentedControl
           options={CURRENCY_OPTIONS}

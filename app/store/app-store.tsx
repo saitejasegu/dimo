@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   type Dispatch,
@@ -42,6 +43,7 @@ import {
   type PaymentMethodInput,
   type PaymentMethodOption,
   type StatsRange,
+  type ThemePreference,
   type TransactionEditInput,
   type ViewKey,
   type WeekStart,
@@ -49,7 +51,7 @@ import {
 import type { Action } from "@/store/actions";
 import { reducer } from "@/store/reducer";
 import { type AppState, createInitialState } from "@/store/state";
-import { requestSync, startSync, stopSync } from "@/sync/coordinator";
+import { requestFullSync, startSync, stopSync } from "@/sync/coordinator";
 
 const TOAST_DURATION_MS = 1800;
 
@@ -82,6 +84,7 @@ export interface AppActions {
   setProfileName: (name: string) => void;
   setProfileEmail: (email: string) => void; saveProfile: () => void;
   setCurrency: (currency: Currency) => void; setWeekStart: (weekStart: WeekStart) => void;
+  setTheme: (theme: ThemePreference) => void;
   setDefaultView: (view: string) => void;
   toggleNotification: (key: keyof NotificationSettings) => void;
   showToast: (message: string) => void; syncNow: () => void;
@@ -106,6 +109,7 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
     profileEmail: state.profile.email,
     currency: state.currency,
     weekStart: state.weekStart,
+    theme: state.theme,
     defaultView: labelToView(state.defaultView),
     notifications: state.notifications,
     defaultPaymentMethodId: defaultMethod,
@@ -322,9 +326,10 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     saveProfile: () => persist(saveEntity("preferences", preferencesFrom(getState())), () => dispatch({ type: "SHOW_TOAST", message: "Profile saved" })),
     setCurrency: (currency) => { dispatch({ type: "SET_CURRENCY", currency }); persist(saveEntity("preferences", preferencesFrom(getState(), { currency }))); },
     setWeekStart: (weekStart) => { dispatch({ type: "SET_WEEK_START", weekStart }); persist(saveEntity("preferences", preferencesFrom(getState(), { weekStart }))); },
+    setTheme: (theme) => { dispatch({ type: "SET_THEME", theme }); persist(saveEntity("preferences", preferencesFrom(getState(), { theme }))); },
     setDefaultView: (view) => { dispatch({ type: "SET_DEFAULT_VIEW", view }); persist(saveEntity("preferences", preferencesFrom(getState(), { defaultView: labelToView(view) }))); },
     toggleNotification: (key) => { const state = getState(); const notifications = { ...state.notifications, [key]: !state.notifications[key] }; dispatch({ type: "TOGGLE_NOTIFICATION", key }); persist(saveEntity("preferences", preferencesFrom(state, { notifications }))); },
-    showToast: (message) => dispatch({ type: "SHOW_TOAST", message }), syncNow: () => { void requestSync(); },
+    showToast: (message) => dispatch({ type: "SHOW_TOAST", message }), syncNow: () => { void requestFullSync(); },
   };
 }
 
@@ -377,7 +382,8 @@ export function AppStoreProvider({
         } satisfies CategoryEntity;
       })
       .sort((a, b) => a.sortOrder - b.sortOrder);
-    const preference = active.find((r) => r.entityType === "preferences")?.payload as PreferencesEntity | undefined ?? DEFAULT_PREFERENCES;
+    const storedPreference = active.find((r) => r.entityType === "preferences")?.payload as Partial<PreferencesEntity> | undefined;
+    const preference: PreferencesEntity = { ...DEFAULT_PREFERENCES, ...storedPreference };
     const methodEntities = active.filter((r) => r.entityType === "paymentMethod").map((r) => r.payload as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
@@ -387,6 +393,30 @@ export function AppStoreProvider({
   }, [entities, device]);
 
   useEffect(() => { if (!state.toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [state.toast, state.toastNonce]);
+  useLayoutEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      document.documentElement.dataset.theme = state.theme;
+      const resolved = state.theme === "system" ? (media.matches ? "dark" : "light") : state.theme;
+      document.documentElement.style.colorScheme = resolved;
+      const dimmed = Boolean(state.overlay || state.detailId);
+      // Match sheet scrim (ink-deep/60 over canvas) so iOS status bar / Dynamic Island
+      // chrome doesn't leave a light strip above the overlay.
+      const color = dimmed
+        ? resolved === "dark"
+          ? "#0a100e"
+          : "#6a706d"
+        : resolved === "dark"
+          ? "#0c1210"
+          : "#f5f8f6";
+      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+        ?.setAttribute("content", color);
+    };
+    apply();
+    if (state.theme !== "system") return;
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [state.theme, state.overlay, state.detailId]);
   const actions = useMemo(() => createActions(dispatch, () => state), [state]);
   const sync: SyncState = useMemo(() => ({ workspaceId: WORKSPACE_ID, lastPulledRevision: meta?.lastPulledRevision ?? 0, lastSyncedAt: meta?.lastSyncedAt ?? null, error: meta?.error ?? null, syncing: meta?.syncing ?? false, pending, blocked, configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL) }), [meta, pending, blocked]);
   const value = useMemo(() => ({

@@ -72,6 +72,11 @@ export const preferencesValidator = v.object({
   profileEmail: v.string(),
   currency: v.union(v.literal("INR"), v.literal("USD"), v.literal("EUR")),
   weekStart: v.union(v.literal("Mon"), v.literal("Sun")),
+  // Optional so preferences written by older clients continue to sync. The
+  // app normalizes a missing value to the system theme.
+  theme: v.optional(
+    v.union(v.literal("system"), v.literal("light"), v.literal("dark")),
+  ),
   defaultView: v.union(
     v.literal("home"),
     v.literal("tx"),

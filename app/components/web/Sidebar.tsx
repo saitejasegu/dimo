@@ -29,7 +29,7 @@ export function Sidebar() {
   const { totals } = useBudgets();
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col bg-ink px-[18px] pb-5 pt-[26px]">
+    <aside className="flex w-64 shrink-0 flex-col bg-inverse px-[18px] pb-5 pt-[26px]">
       <div className="mb-[30px] flex items-center gap-[11px] px-2">
         <div className="flex h-[38px] w-[38px] items-center justify-center rounded-xl bg-green font-display text-[19px] font-bold text-white">
           D

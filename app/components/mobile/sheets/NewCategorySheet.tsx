@@ -6,7 +6,7 @@ import { deleteCategoryWarning } from "@/features/budgets/deleteCategoryWarning"
 import { Sheet } from "@/components/ui/Sheet";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NewCategoryForm } from "@/components/forms/NewCategoryForm";
-import { TrashIcon } from "@/components/ui/icons";
+import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 
 export function NewCategorySheet() {
   const { categoryDraft, categories, transactions, recurring } = useAppState();
@@ -37,14 +37,10 @@ export function NewCategorySheet() {
         title={editing ? "Edit category" : "New category"}
         headerRight={
           editing ? (
-            <button
-              type="button"
+            <DeleteIconButton
               onClick={requestDelete}
               aria-label="Delete category"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-danger-line bg-danger-soft text-danger transition-colors hover:bg-[#fbe9e3]"
-            >
-              <TrashIcon />
-            </button>
+            />
           ) : undefined
         }
       >

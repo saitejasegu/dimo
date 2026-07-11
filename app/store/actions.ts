@@ -9,6 +9,7 @@ import type {
   PaymentMethodInput,
   TransactionEditInput,
   StatsRange,
+  ThemePreference,
   ViewKey,
   WeekStart,
 } from "@/lib/types";
@@ -66,6 +67,7 @@ export type Action =
   | { type: "SET_PROFILE_EMAIL"; email: string }
   | { type: "SET_CURRENCY"; currency: Currency }
   | { type: "SET_WEEK_START"; weekStart: WeekStart }
+  | { type: "SET_THEME"; theme: ThemePreference }
   | { type: "SET_DEFAULT_VIEW"; view: string }
   | { type: "TOGGLE_NOTIFICATION"; key: keyof NotificationSettings }
   // toast
