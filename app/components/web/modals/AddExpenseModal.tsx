@@ -26,6 +26,7 @@ export function AddExpenseModal() {
           onChange={(e) => actions.setExpenseAmount(e.target.value)}
           placeholder="0"
           inputMode="decimal"
+          autoComplete="off"
           autoFocus
           className="w-full flex-1 bg-transparent font-display text-[32px] font-semibold text-ink outline-none placeholder:text-faint"
         />
@@ -35,6 +36,7 @@ export function AddExpenseModal() {
         value={expenseDraft.name}
         onChange={actions.setExpenseName}
         placeholder="Merchant (e.g. Chai Point)"
+        autoComplete="off"
         className="mb-4"
       />
 

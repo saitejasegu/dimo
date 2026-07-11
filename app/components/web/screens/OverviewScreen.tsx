@@ -1,6 +1,7 @@
 "use client";
 
 import { money } from "@/lib/format";
+import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { Card, HeroCard } from "@/components/ui/Card";
@@ -30,7 +31,7 @@ export function OverviewScreen() {
       <div className="mb-[26px] flex items-end justify-between">
         <div>
           <div className="mb-1 text-sm text-muted">
-            Good morning, {firstName}
+            {greetingFor()}, {firstName}
           </div>
           <div className="font-display text-[28px] font-semibold text-ink">
             Overview

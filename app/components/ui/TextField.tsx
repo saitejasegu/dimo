@@ -8,6 +8,7 @@ interface TextFieldProps {
   label?: ReactNode;
   inputMode?: "text" | "numeric" | "decimal";
   type?: "text" | "email";
+  autoComplete?: string;
   autoFocus?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -21,6 +22,7 @@ export function TextField({
   label,
   inputMode = "text",
   type = "text",
+  autoComplete,
   autoFocus,
   readOnly = false,
   className,
@@ -32,6 +34,7 @@ export function TextField({
       ) : null}
       <input
         type={type}
+        autoComplete={autoComplete}
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
         placeholder={placeholder}

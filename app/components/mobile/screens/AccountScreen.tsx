@@ -4,14 +4,12 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import {
   CURRENCY_OPTIONS,
   DEFAULT_VIEW_OPTIONS,
-  NOTIFICATION_DEFS,
   WEEK_START_OPTIONS,
 } from "@/features/account/constants";
 import { Card } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
-import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
@@ -24,7 +22,7 @@ const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
 }));
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, defaultView, notifications } =
+  const { profile, currency, weekStart, defaultView } =
     useAppState();
   const actions = useAppActions();
   const { signOut } = useAuth();
@@ -45,7 +43,7 @@ export function AccountScreen() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <div className="bubble-scrollbar min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
       <Card className="mb-3.5 p-5">
         <div className="mb-4 flex items-center gap-4">
           <Avatar
@@ -111,27 +109,6 @@ export function AccountScreen() {
           value={defaultView}
           onChange={actions.setDefaultView}
         />
-      </Card>
-
-      <Card className="mb-3.5 p-5">
-        <h2 className="mb-4 font-display text-base font-semibold text-ink">
-          Notifications
-        </h2>
-        <div className="flex flex-col gap-4">
-          {NOTIFICATION_DEFS.map((def) => (
-            <div key={def.key} className="flex items-center justify-between gap-3.5">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium text-ink">{def.label}</div>
-                <div className="text-xs text-muted">{def.sub}</div>
-              </div>
-              <Toggle
-                checked={notifications[def.key]}
-                onChange={() => actions.toggleNotification(def.key)}
-                label={def.label}
-              />
-            </div>
-          ))}
-        </div>
       </Card>
 
       <Card className="mb-3.5 p-5"><SyncStatusCard /></Card>

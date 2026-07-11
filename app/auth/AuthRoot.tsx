@@ -106,6 +106,9 @@ export function AuthRoot() {
     <AuthKitProvider
       clientId={clientId}
       redirectUri={redirectUri}
+      // Persist the refresh token across reloads and cold launches. AuthKit
+      // removes it when signOut is called from either account screen.
+      devMode
       // Keep AuthKit's freshly exchanged in-memory access token. A full page
       // navigation here would recreate the client before Convex can receive it.
       onRedirectCallback={() => window.history.replaceState({}, "", "/")}

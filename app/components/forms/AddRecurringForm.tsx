@@ -99,6 +99,7 @@ export function AddRecurringForm({
         value={recurringDraft.name}
         onChange={actions.setRecurringName}
         placeholder="e.g. iCloud, House help, SIP"
+        autoComplete="off"
         className="mb-3.5"
       />
 
@@ -108,6 +109,7 @@ export function AddRecurringForm({
         onChange={actions.setRecurringAmount}
         placeholder="₹"
         inputMode="numeric"
+        autoComplete="off"
         className="mb-3.5"
       />
       <DateField

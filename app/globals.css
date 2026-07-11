@@ -130,4 +130,38 @@
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
+
+  /* A compact thumb that bubbles outward when the pointer reaches it. */
+  .bubble-scrollbar {
+    scrollbar-color: var(--color-bar-soft) transparent;
+    scrollbar-width: thin;
+  }
+
+  .bubble-scrollbar::-webkit-scrollbar {
+    width: 14px;
+  }
+
+  .bubble-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .bubble-scrollbar::-webkit-scrollbar-thumb {
+    min-height: 36px;
+    border: 4px solid transparent;
+    border-radius: 999px;
+    background: var(--color-bar-soft);
+    background-clip: padding-box;
+  }
+
+  .bubble-scrollbar::-webkit-scrollbar-thumb:hover {
+    border-width: 2px;
+    background: var(--color-green);
+    background-clip: padding-box;
+  }
+
+  .bubble-scrollbar::-webkit-scrollbar-thumb:active {
+    border-width: 1px;
+    background: var(--color-green-deep);
+    background-clip: padding-box;
+  }
 }

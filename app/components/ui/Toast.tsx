@@ -2,19 +2,19 @@ import { cn } from "@/lib/cn";
 
 interface ToastProps {
   message: string;
-  /** Vertical offset from the top of the container. */
-  top?: number;
+  /** Vertical offset from the bottom of the viewport. */
+  bottom?: number;
   withShadow?: boolean;
 }
 
-/** The floating confirmation pill. Positioning is centered horizontally. */
-export function Toast({ message, top = 64, withShadow = false }: ToastProps) {
+/** The floating confirmation pill, centered near the bottom of the viewport. */
+export function Toast({ message, bottom = 24, withShadow = false }: ToastProps) {
   return (
     <div
       role="status"
-      style={{ top }}
+      style={{ bottom }}
       className={cn(
-        "absolute left-1/2 z-40 -translate-x-1/2 animate-toast-in whitespace-nowrap rounded-full bg-ink px-[18px] py-[9px] text-[13px] text-side-text",
+        "fixed left-1/2 z-40 max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-toast-in rounded-full bg-ink px-[18px] py-[9px] text-center text-[13px] text-side-text",
         withShadow && "shadow-[0_12px_30px_-10px_rgba(13,21,18,0.5)]",
       )}
     >

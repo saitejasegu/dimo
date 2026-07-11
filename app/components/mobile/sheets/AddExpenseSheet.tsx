@@ -33,6 +33,7 @@ export function AddExpenseSheet() {
         value={expenseDraft.name}
         onChange={actions.setExpenseName}
         placeholder="Merchant (e.g. Chai Point)"
+        autoComplete="off"
         className="mb-3"
       />
 

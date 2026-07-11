@@ -5,14 +5,12 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import {
   CURRENCY_OPTIONS,
   DEFAULT_VIEW_OPTIONS,
-  NOTIFICATION_DEFS,
   WEEK_START_OPTIONS,
 } from "@/features/account/constants";
 import { Card } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
-import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
@@ -45,7 +43,7 @@ function PreferenceRow({
 }
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, defaultView, notifications } =
+  const { profile, currency, weekStart, defaultView } =
     useAppState();
   const actions = useAppActions();
   const { signOut } = useAuth();
@@ -96,7 +94,7 @@ export function AccountScreen() {
         </div>
       </Card>
 
-      <div className="mb-[18px] grid grid-cols-2 items-start gap-[18px]">
+      <div className="mb-[18px]">
         <Card className="p-[22px]">
           <h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">
             Preferences
@@ -143,29 +141,6 @@ export function AccountScreen() {
           </div>
         </Card>
 
-        <Card className="p-[22px]">
-          <h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">
-            Notifications
-          </h2>
-          <div className="flex flex-col gap-4">
-            {NOTIFICATION_DEFS.map((def) => (
-              <div
-                key={def.key}
-                className="flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-ink">{def.label}</div>
-                  <div className="text-xs text-muted">{def.sub}</div>
-                </div>
-                <Toggle
-                  checked={notifications[def.key]}
-                  onChange={() => actions.toggleNotification(def.key)}
-                  label={def.label}
-                />
-              </div>
-            ))}
-          </div>
-        </Card>
       </div>
 
       <Card className="mb-[18px] p-[22px]">

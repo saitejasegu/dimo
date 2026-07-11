@@ -40,7 +40,7 @@ export function WebApp() {
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-canvas font-body">
       <Sidebar />
-      <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas">
+      <main className="bubble-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas">
         <CurrentScreen />
       </main>
 

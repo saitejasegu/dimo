@@ -22,7 +22,7 @@ export function MobileScreen({
       )}
       <div
         className={cn(
-          "min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[110px] pt-4",
+          "bubble-scrollbar min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[110px] pt-4",
           className,
         )}
       >

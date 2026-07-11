@@ -1,6 +1,7 @@
 "use client";
 
 import { money } from "@/lib/format";
+import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { Avatar } from "@/components/ui/Avatar";
@@ -29,7 +30,7 @@ export function HomeScreen() {
         <>
           <div className="mb-[18px] flex items-center justify-between">
             <div>
-              <div className="text-[13px] text-muted">Good morning</div>
+              <div className="text-[13px] text-muted">{greetingFor()}</div>
               <div className="font-display text-[22px] font-semibold text-ink">
                 {profile.name}
               </div>
