@@ -57,9 +57,12 @@ const TOAST_DURATION_MS = 1800;
 
 export interface AppActions {
   setView: (view: ViewKey) => void; openAccount: () => void; closeAccount: () => void;
-  setFilter: (category: CategoryName | "All") => void; setQuery: (query: string) => void;
+  setFilter: (category: CategoryName | "All") => void;
+  setPaymentFilter: (paymentMethod: PaymentMethod | "All") => void;
+  setQuery: (query: string) => void;
   setStatsRange: (range: StatsRange) => void; setSelectedMonth: (month: string) => void;
   toggleMerchants: () => void; openMerchant: (name: string) => void;
+  openCategory: (category: CategoryName) => void;
   openOverlay: (overlay: Exclude<OverlayKey, null>) => void; closeOverlay: () => void;
   openDetail: (id: ID) => void; closeDetail: () => void; deleteDetail: () => void;
   deleteTransactions: (ids: ID[]) => void;
@@ -89,6 +92,8 @@ export interface AppActions {
   setCurrency: (currency: Currency) => void; setWeekStart: (weekStart: WeekStart) => void;
   setTheme: (theme: ThemePreference) => void;
   setDefaultView: (view: string) => void;
+  setDefaultStatsRange: (range: StatsRange) => void;
+  manageStatsDefaults: () => void;
   toggleNotification: (key: keyof NotificationSettings) => void;
   showToast: (message: string) => void; syncNow: () => void;
 }
@@ -114,6 +119,7 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
     weekStart: state.weekStart,
     theme: state.theme,
     defaultView: labelToView(state.defaultView),
+    defaultStatsRange: state.defaultStatsRange,
     notifications: state.notifications,
     defaultPaymentMethodId: defaultMethod,
     ...patch,
@@ -127,9 +133,13 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setView: (view) => dispatch({ type: "SET_VIEW", view }),
     openAccount: () => dispatch({ type: "SET_VIEW", view: "account" }),
     closeAccount: () => dispatch({ type: "SET_VIEW", view: "home" }),
-    setFilter: (category) => dispatch({ type: "SET_FILTER", category }), setQuery: (query) => dispatch({ type: "SET_QUERY", query }),
+    setFilter: (category) => dispatch({ type: "SET_FILTER", category }),
+    setPaymentFilter: (paymentMethod) =>
+      dispatch({ type: "SET_PAYMENT_FILTER", paymentMethod }),
+    setQuery: (query) => dispatch({ type: "SET_QUERY", query }),
     setStatsRange: (range) => dispatch({ type: "SET_STATS_RANGE", range }), setSelectedMonth: (month) => dispatch({ type: "SET_SELECTED_MONTH", month }),
     toggleMerchants: () => dispatch({ type: "TOGGLE_MERCHANTS" }), openMerchant: (name) => dispatch({ type: "OPEN_MERCHANT", name }),
+    openCategory: (category) => dispatch({ type: "OPEN_CATEGORY", category }),
     openOverlay: (overlay) => dispatch({ type: "OPEN_OVERLAY", overlay }), closeOverlay: () => dispatch({ type: "CLOSE_OVERLAY" }),
     openDetail: (id) => dispatch({ type: "OPEN_DETAIL", id }), closeDetail: () => dispatch({ type: "CLOSE_DETAIL" }),
     deleteDetail: () => {
@@ -173,6 +183,16 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "tx" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
     },
     managePaymentMethods: () => { dispatch({ type: "MANAGE_PAYMENT_METHODS" }); requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("payment-methods")?.scrollIntoView({ behavior: "smooth", block: "center" }))); },
+    manageStatsDefaults: () => {
+      dispatch({ type: "SET_VIEW", view: "account" });
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          document
+            .getElementById("stats-defaults")
+            ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+        ),
+      );
+    },
     addPaymentMethod: (input) => {
       const name = input.name.trim(); if (!name || getState().paymentMethods.some((m) => m.name.toLowerCase() === name.toLowerCase())) return;
       const entity: PaymentMethodEntity = { id: crypto.randomUUID(), name, type: input.type, detail: input.detail.trim(), archived: false };
@@ -350,6 +370,15 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setWeekStart: (weekStart) => { dispatch({ type: "SET_WEEK_START", weekStart }); persist(saveEntity("preferences", preferencesFrom(getState(), { weekStart }))); },
     setTheme: (theme) => { dispatch({ type: "SET_THEME", theme }); persist(saveEntity("preferences", preferencesFrom(getState(), { theme }))); },
     setDefaultView: (view) => { dispatch({ type: "SET_DEFAULT_VIEW", view }); persist(saveEntity("preferences", preferencesFrom(getState(), { defaultView: labelToView(view) }))); },
+    setDefaultStatsRange: (range) => {
+      dispatch({ type: "SET_DEFAULT_STATS_RANGE", range });
+      persist(
+        saveEntity(
+          "preferences",
+          preferencesFrom(getState(), { defaultStatsRange: range }),
+        ),
+      );
+    },
     toggleNotification: (key) => { const state = getState(); const notifications = { ...state.notifications, [key]: !state.notifications[key] }; dispatch({ type: "TOGGLE_NOTIFICATION", key }); persist(saveEntity("preferences", preferencesFrom(state, { notifications }))); },
     showToast: (message) => dispatch({ type: "SHOW_TOAST", message }), syncNow: () => { void requestFullSync(); },
   };

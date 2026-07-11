@@ -1,8 +1,9 @@
 "use client";
 
 import { lazy, Suspense } from "react";
-import { useAppState } from "@/store/app-store";
+import { useAppActions, useAppState } from "@/store/app-store";
 import { usePrefetchOnMount } from "@/hooks/usePrefetchOnMount";
+import { useBrowserSwipeGuard } from "@/hooks/useBrowserSwipeGuard";
 import { TabBar } from "@/components/mobile/TabBar";
 import { Fab } from "@/components/mobile/Fab";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
@@ -74,7 +75,12 @@ function CurrentScreen() {
 
 export function MobileApp() {
   const { view, overlay, detailId } = useAppState();
+  const actions = useAppActions();
   usePrefetchOnMount(PREFETCH);
+  useBrowserSwipeGuard({
+    accountBackEnabled: view === "account" && overlay == null && detailId == null,
+    onAccountBack: actions.closeAccount,
+  });
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-canvas font-body">

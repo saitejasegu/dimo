@@ -5,6 +5,7 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
 import { useActivitySelection } from "@/features/transactions/useActivitySelection";
 import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
+import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -14,8 +15,17 @@ import { WebScreen } from "@/components/web/WebScreen";
 export function ActivityScreen() {
   const { query, currency, categories } = useAppState();
   const actions = useAppActions();
-  const { options, filter, groups, summary, shownCount, totalCount, filtered } =
-    useActivity();
+  const {
+    options,
+    filter,
+    paymentFilter,
+    paymentOptions,
+    groups,
+    summary,
+    shownCount,
+    totalCount,
+    filtered,
+  } = useActivity();
   const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
   const selection = useActivitySelection(filtered.map((tx) => tx.id));
 
@@ -49,7 +59,7 @@ export function ActivityScreen() {
       <div className="mb-[22px] flex min-w-0 items-center gap-2.5">
         <Chip
           label="All"
-          selected={filter === "All"}
+          selected={filter.length === 0}
           onClick={() => actions.setFilter("All")}
         />
         <div
@@ -65,12 +75,20 @@ export function ActivityScreen() {
                 <Chip
                   key={option}
                   label={emoji ? `${emoji} ${option}` : option}
-                  selected={filter === option}
+                  selected={filter.includes(option)}
                   onClick={() => actions.setFilter(option)}
                 />
               );
             })}
         </div>
+        {paymentOptions.length > 1 ? (
+          <PaymentMethodFilter
+            value={paymentFilter}
+            options={paymentOptions}
+            onChange={actions.setPaymentFilter}
+            className="w-56 shrink-0"
+          />
+        ) : null}
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-5">

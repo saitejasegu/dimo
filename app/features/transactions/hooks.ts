@@ -4,20 +4,27 @@ import {
   filterOptions,
   filterTransactions,
   groupByDay,
+  paymentMethodFilterOptions,
   summarize,
 } from "@/features/transactions/selectors";
 
 export function useActivity() {
-  const { transactions, filter, query, limits } = useAppState();
+  const { transactions, filter, paymentFilter, query, limits } = useAppState();
 
   return useMemo(() => {
+    const paymentOptions = paymentMethodFilterOptions(transactions);
+    const effectivePaymentFilter =
+      paymentOptions.length > 1 ? paymentFilter : "All";
     const filtered = filterTransactions(transactions, {
-      category: filter,
+      categories: filter,
+      paymentMethod: effectivePaymentFilter,
       query,
     });
     return {
       options: filterOptions(limits),
       filter,
+      paymentFilter: effectivePaymentFilter,
+      paymentOptions,
       query,
       filtered,
       groups: groupByDay(filtered),
@@ -25,5 +32,5 @@ export function useActivity() {
       totalCount: transactions.length,
       shownCount: filtered.length,
     };
-  }, [transactions, filter, query, limits]);
+  }, [transactions, filter, paymentFilter, query, limits]);
 }

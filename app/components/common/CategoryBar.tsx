@@ -7,6 +7,7 @@ interface CategoryBarProps {
   value: number;
   tone?: ProgressTone;
   height?: number;
+  onClick?: () => void;
   className?: string;
 }
 
@@ -17,10 +18,11 @@ export function CategoryBar({
   value,
   tone = "green",
   height = 6,
+  onClick,
   className,
 }: CategoryBarProps) {
-  return (
-    <div className={className}>
+  const content = (
+    <>
       <div className="mb-1.5 flex items-baseline justify-between">
         <span className="text-[13px] font-medium text-ink">{label}</span>
         {caption ? (
@@ -28,6 +30,21 @@ export function CategoryBar({
         ) : null}
       </div>
       <ProgressBar value={value} tone={tone} height={height} />
-    </div>
+    </>
+  );
+
+  return onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "block w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-green/20",
+        className,
+      )}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }

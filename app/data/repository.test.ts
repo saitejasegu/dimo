@@ -1,8 +1,13 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/data/db";
-import { entityKey } from "@/data/model";
-import { initializeLocalDatabase, saveEntity, enqueueFullUpload } from "@/data/repository";
+import { DEFAULT_PREFERENCES, entityKey } from "@/data/model";
+import {
+  initializeLocalDatabase,
+  saveEntity,
+  enqueueFullUpload,
+  sanitizePayload,
+} from "@/data/repository";
 
 describe("local repository", () => {
   beforeEach(async () => {
@@ -19,6 +24,17 @@ describe("local repository", () => {
     await initializeLocalDatabase();
     expect(await db.entities.count()).toBe(7);
     expect(await db.outbox.count()).toBe(7);
+  });
+
+  it("normalizes older preferences to the one-year stats default", () => {
+    const olderPreferences: Partial<typeof DEFAULT_PREFERENCES> = {
+      ...DEFAULT_PREFERENCES,
+    };
+    delete olderPreferences.defaultStatsRange;
+    expect(
+      sanitizePayload("preferences", olderPreferences as typeof DEFAULT_PREFERENCES)
+        .defaultStatsRange,
+    ).toBe("1Y");
   });
 
   it("atomically replaces the outbox operation for a newer entity edit", async () => {

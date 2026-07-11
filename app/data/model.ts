@@ -3,6 +3,7 @@ import type {
   NotificationSettings,
   PaymentMethodType,
   ThemePreference,
+  StatsRange,
   ViewKey,
   WeekStart,
 } from "@/lib/types";
@@ -72,6 +73,7 @@ export interface PreferencesEntity {
   weekStart: WeekStart;
   theme: ThemePreference;
   defaultView: ViewKey;
+  defaultStatsRange: StatsRange;
   notifications: NotificationSettings;
   defaultPaymentMethodId: string;
 }
@@ -153,6 +155,7 @@ export const DEFAULT_PREFERENCES: PreferencesEntity = {
   weekStart: "Mon",
   theme: "light",
   defaultView: "home",
+  defaultStatsRange: "1Y",
   notifications: { bills: true, budget: true, weekly: false, large: true },
   defaultPaymentMethodId: CASH_PAYMENT_METHOD.id,
 };

@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import type { MonthBar } from "@/features/stats/selectors";
 import { cn } from "@/lib/cn";
 
@@ -45,58 +48,80 @@ export function MonthBars({
   size?: "mobile" | "web";
 }) {
   const cfg = SIZES[size];
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const scrollable = bars.length > 6;
+  const lastBarKey = bars.at(-1)?.key;
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !scrollable) return;
+    const frame = requestAnimationFrame(() => {
+      scroller.scrollLeft = scroller.scrollWidth - scroller.clientWidth;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [bars.length, lastBarKey, scrollable]);
 
   return (
     <div
-      className={cn("flex items-end", cfg.gap)}
-      style={{ height: cfg.containerHeight }}
+      ref={scrollerRef}
+      className={cn(
+        "overflow-y-hidden",
+        scrollable &&
+          "overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+      )}
     >
-      {bars.map((bar) => {
-        const barHeight = Math.max(
-          cfg.minBarHeight,
-          Math.round(bar.heightRatio * cfg.maxBarHeight),
-        );
-        return (
-          <button
-            type="button"
-            key={bar.key}
-            onClick={() => onSelect(bar.key)}
-            className={cn(
-              "flex h-full flex-1 flex-col items-center justify-end",
-              cfg.gap,
-            )}
-          >
-            <span
+      <div
+        className="flex min-w-full items-end gap-0.5"
+        style={{ height: cfg.containerHeight }}
+      >
+        {bars.map((bar) => {
+          const barHeight = Math.max(
+            cfg.minBarHeight,
+            Math.round(bar.heightRatio * cfg.maxBarHeight),
+          );
+          return (
+            <button
+              type="button"
+              key={bar.key}
+              onClick={() => onSelect(bar.key)}
               className={cn(
-                "h-3.5 leading-none",
-                cfg.amtClass(bar.wide),
-                bar.selected ? "font-semibold text-green" : "text-muted",
+                "flex h-full flex-col items-center justify-end",
+                scrollable ? "w-10 shrink-0" : "flex-1",
+                cfg.gap,
               )}
             >
-              {bar.display}
-            </span>
-            <span
-              className={cn(
-                "w-full rounded-t-md",
-                bar.selected ? "bg-green" : "bg-bar",
-              )}
-              style={{
-                maxWidth: bar.wide ? cfg.wideWidth : cfg.narrowWidth,
-                height: barHeight,
-                borderRadius: "6px 6px 3px 3px",
-              }}
-            />
-            <span
-              className={cn(
-                cfg.labelClass(bar.wide),
-                bar.selected ? "font-semibold text-green" : "text-faint",
-              )}
-            >
-              {bar.label}
-            </span>
-          </button>
-        );
-      })}
+              <span
+                className={cn(
+                  "h-3.5 leading-none",
+                  cfg.amtClass(bar.wide),
+                  bar.selected ? "font-semibold text-green" : "text-muted",
+                )}
+              >
+                {bar.display}
+              </span>
+              <span
+                className={cn(
+                  "w-full rounded-t-md",
+                  bar.selected ? "bg-green" : "bg-bar",
+                )}
+                style={{
+                  maxWidth: bar.wide ? cfg.wideWidth : cfg.narrowWidth,
+                  height: barHeight,
+                  borderRadius: "6px 6px 3px 3px",
+                }}
+              />
+              <span
+                className={cn(
+                  cfg.labelClass(bar.wide),
+                  bar.selected ? "font-semibold text-green" : "text-faint",
+                )}
+              >
+                {bar.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

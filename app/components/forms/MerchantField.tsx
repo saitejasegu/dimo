@@ -41,10 +41,6 @@ export function MerchantField({
   const showList = open && suggestions.length > 0;
 
   useEffect(() => {
-    setActiveIndex(0);
-  }, [value]);
-
-  useEffect(() => {
     if (!showList) return;
 
     const handleOutsidePress = (event: PointerEvent) => {
@@ -86,6 +82,7 @@ export function MerchantField({
         placeholder={placeholder}
         onChange={(e) => {
           onChange(e.target.value);
+          setActiveIndex(0);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}

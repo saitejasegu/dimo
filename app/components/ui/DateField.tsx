@@ -179,20 +179,16 @@ export function DateField({
     );
   }
 
-  useEffect(() => {
-    if (!open) return;
+  function syncMonthToValue() {
     const next =
       value && /^\d{4}-\d{2}-\d{2}$/.test(value)
         ? parseLocalDate(value)
         : new Date();
     jumpToMonth(next);
-  }, [open, value]);
+  }
 
   useLayoutEffect(() => {
-    if (!open) {
-      setPlacement((current) => (current == null ? current : null));
-      return;
-    }
+    if (!open) return;
 
     function updatePlacement(event?: Event) {
       if (
@@ -452,7 +448,14 @@ export function DateField({
         aria-labelledby={label ? labelId : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+          } else {
+            syncMonthToValue();
+            setOpen(true);
+          }
+        }}
         className="flex w-full items-center justify-between rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-left text-base text-ink outline-none transition-colors hover:border-green focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-[rgba(31,157,99,0.28)]"
       >
         <span className={cn(!value && "text-faint")}>

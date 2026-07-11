@@ -85,6 +85,16 @@ export const preferencesValidator = v.object({
     v.literal("budgets"),
     v.literal("account"),
   ),
+  // Optional so preferences written by older clients continue to sync.
+  defaultStatsRange: v.optional(
+    v.union(
+      v.literal("M"),
+      v.literal("3M"),
+      v.literal("6M"),
+      v.literal("1Y"),
+      v.literal("2Y"),
+    ),
+  ),
   notifications: notificationValidator,
   defaultPaymentMethodId: v.string(),
 });

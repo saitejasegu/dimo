@@ -65,7 +65,9 @@ export interface AppState {
   lastPaymentMethod: PaymentMethod | null;
 
   // ----- Activity filters -----
-  filter: CategoryName | "All";
+  /** Empty means all categories; otherwise every selected category is included. */
+  filter: CategoryName[];
+  paymentFilter: PaymentMethod | "All";
   query: string;
 
   // ----- Stats controls -----
@@ -88,6 +90,7 @@ export interface AppState {
   weekStart: WeekStart;
   theme: ThemePreference;
   defaultView: string;
+  defaultStatsRange: StatsRange;
   notifications: NotificationSettings;
 
   // ----- Transient UI -----
@@ -137,9 +140,10 @@ export function createInitialState(
     limits: Object.fromEntries(DEFAULT_CATEGORY_ENTITIES.map((c) => [c.name, null])),
     paymentMethods: DEFAULT_PAYMENT_METHODS,
     lastPaymentMethod: null,
-    filter: "All",
+    filter: [],
+    paymentFilter: "All",
     query: "",
-    statsRange: "6M",
+    statsRange: "1Y",
     selectedMonth: null,
     merchantsExpanded: false,
     overlay: null,
@@ -155,6 +159,7 @@ export function createInitialState(
     weekStart: DEFAULT_PREFERENCES.weekStart,
     theme: DEFAULT_PREFERENCES.theme,
     defaultView: DEFAULT_PREFERENCES.defaultView,
+    defaultStatsRange: DEFAULT_PREFERENCES.defaultStatsRange,
     notifications: DEFAULT_PREFERENCES.notifications,
     toast: null,
     toastNonce: 0,

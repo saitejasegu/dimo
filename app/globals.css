@@ -78,8 +78,8 @@
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
   @keyframes toast-in {
-    from { opacity: 0; transform: translate(-50%, -8px); }
-    to { opacity: 1; transform: translate(-50%, 0); }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 }
 
@@ -210,37 +210,56 @@
     -ms-overflow-style: none;
   }
 
-  /* A compact thumb that bubbles outward when the pointer reaches it. */
-  .bubble-scrollbar {
+  /* Give every visible vertical scrollbar a slim, woven ribbon treatment. */
+  * {
     scrollbar-color: var(--color-bar-soft) transparent;
     scrollbar-width: thin;
   }
 
-  .bubble-scrollbar::-webkit-scrollbar {
+  *::-webkit-scrollbar:vertical {
     width: 14px;
   }
 
-  .bubble-scrollbar::-webkit-scrollbar-track {
+  *::-webkit-scrollbar-track:vertical {
     background: transparent;
   }
 
-  .bubble-scrollbar::-webkit-scrollbar-thumb {
+  *::-webkit-scrollbar-thumb:vertical {
     min-height: 36px;
     border: 4px solid transparent;
-    border-radius: 999px;
-    background: var(--color-bar-soft);
+    border-radius: 3px;
+    background:
+      repeating-linear-gradient(
+        135deg,
+        transparent 0 4px,
+        color-mix(in srgb, var(--color-surface) 22%, transparent) 4px 6px
+      ),
+      linear-gradient(180deg, var(--color-green-bright), var(--color-bar-soft));
     background-clip: padding-box;
+    box-shadow: inset 1px 0 color-mix(in srgb, var(--color-surface) 28%, transparent);
   }
 
-  .bubble-scrollbar::-webkit-scrollbar-thumb:hover {
+  *::-webkit-scrollbar-thumb:vertical:hover {
     border-width: 2px;
-    background: var(--color-green);
+    background:
+      repeating-linear-gradient(
+        135deg,
+        transparent 0 5px,
+        color-mix(in srgb, var(--color-surface) 24%, transparent) 5px 7px
+      ),
+      linear-gradient(180deg, var(--color-green-bright), var(--color-green));
     background-clip: padding-box;
   }
 
-  .bubble-scrollbar::-webkit-scrollbar-thumb:active {
+  *::-webkit-scrollbar-thumb:vertical:active {
     border-width: 1px;
-    background: var(--color-green-deep);
+    background:
+      repeating-linear-gradient(
+        135deg,
+        transparent 0 5px,
+        color-mix(in srgb, var(--color-surface) 20%, transparent) 5px 7px
+      ),
+      linear-gradient(180deg, var(--color-green), var(--color-green-deep));
     background-clip: padding-box;
   }
 

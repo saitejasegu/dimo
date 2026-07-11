@@ -3,18 +3,12 @@
 import { money } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useStats } from "@/features/stats/hooks";
-import { RANGE_LABEL, STATS_RANGES } from "@/features/stats/constants";
 import { Card, HeroCard } from "@/components/ui/Card";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { MonthBars } from "@/components/common/MonthBars";
 import { MerchantRow } from "@/components/common/MerchantRow";
 import { WebScreen } from "@/components/web/WebScreen";
-
-const RANGE_OPTIONS = STATS_RANGES.map((value) => ({
-  value,
-  label: RANGE_LABEL[value],
-}));
 
 export function StatsScreen() {
   const { currency } = useAppState();
@@ -28,11 +22,10 @@ export function StatsScreen() {
         <div className="font-display text-[28px] font-semibold text-ink">
           Stats
         </div>
-        <SegmentedControl
-          options={RANGE_OPTIONS}
+        <StatsRangeDropdown
           value={range}
           onChange={actions.setStatsRange}
-          fill={false}
+          onChangeDefaults={actions.manageStatsDefaults}
         />
       </div>
 
@@ -78,6 +71,7 @@ export function StatsScreen() {
                 value={c.relative}
                 tone={c.primary ? "green" : "soft"}
                 height={7}
+                onClick={() => actions.openCategory(c.category)}
               />
             ))}
           </div>

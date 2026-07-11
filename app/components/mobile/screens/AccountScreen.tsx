@@ -15,6 +15,7 @@ import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { AccountSessionActions } from "@/components/common/AccountSessionActions";
+import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -22,7 +23,7 @@ const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
 }));
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, theme, defaultView } =
+  const { profile, currency, weekStart, theme, defaultView, defaultStatsRange } =
     useAppState();
   const actions = useAppActions();
 
@@ -80,6 +81,22 @@ export function AccountScreen() {
           <h2 className="mb-4 font-display text-base font-semibold text-ink">
             Preferences
           </h2>
+          <div id="stats-defaults" className="mb-4 flex items-center justify-between gap-4">
+            <p className="text-[13px] font-medium text-ink">
+              Default stats range
+            </p>
+            <StatsRangeDropdown
+              value={defaultStatsRange}
+              onChange={actions.setDefaultStatsRange}
+            />
+          </div>
+          <p className="mb-2 text-[13px] font-medium text-ink">Week starts on</p>
+          <SegmentedControl
+            options={WEEK_START_OPTIONS}
+            value={weekStart}
+            onChange={actions.setWeekStart}
+            className="mb-4"
+          />
           <p className="mb-2 text-[13px] font-medium text-ink">Appearance</p>
           <SegmentedControl
             options={THEME_OPTIONS}
@@ -92,13 +109,6 @@ export function AccountScreen() {
             options={CURRENCY_OPTIONS}
             value={currency}
             onChange={actions.setCurrency}
-            className="mb-4"
-          />
-          <p className="mb-2 text-[13px] font-medium text-ink">Week starts on</p>
-          <SegmentedControl
-            options={WEEK_START_OPTIONS}
-            value={weekStart}
-            onChange={actions.setWeekStart}
             className="mb-4"
           />
           <p className="mb-2 text-[13px] font-medium text-ink">Default view</p>

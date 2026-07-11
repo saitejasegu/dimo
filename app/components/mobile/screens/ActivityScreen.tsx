@@ -5,6 +5,7 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
 import { useActivitySelection } from "@/features/transactions/useActivitySelection";
 import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
+import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TransactionRow } from "@/components/common/TransactionRow";
@@ -13,7 +14,14 @@ import { MobileScreen } from "@/components/mobile/MobileScreen";
 export function ActivityScreen() {
   const { query, currency, categories } = useAppState();
   const actions = useAppActions();
-  const { options, filter, groups, filtered } = useActivity();
+  const {
+    options,
+    filter,
+    paymentFilter,
+    paymentOptions,
+    groups,
+    filtered,
+  } = useActivity();
   const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
   const selection = useActivitySelection(filtered.map((tx) => tx.id));
 
@@ -52,7 +60,7 @@ export function ActivityScreen() {
           <div className="flex min-w-0 items-center gap-2">
             <Chip
               label="All"
-              selected={filter === "All"}
+              selected={filter.length === 0}
               onClick={() => actions.setFilter("All")}
             />
             <div
@@ -68,13 +76,21 @@ export function ActivityScreen() {
                     <Chip
                       key={option}
                       label={emoji ? `${emoji} ${option}` : option}
-                      selected={filter === option}
+                      selected={filter.includes(option)}
                       onClick={() => actions.setFilter(option)}
                     />
                   );
                 })}
             </div>
           </div>
+          {paymentOptions.length > 1 ? (
+            <PaymentMethodFilter
+              value={paymentFilter}
+              options={paymentOptions}
+              onChange={actions.setPaymentFilter}
+              className="mt-3 w-full"
+            />
+          ) : null}
         </>
       }
     >

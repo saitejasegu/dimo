@@ -15,6 +15,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { AccountSessionActions } from "@/components/common/AccountSessionActions";
+import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { WebScreen } from "@/components/web/WebScreen";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
@@ -43,7 +44,7 @@ function PreferenceRow({
 }
 
 export function AccountScreen() {
-  const { profile, currency, weekStart, theme, defaultView } =
+  const { profile, currency, weekStart, theme, defaultView, defaultStatsRange } =
     useAppState();
   const actions = useAppActions();
 
@@ -89,6 +90,32 @@ export function AccountScreen() {
             Preferences
           </h2>
           <div className="flex flex-col gap-[18px]">
+            <div id="stats-defaults">
+              <PreferenceRow
+                label="Default stats range"
+                description="Range selected when you open Stats"
+                control={
+                  <StatsRangeDropdown
+                    value={defaultStatsRange}
+                    onChange={actions.setDefaultStatsRange}
+                  />
+                }
+              />
+            </div>
+            <div className="h-px bg-line-soft" />
+            <PreferenceRow
+              label="Week starts on"
+              description="Affects weekly summaries"
+              control={
+                <SegmentedControl
+                  options={WEEK_START_OPTIONS}
+                  value={weekStart}
+                  onChange={actions.setWeekStart}
+                  fill={false}
+                />
+              }
+            />
+            <div className="h-px bg-line-soft" />
             <PreferenceRow
               label="Appearance"
               description="Use your system setting or choose a theme"
@@ -110,19 +137,6 @@ export function AccountScreen() {
                   options={CURRENCY_OPTIONS}
                   value={currency}
                   onChange={actions.setCurrency}
-                  fill={false}
-                />
-              }
-            />
-            <div className="h-px bg-line-soft" />
-            <PreferenceRow
-              label="Week starts on"
-              description="Affects weekly summaries"
-              control={
-                <SegmentedControl
-                  options={WEEK_START_OPTIONS}
-                  value={weekStart}
-                  onChange={actions.setWeekStart}
                   fill={false}
                 />
               }

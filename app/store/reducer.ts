@@ -79,15 +79,15 @@ export function reducer(state: AppState, action: Action): AppState {
       const recurringCategory = categoryNames.has(state.recurringDraft.category)
         ? state.recurringDraft.category
         : fallbackCategory;
-      const filter =
-        state.filter === "All" || categoryNames.has(state.filter)
-          ? state.filter
-          : "All";
+      const filter = state.filter.filter((category) => categoryNames.has(category));
       return {
         ...state,
         ...action.data,
         dataReady: true,
         view: state.dataReady ? state.view : action.data.preferences.defaultView,
+        statsRange: state.dataReady
+          ? state.statsRange
+          : action.data.preferences.defaultStatsRange,
         filter,
         expenseDraft: { ...state.expenseDraft, category: expenseCategory },
         recurringDraft: { ...state.recurringDraft, category: recurringCategory },
@@ -99,6 +99,7 @@ export function reducer(state: AppState, action: Action): AppState {
         weekStart: action.data.preferences.weekStart,
         theme: action.data.preferences.theme ?? "light",
         defaultView: action.data.preferences.defaultView,
+        defaultStatsRange: action.data.preferences.defaultStatsRange,
         notifications: action.data.preferences.notifications,
       };
     }
@@ -106,7 +107,16 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, view: action.view };
 
     case "SET_FILTER":
-      return { ...state, filter: action.category };
+      if (action.category === "All") return { ...state, filter: [] };
+      return {
+        ...state,
+        filter: state.filter.includes(action.category)
+          ? state.filter.filter((category) => category !== action.category)
+          : [...state.filter, action.category],
+      };
+
+    case "SET_PAYMENT_FILTER":
+      return { ...state, paymentFilter: action.paymentMethod };
 
     case "SET_QUERY":
       return { ...state, query: action.query };
@@ -121,7 +131,22 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, merchantsExpanded: !state.merchantsExpanded };
 
     case "OPEN_MERCHANT":
-      return { ...state, view: "tx", query: action.name, filter: "All" };
+      return {
+        ...state,
+        view: "tx",
+        query: action.name,
+        filter: [],
+        paymentFilter: "All",
+      };
+
+    case "OPEN_CATEGORY":
+      return {
+        ...state,
+        view: "tx",
+        query: "",
+        filter: [action.category],
+        paymentFilter: "All",
+      };
 
     case "OPEN_OVERLAY": {
       switch (action.overlay) {
@@ -237,7 +262,8 @@ export function reducer(state: AppState, action: Action): AppState {
           transactions: [tx, ...state.transactions],
           overlay: null,
           view: "tx",
-          filter: "All",
+          filter: [],
+          paymentFilter: "All",
           query: "",
           lastPaymentMethod: state.expenseDraft.paymentMethod,
           expenseDraft: expenseDraftFor({
@@ -572,6 +598,14 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "SET_DEFAULT_VIEW":
       return { ...state, defaultView: action.view };
+
+    case "SET_DEFAULT_STATS_RANGE":
+      return {
+        ...state,
+        defaultStatsRange: action.range,
+        statsRange: action.range,
+        selectedMonth: null,
+      };
 
     case "TOGGLE_NOTIFICATION":
       return {

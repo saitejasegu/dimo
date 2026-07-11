@@ -61,10 +61,45 @@ export function statCategories(scope: StatsScope): StatCategory[] {
   return entries.map(([category, amount], index) => ({ category, amount, caption: `${money(amount)} · ${percent(amount, scope.scopeTotal)}%`, relative: Math.max(4, Math.round(amount / max * 100)), primary: index === 0 }));
 }
 
-export interface MerchantStat { name: string; count: number; amount: number; green: boolean; sub: string; relative: number; }
+export interface MerchantStat { name: string; count: number; amount: number; green: boolean; emoji?: string; sub: string; relative: number; }
 export function topMerchants(scope: StatsScope, limit: number): { merchants: MerchantStat[]; total: number } {
-  const totals = new Map<string, { amount: number; count: number; green: boolean }>();
-  for (const t of scope.transactions) { const current = totals.get(t.name) ?? { amount: 0, count: 0, green: false }; current.amount += t.amount; current.count += 1; current.green ||= Boolean(t.green); totals.set(t.name, current); }
+  const totals = new Map<string, {
+    amount: number;
+    count: number;
+    green: boolean;
+    category: CategoryName;
+    categoryEmoji?: string;
+    mixedCategories: boolean;
+  }>();
+  for (const t of scope.transactions) {
+    const current = totals.get(t.name) ?? {
+      amount: 0,
+      count: 0,
+      green: false,
+      category: t.category,
+      categoryEmoji: t.emoji,
+      mixedCategories: false,
+    };
+    current.amount += t.amount;
+    current.count += 1;
+    current.green ||= Boolean(t.green);
+    current.mixedCategories ||= current.category !== t.category;
+    current.categoryEmoji ??= t.emoji;
+    totals.set(t.name, current);
+  }
   const sorted = [...totals].sort((a, b) => b[1].amount - a[1].amount); const max = sorted[0]?.[1].amount ?? 1;
-  return { total: sorted.length, merchants: sorted.slice(0, Number.isFinite(limit) ? limit : undefined).map(([name, value]) => ({ name, ...value, sub: `${value.count} ${value.count === 1 ? "transaction" : "transactions"} · ${percent(value.amount, scope.scopeTotal)}%`, relative: Math.max(6, Math.round(value.amount / max * 100)) })) };
+  return {
+    total: sorted.length,
+    merchants: sorted
+      .slice(0, Number.isFinite(limit) ? limit : undefined)
+      .map(([name, value]) => ({
+        name,
+        count: value.count,
+        amount: value.amount,
+        green: value.green,
+        emoji: value.mixedCategories ? undefined : value.categoryEmoji,
+        sub: `${value.count} ${value.count === 1 ? "transaction" : "transactions"} · ${percent(value.amount, scope.scopeTotal)}%`,
+        relative: Math.max(6, Math.round(value.amount / max * 100)),
+      })),
+  };
 }

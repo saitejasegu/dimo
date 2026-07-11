@@ -21,12 +21,14 @@ export type Action =
   | { type: "SET_VIEW"; view: ViewKey }
   // activity
   | { type: "SET_FILTER"; category: CategoryName | "All" }
+  | { type: "SET_PAYMENT_FILTER"; paymentMethod: PaymentMethod | "All" }
   | { type: "SET_QUERY"; query: string }
   // stats
   | { type: "SET_STATS_RANGE"; range: StatsRange }
   | { type: "SET_SELECTED_MONTH"; month: string }
   | { type: "TOGGLE_MERCHANTS" }
   | { type: "OPEN_MERCHANT"; name: string }
+  | { type: "OPEN_CATEGORY"; category: CategoryName }
   // overlays
   | { type: "OPEN_OVERLAY"; overlay: Exclude<OverlayKey, null> }
   | { type: "MANAGE_PAYMENT_METHODS" }
@@ -70,6 +72,7 @@ export type Action =
   | { type: "SET_WEEK_START"; weekStart: WeekStart }
   | { type: "SET_THEME"; theme: ThemePreference }
   | { type: "SET_DEFAULT_VIEW"; view: string }
+  | { type: "SET_DEFAULT_STATS_RANGE"; range: StatsRange }
   | { type: "TOGGLE_NOTIFICATION"; key: keyof NotificationSettings }
   // toast
   | { type: "SHOW_TOAST"; message: string }

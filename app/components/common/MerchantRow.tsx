@@ -21,7 +21,12 @@ export function MerchantRow({
       onClick={onClick}
       className="-mx-2 flex items-center gap-3 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-canvas"
     >
-      <CategoryTint green={merchant.green} size={34} radius={10} />
+      <CategoryTint
+        green={merchant.green}
+        emoji={merchant.emoji}
+        size={34}
+        radius={10}
+      />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-ink">
           {merchant.name}

@@ -1,8 +1,10 @@
 import type { CategoryLimits, CategoryName, PaymentMethod, Transaction } from "@/lib/types";
 
 export interface TransactionFilter {
-  /** Selected category name, or "All". */
-  category: CategoryName | "All";
+  /** Selected categories. An empty list includes every category. */
+  categories: CategoryName[];
+  /** Selected payment method label, or "All". */
+  paymentMethod: PaymentMethod | "All";
   /** Free-text search across merchant name and category. */
   query: string;
 }
@@ -30,6 +32,17 @@ export function filterOptions(limits: CategoryLimits): (CategoryName | "All")[] 
   return ["All", ...categoryNames(limits)];
 }
 
+/** Unique payment methods present in transaction history, sorted by label. */
+export function paymentMethodFilterOptions(
+  transactions: Transaction[],
+): PaymentMethod[] {
+  return [...new Set(
+    transactions.flatMap((transaction) =>
+      transaction.paymentMethod ? [transaction.paymentMethod] : [],
+    ),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
 export function filterTransactions(
   transactions: Transaction[],
   filter: TransactionFilter,
@@ -38,12 +51,15 @@ export function filterTransactions(
 
   return transactions.filter((t) => {
     const matchesCategory =
-      filter.category === "All" || t.category === filter.category;
+      filter.categories.length === 0 || filter.categories.includes(t.category);
+    const matchesPaymentMethod =
+      filter.paymentMethod === "All" ||
+      t.paymentMethod === filter.paymentMethod;
     const matchesQuery =
       !q ||
       t.name.toLowerCase().includes(q) ||
       t.category.toLowerCase().includes(q);
-    return matchesCategory && matchesQuery;
+    return matchesCategory && matchesPaymentMethod && matchesQuery;
   });
 }
 
@@ -162,4 +178,3 @@ export function merchantSuggestions(
       count,
     }));
 }
-

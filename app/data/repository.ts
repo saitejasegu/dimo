@@ -127,7 +127,9 @@ export function sanitizePayload<T extends EntityType>(
       const weekStart = value.weekStart;
       const theme = value.theme;
       const defaultView = value.defaultView;
+      const defaultStatsRange = value.defaultStatsRange;
       const views = ["home", "tx", "stats", "recurring", "budgets", "account"] as const;
+      const statsRanges = ["M", "3M", "6M", "1Y", "2Y"] as const;
       return {
         id: "preferences",
         profileName: value.profileName ?? "",
@@ -138,6 +140,11 @@ export function sanitizePayload<T extends EntityType>(
         defaultView: views.includes(defaultView as (typeof views)[number])
           ? defaultView
           : "home",
+        defaultStatsRange: statsRanges.includes(
+          defaultStatsRange as (typeof statsRanges)[number],
+        )
+          ? defaultStatsRange
+          : "1Y",
         notifications: {
           bills: Boolean(value.notifications?.bills),
           budget: Boolean(value.notifications?.budget),

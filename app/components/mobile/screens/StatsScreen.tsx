@@ -3,18 +3,12 @@
 import { money } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useStats } from "@/features/stats/hooks";
-import { RANGE_LABEL, STATS_RANGES } from "@/features/stats/constants";
 import { Card, HeroCard } from "@/components/ui/Card";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { MonthBars } from "@/components/common/MonthBars";
 import { MerchantRow } from "@/components/common/MerchantRow";
 import { MobileScreen } from "@/components/mobile/MobileScreen";
-
-const RANGE_OPTIONS = STATS_RANGES.map((value) => ({
-  value,
-  label: RANGE_LABEL[value],
-}));
 
 export function StatsScreen() {
   const { currency } = useAppState();
@@ -26,25 +20,28 @@ export function StatsScreen() {
     <MobileScreen
       header={
         <>
-          <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
-            Stats
-          </h1>
-          <SegmentedControl
-            options={RANGE_OPTIONS}
-            value={range}
-            onChange={actions.setStatsRange}
-          />
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="font-display text-2xl font-semibold text-ink">
+              Stats
+            </h1>
+            <StatsRangeDropdown
+              value={range}
+              onChange={actions.setStatsRange}
+              onChangeDefaults={actions.manageStatsDefaults}
+            />
+          </div>
+          <HeroCard className="mt-4 p-5">
+            <div className="mb-2 text-[13px] text-side-muted">
+              {scope.spentLabel}
+            </div>
+            <div className="mb-1.5 font-display text-3xl font-semibold">
+              {money(scope.scopeTotal, currency)}
+            </div>
+            <div className="text-xs text-side-sub">{scope.averageLabel}</div>
+          </HeroCard>
         </>
       }
     >
-      <HeroCard className="mb-4 p-5">
-        <div className="mb-2 text-[13px] text-side-muted">{scope.spentLabel}</div>
-        <div className="mb-1.5 font-display text-3xl font-semibold">
-          {money(scope.scopeTotal, currency)}
-        </div>
-        <div className="text-xs text-side-sub">{scope.averageLabel}</div>
-      </HeroCard>
-
       {bars.visible ? (
         <Card className="mb-4 p-4">
           <div className="mb-3 flex items-baseline justify-between">
@@ -69,6 +66,7 @@ export function StatsScreen() {
               caption={c.caption}
               value={c.relative}
               tone={c.primary ? "green" : "soft"}
+              onClick={() => actions.openCategory(c.category)}
             />
           ))}
         </div>
