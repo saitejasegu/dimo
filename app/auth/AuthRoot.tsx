@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuthKit } from "@convex-dev/workos";
 import {
@@ -9,12 +9,17 @@ import {
   ConvexReactClient,
   Unauthenticated,
 } from "convex/react";
-import { AppStoreProvider, useAppState } from "@/store/app-store";
+import { AppStoreProvider } from "@/store/app-store";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { MobileApp } from "@/components/mobile/MobileApp";
-import { WebApp } from "@/components/web/WebApp";
 import { UpdateBanner } from "@/components/common/UpdateBanner";
 import { Button } from "@/components/ui/Button";
+
+const MobileApp = lazy(() =>
+  import("@/components/mobile/MobileApp").then((m) => ({ default: m.MobileApp })),
+);
+const WebApp = lazy(() =>
+  import("@/components/web/WebApp").then((m) => ({ default: m.WebApp })),
+);
 
 function LoadingScreen() {
   return <div className="h-[var(--app-height,100dvh)] bg-canvas" />;
@@ -22,13 +27,12 @@ function LoadingScreen() {
 
 function ResponsiveApp() {
   const isMobile = useIsMobile();
-  const { dataReady } = useAppState();
-
-  if (!dataReady || isMobile === null) return <LoadingScreen />;
 
   return (
     <div className="relative h-[var(--app-height,100dvh)] overflow-hidden">
-      {isMobile ? <MobileApp /> : <WebApp />}
+      <Suspense fallback={<LoadingScreen />}>
+        {isMobile ? <MobileApp /> : <WebApp />}
+      </Suspense>
       <UpdateBanner />
     </div>
   );

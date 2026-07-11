@@ -1,19 +1,43 @@
 "use client";
 
+import { lazy, Suspense } from "react";
 import { useAppState } from "@/store/app-store";
 import { TabBar } from "@/components/mobile/TabBar";
 import { Fab } from "@/components/mobile/Fab";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
-import { ActivityScreen } from "@/components/mobile/screens/ActivityScreen";
-import { StatsScreen } from "@/components/mobile/screens/StatsScreen";
-import { RecurringScreen } from "@/components/mobile/screens/RecurringScreen";
-import { BudgetsScreen } from "@/components/mobile/screens/BudgetsScreen";
-import { AccountScreen } from "@/components/mobile/screens/AccountScreen";
-import { TxDetailSheet } from "@/components/mobile/sheets/TxDetailSheet";
-import { AddExpenseSheet } from "@/components/mobile/sheets/AddExpenseSheet";
-import { AddRecurringSheet } from "@/components/mobile/sheets/AddRecurringSheet";
-import { NewCategorySheet } from "@/components/mobile/sheets/NewCategorySheet";
 import { Toaster } from "@/components/common/Toaster";
+
+const ActivityScreen = lazy(() =>
+  import("@/components/mobile/screens/ActivityScreen").then((m) => ({ default: m.ActivityScreen })),
+);
+const StatsScreen = lazy(() =>
+  import("@/components/mobile/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })),
+);
+const RecurringScreen = lazy(() =>
+  import("@/components/mobile/screens/RecurringScreen").then((m) => ({ default: m.RecurringScreen })),
+);
+const BudgetsScreen = lazy(() =>
+  import("@/components/mobile/screens/BudgetsScreen").then((m) => ({ default: m.BudgetsScreen })),
+);
+const AccountScreen = lazy(() =>
+  import("@/components/mobile/screens/AccountScreen").then((m) => ({ default: m.AccountScreen })),
+);
+const TxDetailSheet = lazy(() =>
+  import("@/components/mobile/sheets/TxDetailSheet").then((m) => ({ default: m.TxDetailSheet })),
+);
+const AddExpenseSheet = lazy(() =>
+  import("@/components/mobile/sheets/AddExpenseSheet").then((m) => ({ default: m.AddExpenseSheet })),
+);
+const AddRecurringSheet = lazy(() =>
+  import("@/components/mobile/sheets/AddRecurringSheet").then((m) => ({ default: m.AddRecurringSheet })),
+);
+const NewCategorySheet = lazy(() =>
+  import("@/components/mobile/sheets/NewCategorySheet").then((m) => ({ default: m.NewCategorySheet })),
+);
+
+function ScreenFallback() {
+  return <div className="h-full bg-canvas" />;
+}
 
 function CurrentScreen() {
   const { view } = useAppState();
@@ -49,18 +73,21 @@ export function MobileApp() {
       />
       <div className="relative min-h-0 flex-1">
         <div key={view} className="h-full animate-screen-in">
-          <CurrentScreen />
+          <Suspense fallback={<ScreenFallback />}>
+            <CurrentScreen />
+          </Suspense>
         </div>
         <Fab />
       </div>
       <TabBar />
 
-      {view === "account" ? <AccountScreen /> : null}
-
-      {detailId ? <TxDetailSheet /> : null}
-      {overlay === "add" ? <AddExpenseSheet /> : null}
-      {overlay === "recurring" ? <AddRecurringSheet /> : null}
-      {overlay === "category" ? <NewCategorySheet /> : null}
+      <Suspense fallback={null}>
+        {view === "account" ? <AccountScreen /> : null}
+        {detailId ? <TxDetailSheet /> : null}
+        {overlay === "add" ? <AddExpenseSheet /> : null}
+        {overlay === "recurring" ? <AddRecurringSheet /> : null}
+        {overlay === "category" ? <NewCategorySheet /> : null}
+      </Suspense>
 
       <Toaster variant="mobile" />
     </div>

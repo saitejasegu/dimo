@@ -1,33 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { isElectronApp, isNativeApp } from "@/lib/native";
+
+function readIsMobile(breakpoint: number): boolean {
+  if (isNativeApp()) return true;
+  if (isElectronApp()) return false;
+  return window.matchMedia(`(max-width: ${breakpoint - 1}px)`).matches;
+}
 
 /**
  * Tracks whether the viewport is below the given breakpoint.
- * Returns `null` until mounted to avoid a hydration mismatch.
+ * Resolves synchronously on the client so the shell can paint immediately.
  * Capacitor always uses the mobile shell; Electron always uses the web UI.
  */
-export function useIsMobile(breakpoint = 900): boolean | null {
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+export function useIsMobile(breakpoint = 900): boolean {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (isNativeApp() || isElectronApp()) return () => {};
+      const query = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+      query.addEventListener("change", onStoreChange);
+      return () => query.removeEventListener("change", onStoreChange);
+    },
+    [breakpoint],
+  );
 
-  useEffect(() => {
-    if (isNativeApp()) {
-      const timer = window.setTimeout(() => setIsMobile(true), 0);
-      return () => window.clearTimeout(timer);
-    }
+  const getSnapshot = useCallback(() => readIsMobile(breakpoint), [breakpoint]);
 
-    if (isElectronApp()) {
-      const timer = window.setTimeout(() => setIsMobile(false), 0);
-      return () => window.clearTimeout(timer);
-    }
-
-    const query = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const update = () => setIsMobile(query.matches);
-    const timer = window.setTimeout(update, 0);
-    query.addEventListener("change", update);
-    return () => { window.clearTimeout(timer); query.removeEventListener("change", update); };
-  }, [breakpoint]);
-
-  return isMobile;
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }

@@ -31,7 +31,7 @@ export function AccountScreen() {
 
   return (
     <div className="absolute inset-0 z-[18] flex animate-screen-in flex-col overflow-hidden bg-canvas">
-      <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]">
+      <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.75rem,calc(env(safe-area-inset-top)+0.75rem))]">
         <div className="flex items-center gap-3.5">
           <button
             type="button"

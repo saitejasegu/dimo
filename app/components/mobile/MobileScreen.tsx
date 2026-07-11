@@ -14,11 +14,11 @@ export function MobileScreen({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {header ? (
-        <div className="shrink-0 bg-canvas px-[22px] pb-3.5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <div className="shrink-0 bg-canvas px-[22px] pb-3.5 pt-[max(1.75rem,calc(env(safe-area-inset-top)+0.75rem))]">
           {header}
         </div>
       ) : (
-        <div className="shrink-0 pt-[max(1.25rem,env(safe-area-inset-top))]" />
+        <div className="shrink-0 pt-[max(1.75rem,calc(env(safe-area-inset-top)+0.75rem))]" />
       )}
       <div
         className={cn(
