@@ -129,7 +129,6 @@ function Dashboard() {
   return (
     <main className="site-shell">
       <section className="app-window">
-        <header className="window-bar"><span className="traffic red" /><span className="traffic amber" /><span className="traffic green" /><strong>Dimo — Expenses</strong></header>
         <div className="app-layout">
           <aside className="sidebar">
             <div className="brand"><span className="brand-mark">D</span><span><strong>Dimo</strong><small>Personal spending</small></span></div>
@@ -144,7 +143,6 @@ function Dashboard() {
           </aside>
 
           <div className="mobile-frame">
-            <div className="status-bar"><strong>9:41</strong><span className="dynamic-island" /><span>5G ▰</span></div>
             <header className="mobile-header"><span><small>Good morning</small><strong>Saiteja Segu</strong></span><button className="avatar" onClick={() => setAccount(true)}>S</button></header>
             <div className="content-scroll">
               {account ? <Account onBack={() => setAccount(false)} notify={notify} /> : <>
