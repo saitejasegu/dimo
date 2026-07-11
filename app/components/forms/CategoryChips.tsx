@@ -1,13 +1,14 @@
 import type { CategoryName } from "@/lib/types";
+import { cn } from "@/lib/cn";
 import { Chip } from "@/components/ui/Chip";
 
-/** A wrapping row of single-select category chips. */
+/** A horizontally scrollable row of single-select category chips. */
 export function CategoryChips({
   categories,
   value,
   onChange,
   surface = "canvas",
-  className = "flex flex-wrap gap-2",
+  className,
 }: {
   categories: CategoryName[];
   value: CategoryName;
@@ -16,7 +17,12 @@ export function CategoryChips({
   className?: string;
 }) {
   return (
-    <div className={className}>
+    <div
+      className={cn(
+        "flex flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
+    >
       {categories.map((category) => (
         <Chip
           key={category}

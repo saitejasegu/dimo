@@ -10,6 +10,35 @@ export type ID = string;
 
 export type CategoryName = string;
 
+export type PaymentMethod = string;
+
+export type PaymentMethodType =
+  | "UPI"
+  | "Card"
+  | "Wallet"
+  | "Cash"
+  | "Bank";
+
+export interface PaymentMethodOption {
+  id: ID;
+  name: string;
+  type: PaymentMethodType;
+  detail: string;
+  isDefault: boolean;
+  archived: boolean;
+}
+
+export interface PaymentMethodInput {
+  name: string;
+  type: PaymentMethodType;
+  detail: string;
+}
+
+export function paymentMethodLabel(method: PaymentMethodOption): string {
+  if (method.type === "Cash") return method.name;
+  return [method.type, method.name, method.detail].filter(Boolean).join(" · ");
+}
+
 export interface Transaction {
   id: ID;
   name: string;
@@ -19,8 +48,15 @@ export interface Transaction {
   /** Day bucket used for grouping, e.g. "Today", "Sunday, Jul 6". */
   day: string;
   amount: number;
+  paymentMethod?: PaymentMethod;
   /** Whether the category tint should use the brand-green accent. */
   green?: boolean;
+}
+
+export interface TransactionEditInput {
+  amount: number;
+  category: CategoryName;
+  paymentMethod: PaymentMethod;
 }
 
 export interface Recurring {

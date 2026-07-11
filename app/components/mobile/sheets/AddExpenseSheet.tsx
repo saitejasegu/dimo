@@ -9,9 +9,10 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
+import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 
 export function AddExpenseSheet() {
-  const { expenseDraft, limits, currency } = useAppState();
+  const { expenseDraft, limits, currency, paymentMethods } = useAppState();
   const actions = useAppActions();
 
   const amountOk = parseFloat(expenseDraft.amount) > 0;
@@ -39,7 +40,15 @@ export function AddExpenseSheet() {
         categories={categoryNames(limits)}
         value={expenseDraft.category}
         onChange={actions.setExpenseCategory}
-        className="mb-4 flex flex-wrap gap-2"
+        className="mb-4"
+      />
+
+      <PaymentMethodSelect
+        value={expenseDraft.paymentMethod}
+        onChange={actions.setExpensePaymentMethod}
+        methods={paymentMethods.filter((method) => !method.archived)}
+        onManage={actions.managePaymentMethods}
+        className="mb-4"
       />
 
       <div className="mb-4">

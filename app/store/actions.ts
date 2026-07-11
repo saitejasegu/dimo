@@ -5,6 +5,9 @@ import type {
   ID,
   NotificationSettings,
   OverlayKey,
+  PaymentMethod,
+  PaymentMethodInput,
+  TransactionEditInput,
   StatsRange,
   ViewKey,
   WeekStart,
@@ -23,6 +26,7 @@ export type Action =
   | { type: "OPEN_MERCHANT"; name: string }
   // overlays
   | { type: "OPEN_OVERLAY"; overlay: Exclude<OverlayKey, null> }
+  | { type: "MANAGE_PAYMENT_METHODS" }
   | { type: "CLOSE_OVERLAY" }
   | { type: "OPEN_DETAIL"; id: ID }
   | { type: "CLOSE_DETAIL" }
@@ -34,7 +38,13 @@ export type Action =
   | { type: "PRESS_AMOUNT_KEY"; key: string }
   | { type: "SET_EXPENSE_NAME"; name: string }
   | { type: "SET_EXPENSE_CATEGORY"; category: CategoryName }
+  | { type: "SET_EXPENSE_PAYMENT_METHOD"; paymentMethod: PaymentMethod }
   | { type: "SAVE_EXPENSE" }
+  | { type: "ADD_PAYMENT_METHOD"; input: PaymentMethodInput }
+  | { type: "EDIT_PAYMENT_METHOD"; id: ID; input: PaymentMethodInput }
+  | { type: "SET_DEFAULT_PAYMENT_METHOD"; id: ID }
+  | { type: "SET_PAYMENT_METHOD_ARCHIVED"; id: ID; archived: boolean }
+  | { type: "SAVE_TRANSACTION_EDITS"; id: ID; input: TransactionEditInput }
   // recurring draft
   | { type: "SET_RECURRING_NAME"; name: string }
   | { type: "SET_RECURRING_AMOUNT"; amount: string }

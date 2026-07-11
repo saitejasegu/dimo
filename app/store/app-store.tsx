@@ -16,6 +16,9 @@ import type {
   ID,
   NotificationSettings,
   OverlayKey,
+  PaymentMethod,
+  PaymentMethodInput,
+  TransactionEditInput,
   StatsRange,
   ViewKey,
   WeekStart,
@@ -52,7 +55,14 @@ export interface AppActions {
   pressAmountKey: (key: string) => void;
   setExpenseName: (name: string) => void;
   setExpenseCategory: (category: CategoryName) => void;
+  setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void;
   saveExpense: () => void;
+  managePaymentMethods: () => void;
+  addPaymentMethod: (input: PaymentMethodInput) => void;
+  editPaymentMethod: (id: ID, input: PaymentMethodInput) => void;
+  setDefaultPaymentMethod: (id: ID) => void;
+  setPaymentMethodArchived: (id: ID, archived: boolean) => void;
+  saveTransactionEdits: (id: ID, input: TransactionEditInput) => void;
 
   setRecurringName: (name: string) => void;
   setRecurringAmount: (amount: string) => void;
@@ -105,7 +115,29 @@ function createActions(dispatch: Dispatch<Action>): AppActions {
     setExpenseName: (name) => dispatch({ type: "SET_EXPENSE_NAME", name }),
     setExpenseCategory: (category) =>
       dispatch({ type: "SET_EXPENSE_CATEGORY", category }),
+    setExpensePaymentMethod: (paymentMethod) =>
+      dispatch({ type: "SET_EXPENSE_PAYMENT_METHOD", paymentMethod }),
     saveExpense: () => dispatch({ type: "SAVE_EXPENSE" }),
+    managePaymentMethods: () => {
+      dispatch({ type: "MANAGE_PAYMENT_METHODS" });
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          document.getElementById("payment-methods")?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          }),
+        ),
+      );
+    },
+    addPaymentMethod: (input) => dispatch({ type: "ADD_PAYMENT_METHOD", input }),
+    editPaymentMethod: (id, input) =>
+      dispatch({ type: "EDIT_PAYMENT_METHOD", id, input }),
+    setDefaultPaymentMethod: (id) =>
+      dispatch({ type: "SET_DEFAULT_PAYMENT_METHOD", id }),
+    setPaymentMethodArchived: (id, archived) =>
+      dispatch({ type: "SET_PAYMENT_METHOD_ARCHIVED", id, archived }),
+    saveTransactionEdits: (id, input) =>
+      dispatch({ type: "SAVE_TRANSACTION_EDITS", id, input }),
 
     setRecurringName: (name) => dispatch({ type: "SET_RECURRING_NAME", name }),
     setRecurringAmount: (amount) =>

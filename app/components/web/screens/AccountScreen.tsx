@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { WebScreen } from "@/components/web/WebScreen";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
@@ -169,6 +170,10 @@ export function AccountScreen() {
           </div>
         </Card>
       </div>
+
+      <Card className="mb-[18px] p-[22px]">
+        <PaymentMethodsManager />
+      </Card>
 
       <div className="flex justify-end gap-3">
         <Button

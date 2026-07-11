@@ -7,9 +7,10 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { CategoryChips } from "@/components/forms/CategoryChips";
+import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 
 export function AddExpenseModal() {
-  const { expenseDraft, limits, currency } = useAppState();
+  const { expenseDraft, limits, currency, paymentMethods } = useAppState();
   const actions = useAppActions();
 
   const amountOk = parseFloat(expenseDraft.amount) > 0;
@@ -42,7 +43,15 @@ export function AddExpenseModal() {
         categories={categoryNames(limits)}
         value={expenseDraft.category}
         onChange={actions.setExpenseCategory}
-        className="mb-[22px] flex flex-wrap gap-2.5"
+        className="mb-4 gap-2.5"
+      />
+
+      <PaymentMethodSelect
+        value={expenseDraft.paymentMethod}
+        onChange={actions.setExpensePaymentMethod}
+        methods={paymentMethods.filter((method) => !method.archived)}
+        onManage={actions.managePaymentMethods}
+        className="mb-[22px]"
       />
 
       <div className="flex gap-3">

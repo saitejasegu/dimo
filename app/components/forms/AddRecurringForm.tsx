@@ -65,7 +65,7 @@ export function AddRecurringForm({
         categories={categoryNames(limits)}
         value={recurringDraft.category}
         onChange={actions.setRecurringCategory}
-        className="mb-3.5 flex flex-wrap gap-2"
+        className="mb-3.5"
       />
 
       <p className="mb-1.5 text-xs text-muted">Repeats</p>

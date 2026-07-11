@@ -6,6 +6,8 @@ import type {
   ID,
   NotificationSettings,
   OverlayKey,
+  PaymentMethod,
+  PaymentMethodOption,
   Profile,
   Recurring,
   StatsRange,
@@ -25,6 +27,7 @@ export interface ExpenseDraft {
   amount: string;
   name: string;
   category: CategoryName;
+  paymentMethod: PaymentMethod;
 }
 
 export interface RecurringDraft {
@@ -48,6 +51,8 @@ export interface AppState {
   transactions: Transaction[];
   recurring: Recurring[];
   limits: CategoryLimits;
+  paymentMethods: PaymentMethodOption[];
+  lastPaymentMethod: PaymentMethod | null;
 
   // ----- Activity filters -----
   filter: CategoryName | "All";
@@ -84,6 +89,7 @@ export const EMPTY_EXPENSE_DRAFT: ExpenseDraft = {
   amount: "",
   name: "",
   category: "Dining",
+  paymentMethod: "UPI · HDFC Debit · ••42",
 };
 
 export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
@@ -99,6 +105,41 @@ export const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
   limit: "",
 };
 
+export const SEED_PAYMENT_METHODS: PaymentMethodOption[] = [
+  {
+    id: "pm-hdfc",
+    name: "HDFC Debit",
+    type: "UPI",
+    detail: "••42",
+    isDefault: true,
+    archived: false,
+  },
+  {
+    id: "pm-icici",
+    name: "ICICI Credit",
+    type: "Card",
+    detail: "••08",
+    isDefault: false,
+    archived: false,
+  },
+  {
+    id: "pm-paytm",
+    name: "Paytm Wallet",
+    type: "Wallet",
+    detail: "aarav@paytm",
+    isDefault: false,
+    archived: false,
+  },
+  {
+    id: "pm-cash",
+    name: "Cash",
+    type: "Cash",
+    detail: "",
+    isDefault: false,
+    archived: false,
+  },
+];
+
 export function createInitialState(
   userName: string = DEFAULT_USER_NAME,
 ): AppState {
@@ -107,6 +148,8 @@ export function createInitialState(
     transactions: SEED_TRANSACTIONS,
     recurring: SEED_RECURRING,
     limits: SEED_LIMITS,
+    paymentMethods: SEED_PAYMENT_METHODS,
+    lastPaymentMethod: null,
     filter: "All",
     query: "",
     statsRange: "6M",

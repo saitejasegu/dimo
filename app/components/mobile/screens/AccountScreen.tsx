@@ -14,6 +14,7 @@ import { TextField } from "@/components/ui/TextField";
 import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ChevronIcon } from "@/components/ui/icons";
+import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -75,6 +76,10 @@ export function AccountScreen() {
         <Button onClick={actions.saveProfile} fullWidth>
           Save changes
         </Button>
+      </Card>
+
+      <Card className="mb-3.5 p-5">
+        <PaymentMethodsManager />
       </Card>
 
       <Card className="mb-3.5 p-5">

@@ -1,4 +1,4 @@
-import type { Recurring, Transaction } from "@/lib/types";
+import { paymentMethodLabel, type Recurring, type Transaction } from "@/lib/types";
 import type { Action } from "@/store/actions";
 import {
   AppState,
@@ -15,6 +15,19 @@ function nextId(prefix: string): string {
 
 function withToast(state: AppState, message: string): AppState {
   return { ...state, toast: message, toastNonce: state.toastNonce + 1 };
+}
+
+function expenseDraftFor(state: AppState) {
+  const active = state.paymentMethods.filter((method) => !method.archived);
+  const activeLabels = active.map(paymentMethodLabel);
+  const defaultMethod = active.find((method) => method.isDefault) ?? active[0];
+  const paymentMethod =
+    state.lastPaymentMethod && activeLabels.includes(state.lastPaymentMethod)
+      ? state.lastPaymentMethod
+      : defaultMethod
+        ? paymentMethodLabel(defaultMethod)
+        : EMPTY_EXPENSE_DRAFT.paymentMethod;
+  return { ...EMPTY_EXPENSE_DRAFT, paymentMethod };
 }
 
 /** Append a keypad press to the amount string (mobile add-expense flow). */
@@ -62,7 +75,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "OPEN_OVERLAY": {
       switch (action.overlay) {
         case "add":
-          return { ...state, overlay: "add", expenseDraft: EMPTY_EXPENSE_DRAFT };
+          return { ...state, overlay: "add", expenseDraft: expenseDraftFor(state) };
         case "recurring":
           return {
             ...state,
@@ -78,6 +91,9 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return state;
     }
+
+    case "MANAGE_PAYMENT_METHODS":
+      return { ...state, overlay: null, detailId: null, view: "account" };
 
     case "CLOSE_OVERLAY":
       return { ...state, overlay: null };
@@ -142,6 +158,15 @@ export function reducer(state: AppState, action: Action): AppState {
         expenseDraft: { ...state.expenseDraft, category: action.category },
       };
 
+    case "SET_EXPENSE_PAYMENT_METHOD":
+      return {
+        ...state,
+        expenseDraft: {
+          ...state.expenseDraft,
+          paymentMethod: action.paymentMethod,
+        },
+      };
+
     case "SAVE_EXPENSE": {
       const amount = parseFloat(state.expenseDraft.amount);
       if (!(amount > 0)) return state;
@@ -152,6 +177,7 @@ export function reducer(state: AppState, action: Action): AppState {
         time: "Just now",
         day: "Today",
         amount: Math.round(amount),
+        paymentMethod: state.expenseDraft.paymentMethod,
         green: true,
       };
       return withToast(
@@ -162,11 +188,137 @@ export function reducer(state: AppState, action: Action): AppState {
           view: "tx",
           filter: "All",
           query: "",
-          expenseDraft: EMPTY_EXPENSE_DRAFT,
+          lastPaymentMethod: state.expenseDraft.paymentMethod,
+          expenseDraft: expenseDraftFor({
+            ...state,
+            lastPaymentMethod: state.expenseDraft.paymentMethod,
+          }),
         },
         "Expense added",
       );
     }
+
+    case "ADD_PAYMENT_METHOD": {
+      const name = action.input.name.trim();
+      if (!name) return state;
+      const duplicate = state.paymentMethods.some(
+        (method) => method.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (duplicate) return withToast(state, "A payment method with that name exists");
+      const hasActiveMethod = state.paymentMethods.some((method) => !method.archived);
+      return withToast(
+        {
+          ...state,
+          paymentMethods: [
+            ...state.paymentMethods,
+            {
+              id: nextId("pm"),
+              name,
+              type: action.input.type,
+              detail: action.input.detail.trim(),
+              isDefault: !hasActiveMethod,
+              archived: false,
+            },
+          ],
+        },
+        `${name} added`,
+      );
+    }
+
+    case "EDIT_PAYMENT_METHOD": {
+      const name = action.input.name.trim();
+      if (!name) return state;
+      const duplicate = state.paymentMethods.some(
+        (method) =>
+          method.id !== action.id &&
+          method.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (duplicate) return withToast(state, "A payment method with that name exists");
+      const current = state.paymentMethods.find((method) => method.id === action.id);
+      if (!current) return state;
+      const previousLabel = paymentMethodLabel(current);
+      const updated = {
+        ...current,
+        name,
+        type: action.input.type,
+        detail: action.input.detail.trim(),
+      };
+      const nextLabel = paymentMethodLabel(updated);
+      return withToast(
+        {
+          ...state,
+          paymentMethods: state.paymentMethods.map((method) =>
+            method.id === action.id ? updated : method,
+          ),
+          lastPaymentMethod:
+            state.lastPaymentMethod === previousLabel ? nextLabel : state.lastPaymentMethod,
+          expenseDraft:
+            state.expenseDraft.paymentMethod === previousLabel
+              ? { ...state.expenseDraft, paymentMethod: nextLabel }
+              : state.expenseDraft,
+        },
+        `${name} updated`,
+      );
+    }
+
+    case "SET_DEFAULT_PAYMENT_METHOD": {
+      const selected = state.paymentMethods.find(
+        (method) => method.id === action.id && !method.archived,
+      );
+      if (!selected) return state;
+      return withToast(
+        {
+          ...state,
+          paymentMethods: state.paymentMethods.map((method) => ({
+            ...method,
+            isDefault: method.id === action.id,
+          })),
+        },
+        `${selected.name} is now the default`,
+      );
+    }
+
+    case "SET_PAYMENT_METHOD_ARCHIVED": {
+      const selected = state.paymentMethods.find((method) => method.id === action.id);
+      if (!selected || selected.archived === action.archived) return state;
+      const activeCount = state.paymentMethods.filter((method) => !method.archived).length;
+      if (action.archived && activeCount <= 1) {
+        return withToast(state, "Keep at least one active payment method");
+      }
+      let paymentMethods = state.paymentMethods.map((method) =>
+        method.id === action.id ? { ...method, archived: action.archived } : method,
+      );
+      if (action.archived && selected.isDefault) {
+        const nextDefault = paymentMethods.find((method) => !method.archived);
+        paymentMethods = paymentMethods.map((method) => ({
+          ...method,
+          isDefault: method.id === nextDefault?.id,
+        }));
+      }
+      return withToast(
+        { ...state, paymentMethods },
+        action.archived ? `${selected.name} archived` : `${selected.name} restored`,
+      );
+    }
+
+    case "SAVE_TRANSACTION_EDITS":
+      return withToast(
+        {
+          ...state,
+          transactions: state.transactions.map((transaction) =>
+            transaction.id === action.id
+              ? {
+                  ...transaction,
+                  amount: action.input.amount,
+                  category: action.input.category,
+                  paymentMethod: action.input.paymentMethod,
+                }
+              : transaction,
+          ),
+          detailId: null,
+        },
+        "Transaction updated",
+      );
 
     // ----- Recurring draft -----
     case "SET_RECURRING_NAME":
