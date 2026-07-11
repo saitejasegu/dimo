@@ -143,7 +143,10 @@ function Dashboard() {
           </aside>
 
           <div className="mobile-frame">
-            <header className="mobile-header"><span><small>Good morning</small><strong>Saiteja Segu</strong></span><button className="avatar" onClick={() => setAccount(true)}>S</button></header>
+            {view === "home" && !account && <header className="mobile-header">
+              <span><small>Good morning</small><strong>Saiteja Segu</strong></span>
+              <button className="avatar" onClick={() => setAccount(true)}>S</button>
+            </header>}
             <div className="content-scroll">
               {account ? <Account onBack={() => setAccount(false)} notify={notify} /> : <>
                 {view === "home" && <Overview totalSpent={totalSpent} budgetLeft={budgetLeft} recurringTotal={recurringTotal} transactions={transactions} recurring={recurring} categoryTotals={categoryTotals} go={go} open={setDetail} />}
