@@ -31,4 +31,4 @@ export const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
 ];
 
 /** Screens that can be chosen as the landing view. */
-export const DEFAULT_VIEW_OPTIONS = ["Home", "Activity", "Stats"] as const;
+export const DEFAULT_VIEW_OPTIONS = ["Home", "Stats"] as const;

@@ -17,9 +17,7 @@ export function RecurringScreen() {
       header={
         <>
           <div className="mb-4">
-            <h1 className="font-display text-2xl font-semibold text-ink">
-              Recurring
-            </h1>
+            <h1 className="font-display text-2xl font-semibold text-ink">Recurring</h1>
           </div>
           <HeroCard className="p-5">
             <div className="mb-2 text-[13px] text-side-muted">

@@ -27,6 +27,7 @@ export type Action =
   | { type: "SET_STATS_RANGE"; range: StatsRange }
   | { type: "SET_SELECTED_MONTH"; month: string }
   | { type: "TOGGLE_MERCHANTS" }
+  | { type: "TOGGLE_CATEGORIES" }
   | { type: "OPEN_MERCHANT"; name: string }
   | { type: "OPEN_CATEGORY"; category: CategoryName }
   // overlays

@@ -128,7 +128,7 @@ export function sanitizePayload<T extends EntityType>(
       const theme = value.theme;
       const defaultView = value.defaultView;
       const defaultStatsRange = value.defaultStatsRange;
-      const views = ["home", "tx", "stats", "recurring", "budgets", "account"] as const;
+      const views = ["home", "tx", "stats", "recurring", "budgets", "settings", "account"] as const;
       const statsRanges = ["M", "3M", "6M", "1Y", "2Y"] as const;
       return {
         id: "preferences",
@@ -138,7 +138,7 @@ export function sanitizePayload<T extends EntityType>(
         weekStart: weekStart === "Sun" ? "Sun" : "Mon",
         theme: theme === "light" || theme === "dark" || theme === "system" ? theme : "light",
         defaultView: views.includes(defaultView as (typeof views)[number])
-          ? defaultView
+          ? defaultView === "tx" ? "home" : defaultView
           : "home",
         defaultStatsRange: statsRanges.includes(
           defaultStatsRange as (typeof statsRanges)[number],
@@ -240,6 +240,18 @@ export async function saveEntity<T extends EntityType>(
 ) {
   await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
     await putInCurrentTransaction(entityType, payload);
+  });
+  notifyWrite();
+}
+
+/** Persist a related set of entities atomically, with one sync operation per row. */
+export async function saveEntities(
+  entities: Array<{ entityType: EntityType; payload: EntityPayload }>,
+) {
+  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+    for (const entity of entities) {
+      await putInCurrentTransaction(entity.entityType, entity.payload);
+    }
   });
   notifyWrite();
 }

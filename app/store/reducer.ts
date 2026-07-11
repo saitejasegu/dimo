@@ -104,7 +104,7 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "SET_VIEW":
-      return { ...state, view: action.view };
+      return { ...state, view: action.view === "tx" ? "home" : action.view };
 
     case "SET_FILTER":
       if (action.category === "All") return { ...state, filter: [] };
@@ -129,11 +129,13 @@ export function reducer(state: AppState, action: Action): AppState {
 
     case "TOGGLE_MERCHANTS":
       return { ...state, merchantsExpanded: !state.merchantsExpanded };
+    case "TOGGLE_CATEGORIES":
+      return { ...state, categoriesExpanded: !state.categoriesExpanded };
 
     case "OPEN_MERCHANT":
       return {
         ...state,
-        view: "tx",
+        view: "home",
         query: action.name,
         filter: [],
         paymentFilter: "All",
@@ -142,7 +144,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "OPEN_CATEGORY":
       return {
         ...state,
-        view: "tx",
+        view: "home",
         query: "",
         filter: [action.category],
         paymentFilter: "All",
@@ -169,7 +171,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "MANAGE_PAYMENT_METHODS":
-      return { ...state, overlay: null, detailId: null, view: "account" };
+      return { ...state, overlay: null, detailId: null, view: "settings" };
 
     case "CLOSE_OVERLAY":
       return { ...state, overlay: null };
@@ -261,7 +263,7 @@ export function reducer(state: AppState, action: Action): AppState {
           ...state,
           transactions: [tx, ...state.transactions],
           overlay: null,
-          view: "tx",
+          view: "home",
           filter: [],
           paymentFilter: "All",
           query: "",

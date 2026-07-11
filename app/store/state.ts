@@ -74,6 +74,7 @@ export interface AppState {
   statsRange: StatsRange;
   selectedMonth: string | null;
   merchantsExpanded: boolean;
+  categoriesExpanded: boolean;
 
   // ----- Overlays -----
   overlay: OverlayKey;
@@ -146,6 +147,7 @@ export function createInitialState(
     statsRange: "1Y",
     selectedMonth: null,
     merchantsExpanded: false,
+    categoriesExpanded: false,
     overlay: null,
     detailId: null,
     expenseDraft: EMPTY_EXPENSE_DRAFT,

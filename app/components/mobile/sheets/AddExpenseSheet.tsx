@@ -53,6 +53,7 @@ export function AddExpenseSheet() {
       />
 
       <CategoryChips
+        selectedFirst
         categories={categoryNames(limits)}
         value={expenseDraft.category}
         onChange={actions.setExpenseCategory}

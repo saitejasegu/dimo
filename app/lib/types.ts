@@ -118,6 +118,7 @@ export type ViewKey =
   | "stats"
   | "recurring"
   | "budgets"
+  | "settings"
   | "account";
 
 /** Which transient overlay (sheet on mobile, modal on web) is open. */

@@ -13,8 +13,17 @@ import { WebScreen } from "@/components/web/WebScreen";
 export function StatsScreen() {
   const { currency } = useAppState();
   const actions = useAppActions();
-  const { range, scope, bars, categories, merchants, merchantCount, merchantsExpanded } =
-    useStats();
+  const {
+    range,
+    scope,
+    bars,
+    categories,
+    categoryCount,
+    categoriesExpanded,
+    merchants,
+    merchantCount,
+    merchantsExpanded,
+  } = useStats();
 
   return (
     <WebScreen>
@@ -59,8 +68,19 @@ export function StatsScreen() {
 
       <div className="grid grid-cols-2 items-start gap-[18px]">
         <Card className="p-[22px]">
-          <div className="mb-[18px] text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-            By category
+          <div className="mb-[18px] flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              By category
+            </span>
+            {categoryCount > 5 ? (
+              <button
+                type="button"
+                onClick={actions.toggleCategories}
+                className="text-xs font-medium text-green"
+              >
+                {categoriesExpanded ? "Show top 5" : `See all (${categoryCount})`}
+              </button>
+            ) : null}
           </div>
           <div className="flex flex-col gap-[15px]">
             {categories.map((c) => (
@@ -87,7 +107,7 @@ export function StatsScreen() {
               onClick={actions.toggleMerchants}
               className="text-xs font-medium text-green"
             >
-              {merchantsExpanded ? "Show top 3" : `Show all (${merchantCount})`}
+              {merchantsExpanded ? "Show top 5" : `Show all (${merchantCount})`}
             </button>
           </div>
           <div className="flex flex-col gap-1">

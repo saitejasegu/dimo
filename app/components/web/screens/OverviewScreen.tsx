@@ -5,19 +5,16 @@ import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { Card, HeroCard } from "@/components/ui/Card";
-import { TransactionRow } from "@/components/common/TransactionRow";
 import { UpcomingRow } from "@/components/common/UpcomingRow";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { WebScreen } from "@/components/web/WebScreen";
+import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
   const { profile, currency } = useAppState();
   const actions = useAppActions();
   const {
     totals,
-    recurringTotal,
-    activeCount,
-    recent,
     upcoming,
     topCategories,
     transactionCount,
@@ -25,6 +22,7 @@ export function OverviewScreen() {
 
   const firstName = profile.name.split(" ")[0];
   const monthSub = `${transactionCount} transactions`;
+  const upcomingTotal = upcoming.reduce((total, item) => total + item.amount, 0);
 
   return (
     <WebScreen>
@@ -42,7 +40,7 @@ export function OverviewScreen() {
         </div>
       </div>
 
-      <div className="mb-[22px] grid grid-cols-[1.5fr_1fr_1fr] gap-[18px]">
+      <div className="mb-[22px]">
         <HeroCard className="p-6">
           <div className="mb-2.5 text-[13px] text-side-muted">
             Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
@@ -50,68 +48,18 @@ export function OverviewScreen() {
           <div className="mb-2 font-display text-[40px] font-semibold">
             {money(totals.totalSpent, currency)}
           </div>
-          <div className="text-xs text-side-sub">{monthSub}</div>
+          <div className="flex items-end justify-between gap-6">
+            <div className="text-xs text-side-sub">{monthSub}</div>
+            <div className="text-right">
+              <div className="text-xs text-side-muted">Budget left</div>
+              <div className={`font-display text-2xl font-semibold ${totals.left < 0 ? "text-danger" : "text-green-bright"}`}>{money(totals.left, currency)}</div>
+              <div className="text-[11px] text-side-sub">{totals.pct}% used</div>
+            </div>
+          </div>
         </HeroCard>
-
-        <Card onClick={() => actions.setView("recurring")} className="h-full p-[22px]">
-          <div className="flex h-full flex-col justify-between">
-            <div className="mb-3.5 text-[13px] text-muted">Recurring / mo</div>
-            <div>
-              <div className="font-display text-[28px] font-semibold text-ink">
-                {money(recurringTotal, currency)}
-              </div>
-              <div className="mt-1 text-xs text-faint">
-                {activeCount} active bills
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card onClick={() => actions.setView("budgets")} className="h-full p-[22px]">
-          <div className="flex h-full flex-col justify-between">
-            <div className="mb-3.5 text-[13px] text-muted">Budget left</div>
-            <div>
-              <div
-                className={`font-display text-[28px] font-semibold ${
-                  totals.left < 0 ? "text-danger" : "text-green"
-                }`}
-              >
-                {money(totals.left, currency)}
-              </div>
-              <div className="mt-1 text-xs text-faint">{totals.pct}% used</div>
-            </div>
-          </div>
-        </Card>
       </div>
 
-      <div className="grid grid-cols-[1.6fr_1fr] items-start gap-[18px]">
-        <Card className="p-[22px]">
-          <div className="mb-4 flex items-baseline justify-between">
-            <span className="font-display text-[17px] font-semibold text-ink">
-              Recent transactions
-            </span>
-            <button
-              type="button"
-              onClick={() => actions.setView("tx")}
-              className="text-[13px] font-medium text-green"
-            >
-              View all
-            </button>
-          </div>
-          <div className="flex flex-col">
-            {recent.slice(0, 6).map((tx) => (
-              <TransactionRow
-                key={tx.id}
-                transaction={tx}
-                currency={currency}
-                onClick={() => actions.openDetail(tx.id)}
-                layout="list"
-                showDay
-              />
-            ))}
-          </div>
-        </Card>
-
+      <div className="mb-[26px]">
         <div className="flex flex-col gap-[18px]">
           {upcoming.length > 0 && (
             <Card className="p-[22px]">
@@ -119,13 +67,7 @@ export function OverviewScreen() {
                 <span className="font-display text-[17px] font-semibold text-ink">
                   Upcoming
                 </span>
-                <button
-                  type="button"
-                  onClick={() => actions.setView("recurring")}
-                  className="text-[13px] font-medium !text-green"
-                >
-                  See all
-                </button>
+                <span className="text-[13px] font-medium text-muted">{money(upcomingTotal, currency)}</span>
               </div>
               <div className="flex flex-col gap-3.5">
                 {upcoming.map((rec) => (
@@ -159,6 +101,8 @@ export function OverviewScreen() {
           </Card>
         </div>
       </div>
+
+      <ActivityScreen embedded />
     </WebScreen>
   );
 }

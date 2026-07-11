@@ -11,11 +11,13 @@ export function PaymentMethodFilter({
   options,
   onChange,
   className,
+  inputStyle = false,
 }: {
   value: PaymentMethod | "All";
   options: PaymentMethod[];
   onChange: (value: PaymentMethod | "All") => void;
   className?: string;
+  inputStyle?: boolean;
 }) {
   const items = [ALL_METHODS, ...options];
   const [open, setOpen] = useState(false);
@@ -92,7 +94,9 @@ export function PaymentMethodFilter({
           }
         }}
         className={cn(
-          "flex h-9 w-full items-center justify-between rounded-full border bg-surface py-1.5 pl-3.5 pr-3 text-xs font-medium text-ink outline-none transition-colors",
+          inputStyle
+            ? "flex w-full items-center justify-between rounded-xl border bg-surface px-3.5 py-[11px] text-sm text-ink outline-none transition-colors"
+            : "flex h-9 w-full items-center justify-between rounded-full border bg-surface py-1.5 pl-3.5 pr-3 text-xs font-medium text-ink outline-none transition-colors",
           open
             ? "border-green ring-2 ring-green/10"
             : "border-line hover:border-hairline",
@@ -115,7 +119,10 @@ export function PaymentMethodFilter({
           id={listboxId}
           role="listbox"
           aria-labelledby={`${id}-trigger`}
-          className="absolute inset-x-0 top-full z-50 mt-2 max-h-64 overflow-y-auto rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.24)]"
+          className={cn(
+            "absolute inset-x-0 z-50 max-h-64 overflow-y-auto rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.24)]",
+            inputStyle ? "bottom-full mb-2" : "top-full mt-2",
+          )}
         >
           {items.map((item, index) => {
             const selected = item === value;

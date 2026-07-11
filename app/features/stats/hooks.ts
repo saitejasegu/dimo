@@ -8,24 +8,35 @@ import {
 } from "@/features/stats/selectors";
 
 export function useStats() {
-  const { transactions, statsRange, selectedMonth, merchantsExpanded } =
-    useAppState();
+  const {
+    transactions,
+    statsRange,
+    selectedMonth,
+    merchantsExpanded,
+    categoriesExpanded,
+  } = useAppState();
 
   return useMemo(() => {
     const scope = statsScope(statsRange, transactions);
-    const { merchants, total } = topMerchants(
+    const { merchants, total: merchantCount } = topMerchants(
       scope,
-      merchantsExpanded ? Number.POSITIVE_INFINITY : 3,
+      merchantsExpanded ? Number.POSITIVE_INFINITY : 5,
+    );
+    const { categories, total: categoryCount } = statCategories(
+      scope,
+      categoriesExpanded ? Number.POSITIVE_INFINITY : 5,
     );
 
     return {
       range: statsRange,
       scope,
       bars: monthBars(statsRange, transactions, selectedMonth),
-      categories: statCategories(scope),
+      categories,
+      categoryCount,
+      categoriesExpanded,
       merchants,
-      merchantCount: total,
+      merchantCount,
       merchantsExpanded,
     };
-  }, [transactions, statsRange, selectedMonth, merchantsExpanded]);
+  }, [transactions, statsRange, selectedMonth, merchantsExpanded, categoriesExpanded]);
 }

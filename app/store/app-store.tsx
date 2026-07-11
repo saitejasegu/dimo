@@ -28,6 +28,7 @@ import {
   initializeLocalDatabase,
   removeEntity,
   saveEntity,
+  saveEntities,
   setLastPaymentMethod,
 } from "@/data/repository";
 import { formatTransactionDay, formatTransactionTime, localDateKey, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel } from "@/lib/dates";
@@ -52,6 +53,11 @@ import type { Action } from "@/store/actions";
 import { reducer } from "@/store/reducer";
 import { type AppState, createInitialState } from "@/store/state";
 import { requestFullSync, startSync, stopSync } from "@/sync/coordinator";
+import {
+  categoryEmojiForName,
+  defaultPaymentMethodIdForImport,
+  type TransactionCsvRow,
+} from "@/features/transactions/csv";
 
 const TOAST_DURATION_MS = 1800;
 
@@ -61,11 +67,15 @@ export interface AppActions {
   setPaymentFilter: (paymentMethod: PaymentMethod | "All") => void;
   setQuery: (query: string) => void;
   setStatsRange: (range: StatsRange) => void; setSelectedMonth: (month: string) => void;
-  toggleMerchants: () => void; openMerchant: (name: string) => void;
+  toggleMerchants: () => void;
+  toggleCategories: () => void;
+  openMerchant: (name: string) => void;
   openCategory: (category: CategoryName) => void;
   openOverlay: (overlay: Exclude<OverlayKey, null>) => void; closeOverlay: () => void;
   openDetail: (id: ID) => void; closeDetail: () => void; deleteDetail: () => void;
   deleteTransactions: (ids: ID[]) => void;
+  deleteHistory: () => void;
+  importTransactions: (rows: TransactionCsvRow[]) => Promise<void>;
   toggleRecurring: (id: ID) => void;
   openEditRecurring: (id: ID) => void;
   setExpenseAmount: (amount: string) => void; pressAmountKey: (key: string) => void;
@@ -104,9 +114,9 @@ export interface SyncState extends SyncMetaRecord {
   configured: boolean;
 }
 
-const viewToLabel = (view: ViewKey) => view === "tx" ? "Activity" : view[0].toUpperCase() + view.slice(1);
-const labelToView = (label: string): ViewKey => label === "Activity" ? "tx" :
-  (["home", "stats", "recurring", "budgets", "account"].includes(label.toLowerCase())
+const viewToLabel = (view: ViewKey) => view === "tx" ? "Home" : view[0].toUpperCase() + view.slice(1);
+const labelToView = (label: string): ViewKey => label === "Activity" ? "home" :
+  (["home", "stats", "recurring", "budgets", "settings", "account"].includes(label.toLowerCase())
     ? label.toLowerCase() as ViewKey : "home");
 
 function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}): PreferencesEntity {
@@ -138,7 +148,9 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       dispatch({ type: "SET_PAYMENT_FILTER", paymentMethod }),
     setQuery: (query) => dispatch({ type: "SET_QUERY", query }),
     setStatsRange: (range) => dispatch({ type: "SET_STATS_RANGE", range }), setSelectedMonth: (month) => dispatch({ type: "SET_SELECTED_MONTH", month }),
-    toggleMerchants: () => dispatch({ type: "TOGGLE_MERCHANTS" }), openMerchant: (name) => dispatch({ type: "OPEN_MERCHANT", name }),
+    toggleMerchants: () => dispatch({ type: "TOGGLE_MERCHANTS" }),
+    toggleCategories: () => dispatch({ type: "TOGGLE_CATEGORIES" }),
+    openMerchant: (name) => dispatch({ type: "OPEN_MERCHANT", name }),
     openCategory: (category) => dispatch({ type: "OPEN_CATEGORY", category }),
     openOverlay: (overlay) => dispatch({ type: "OPEN_OVERLAY", overlay }), closeOverlay: () => dispatch({ type: "CLOSE_OVERLAY" }),
     openDetail: (id) => dispatch({ type: "OPEN_DETAIL", id }), closeDetail: () => dispatch({ type: "CLOSE_DETAIL" }),
@@ -163,6 +175,61 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         },
       );
     },
+    deleteHistory: () => {
+      const state = getState();
+      const transactionIds = state.transactions.map((item) => item.id);
+      const recurringIds = state.recurring.map((item) => item.id);
+      if (transactionIds.length === 0 && recurringIds.length === 0) return;
+      persist(
+        Promise.all([
+          ...transactionIds.map((id) => removeEntity("transaction", id)),
+          ...recurringIds.map((id) => removeEntity("recurring", id)),
+        ]),
+        () => {
+          dispatch({ type: "CLOSE_DETAIL" });
+          dispatch({ type: "CLOSE_OVERLAY" });
+          dispatch({ type: "SHOW_TOAST", message: "History deleted" });
+        },
+      );
+    },
+    importTransactions: async (rows) => {
+      const state = getState();
+      const defaultPaymentMethodId = defaultPaymentMethodIdForImport(
+        state.paymentMethods,
+      );
+      const categoriesByName = new Map(
+        state.categories.map((category) => [category.name.toLocaleLowerCase(), category]),
+      );
+      const newCategories: CategoryEntity[] = [];
+      const transactions: TransactionEntity[] = [];
+      for (const row of rows) {
+        const key = row.category.toLocaleLowerCase();
+        let category = categoriesByName.get(key);
+        if (!category) {
+          category = {
+            id: crypto.randomUUID(), name: row.category, emoji: categoryEmojiForName(row.category),
+            monthlyBudgetMinor: null, tint: "neutral",
+            sortOrder: state.categories.length + newCategories.length, system: false,
+          };
+          categoriesByName.set(key, category);
+          newCategories.push(category);
+        }
+        transactions.push({
+          id: crypto.randomUUID(), name: row.merchant, amountMinor: row.amountMinor,
+          occurredAt: row.occurredAt, categoryId: category.id,
+          paymentMethodId: defaultPaymentMethodId,
+        });
+      }
+      try {
+        await saveEntities([
+          ...newCategories.map((payload) => ({ entityType: "category" as const, payload })),
+          ...transactions.map((payload) => ({ entityType: "transaction" as const, payload })),
+        ]);
+        dispatch({ type: "SHOW_TOAST", message: `${transactions.length} transaction${transactions.length === 1 ? "" : "s"} imported` });
+      } catch (error) {
+        throw error;
+      }
+    },
     toggleRecurring: (id) => {
       const row = getState().recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;
       const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: row.paymentMethodId ?? null, frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused };
@@ -180,11 +247,11 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === state.expenseDraft.paymentMethod);
       if (!(amount > 0) || !category) return;
       const entity: TransactionEntity = { id: crypto.randomUUID(), name: state.expenseDraft.name.trim() || "New expense", amountMinor: Math.round(amount * 100), occurredAt: Date.now(), categoryId: category.id, paymentMethodId: method?.id ?? null };
-      persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "tx" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
+      persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
     },
     managePaymentMethods: () => { dispatch({ type: "MANAGE_PAYMENT_METHODS" }); requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("payment-methods")?.scrollIntoView({ behavior: "smooth", block: "center" }))); },
     manageStatsDefaults: () => {
-      dispatch({ type: "SET_VIEW", view: "account" });
+      dispatch({ type: "SET_VIEW", view: "settings" });
       requestAnimationFrame(() =>
         requestAnimationFrame(() =>
           document

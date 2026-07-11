@@ -1,28 +1,39 @@
 "use client";
 
-import { money } from "@/lib/format";
+import { useState } from "react";
+import { money, spent } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
+import { useActivity } from "@/features/transactions/hooks";
 import { Avatar } from "@/components/ui/Avatar";
-import { Card, HeroCard } from "@/components/ui/Card";
+import { HeroCard } from "@/components/ui/Card";
 import { TransactionRow } from "@/components/common/TransactionRow";
+import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { Sheet } from "@/components/ui/Sheet";
+import { FilterIcon } from "@/components/ui/icons";
+import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { Button } from "@/components/ui/Button";
 import { UpcomingRow } from "@/components/common/UpcomingRow";
 import { MobileScreen, SectionHeader } from "@/components/mobile/MobileScreen";
 
 export function HomeScreen() {
-  const { profile, currency } = useAppState();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const { profile, currency, query, categories } = useAppState();
   const actions = useAppActions();
   const {
     totals,
-    recurringTotal,
     upcoming,
-    recent,
     transactionCount,
   } = useOverview();
+  const { options, filter, paymentFilter, paymentOptions, groups } = useActivity();
+  const emojiByName = new Map(categories.map((category) => [category.name, category.emoji]));
+  const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
+  const upcomingTotal = upcoming.reduce((total, item) => total + item.amount, 0);
 
   return (
     <MobileScreen
@@ -45,35 +56,22 @@ export function HomeScreen() {
             <div className="mb-2 font-display text-[34px] font-semibold">
               {money(totals.totalSpent, currency)}
             </div>
-            <div className="text-xs text-side-sub">{monthSub}</div>
+            <div className="flex items-end justify-between gap-4">
+              <div className="text-xs text-side-sub">{monthSub}</div>
+              <div className="text-right">
+                <div className="text-[11px] text-side-muted">Budget left</div>
+                <div className={`font-display text-lg font-semibold ${totals.left < 0 ? "text-danger" : "text-green-bright"}`}>{money(totals.left, currency)}</div>
+              </div>
+            </div>
           </HeroCard>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Card onClick={() => actions.setView("recurring")} className="p-4">
-              <div className="mb-1.5 text-xs text-muted">Recurring / mo</div>
-              <div className="font-display text-xl font-semibold text-ink">
-                {money(recurringTotal, currency)}
-              </div>
-            </Card>
-            <Card onClick={() => actions.setView("budgets")} className="p-4">
-              <div className="mb-1.5 text-xs text-muted">Budget left</div>
-              <div
-                className={`font-display text-xl font-semibold ${
-                  totals.left < 0 ? "text-danger" : "text-green"
-                }`}
-              >
-                {money(totals.left, currency)}
-              </div>
-            </Card>
-          </div>
         </>
       }
     >
       {upcoming.length > 0 && (
         <>
           <SectionHeader
-            title="Upcoming this month"
-            actionLabel="See all"
+            title="Upcoming"
+            actionLabel={money(upcomingTotal, currency)}
             onAction={() => actions.setView("recurring")}
           />
           <div className="mb-[22px] flex flex-col gap-2">
@@ -89,21 +87,25 @@ export function HomeScreen() {
         </>
       )}
 
-      <SectionHeader
-        title="Recent"
-        actionLabel="See all"
-        onAction={() => actions.setView("tx")}
-      />
-      <div className="flex flex-col gap-2">
-        {recent.slice(0, 4).map((tx) => (
-          <TransactionRow
-            key={tx.id}
-            transaction={tx}
-            currency={currency}
-            onClick={() => actions.openDetail(tx.id)}
-          />
-        ))}
+      <div className="mb-3.5 flex items-center justify-between gap-3">
+        <h2 className="font-display text-base font-semibold text-ink">Transactions</h2>
+        <button type="button" aria-label={filtersActive ? "Filter transactions, filters applied" : "Filter transactions"} onClick={() => setFiltersOpen(true)} className={`flex h-8 w-8 items-center justify-center ${filtersActive ? "!text-green" : "!text-muted"}`}><FilterIcon /></button>
       </div>
+      {groups.length === 0 ? <div className="px-5 py-12 text-center text-sm text-faint">No transactions match.</div> : groups.map((group) => <div key={group.label} className="mb-[18px]">
+        <div className="mb-2 flex items-baseline justify-between"><span className="text-xs font-medium uppercase tracking-[0.08em] text-muted">{group.label}</span><span className="text-xs text-faint">{spent(group.total, currency)}</span></div>
+        <div className="flex flex-col gap-2">{group.items.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} currency={currency} onClick={() => actions.openDetail(transaction.id)} />)}</div>
+      </div>)}
+      {filtersOpen ? <Sheet title="Filter transactions" onClose={() => setFiltersOpen(false)}>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Search</div>
+        <SearchInput value={query} onChange={actions.setQuery} className="mb-4" />
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Categories</div>
+        <div className="mb-4"><CategoryMultiSelect options={options.filter((option) => option !== "All")} value={filter} emojiByName={emojiByName} onToggle={actions.setFilter} onClear={() => actions.setFilter("All")} /></div>
+        {paymentOptions.length > 1 ? <><div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Payment methods</div><PaymentMethodFilter inputStyle value={paymentFilter} options={paymentOptions} onChange={actions.setPaymentFilter} className="w-full" /></> : null}
+        <div className="mt-5 flex gap-3">
+          <Button variant="secondary" fullWidth onClick={() => { actions.setQuery(""); actions.setFilter("All"); actions.setPaymentFilter("All"); setFiltersOpen(false); }}>Clear</Button>
+          <Button variant="accent" fullWidth onClick={() => setFiltersOpen(false)}>Done</Button>
+        </div>
+      </Sheet> : null}
     </MobileScreen>
   );
 }

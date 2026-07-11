@@ -46,6 +46,14 @@ export function SearchIcon({ className, size = 16 }: IconProps) {
   );
 }
 
+export function FilterIcon({ className, size = 18 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" className={className} aria-hidden>
+      <path d="M3 5h14M6 10h8M8.5 15h3" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function TrashIcon({ className, size = 18 }: IconProps) {
   return (
     <svg

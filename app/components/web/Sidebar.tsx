@@ -16,11 +16,11 @@ interface NavDef {
 }
 
 const NAV: NavDef[] = [
-  { key: "home", label: "Overview" },
-  { key: "tx", label: "Activity" },
+  { key: "home", label: "Home" },
   { key: "stats", label: "Stats" },
   { key: "recurring", label: "Recurring" },
   { key: "budgets", label: "Budgets", round: true },
+  { key: "settings", label: "Settings" },
 ];
 
 export function Sidebar() {
@@ -123,7 +123,7 @@ export function Sidebar() {
           <span className="block truncate text-[13px] font-medium text-side-text">
             {profile.name}
           </span>
-          <span className="block text-[11px] text-side-dim">Account settings</span>
+          <span className="block text-[11px] text-side-dim">Account</span>
         </span>
         <ChevronIcon direction="right" className="text-side-dim" />
       </button>

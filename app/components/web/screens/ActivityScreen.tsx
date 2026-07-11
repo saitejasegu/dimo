@@ -1,18 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import { money, spent } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
-import { useActivitySelection } from "@/features/transactions/useActivitySelection";
-import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
 import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { Card } from "@/components/ui/Card";
-import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TransactionRow } from "@/components/common/TransactionRow";
 import { WebScreen } from "@/components/web/WebScreen";
+import { Modal } from "@/components/ui/Modal";
+import { FilterIcon } from "@/components/ui/icons";
+import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
+import { Button } from "@/components/ui/Button";
 
-export function ActivityScreen() {
+export function ActivityScreen({ embedded = false }: { embedded?: boolean }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const { query, currency, categories } = useAppState();
   const actions = useAppActions();
   const {
@@ -24,13 +27,12 @@ export function ActivityScreen() {
     summary,
     shownCount,
     totalCount,
-    filtered,
   } = useActivity();
   const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
-  const selection = useActivitySelection(filtered.map((tx) => tx.id));
+  const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
 
-  return (
-    <WebScreen>
+  const content = (
+    <>
       <div className="mb-[22px] flex items-end justify-between gap-4">
         <div>
           <div className="font-display text-[28px] font-semibold text-ink">
@@ -40,55 +42,7 @@ export function ActivityScreen() {
             {shownCount} of {totalCount} transactions shown
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <ActivitySelectionBar
-            selecting={selection.selecting}
-            selectedCount={selection.selectedCount}
-            allSelected={selection.allSelected}
-            visibleCount={filtered.length}
-            selectedIds={selection.selectedIds}
-            onEnter={selection.enter}
-            onExit={selection.exit}
-            onSelectAll={selection.selectAll}
-            onDeselectAll={selection.deselectAll}
-          />
-          <SearchInput value={query} onChange={actions.setQuery} className="w-80 py-2.5" />
-        </div>
-      </div>
-
-      <div className="mb-[22px] flex min-w-0 items-center gap-2.5">
-        <Chip
-          label="All"
-          selected={filter.length === 0}
-          onClick={() => actions.setFilter("All")}
-        />
-        <div
-          aria-hidden
-          className="h-5 w-px shrink-0 bg-hairline"
-        />
-        <div className="flex min-w-0 flex-1 flex-nowrap gap-2.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {options
-            .filter((option) => option !== "All")
-            .map((option) => {
-              const emoji = emojiByName.get(option);
-              return (
-                <Chip
-                  key={option}
-                  label={emoji ? `${emoji} ${option}` : option}
-                  selected={filter.includes(option)}
-                  onClick={() => actions.setFilter(option)}
-                />
-              );
-            })}
-        </div>
-        {paymentOptions.length > 1 ? (
-          <PaymentMethodFilter
-            value={paymentFilter}
-            options={paymentOptions}
-            onChange={actions.setPaymentFilter}
-            className="w-56 shrink-0"
-          />
-        ) : null}
+        <button type="button" aria-label={filtersActive ? "Filter transactions, filters applied" : "Filter transactions"} onClick={() => setFiltersOpen(true)} className={`flex h-9 w-9 items-center justify-center ${filtersActive ? "!text-green" : "!text-muted"}`}><FilterIcon /></button>
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-5">
@@ -114,13 +68,7 @@ export function ActivityScreen() {
                       key={tx.id}
                       transaction={tx}
                       currency={currency}
-                      selecting={selection.selecting}
-                      selected={selection.selected.has(tx.id)}
-                      onClick={() =>
-                        selection.selecting
-                          ? selection.toggle(tx.id)
-                          : actions.openDetail(tx.id)
-                      }
+                      onClick={() => actions.openDetail(tx.id)}
                       layout="list"
                       showCategoryPill
                       dividerTop
@@ -162,6 +110,18 @@ export function ActivityScreen() {
           </div>
         </Card>
       </div>
-    </WebScreen>
+      {filtersOpen ? <Modal title="Filter transactions" onClose={() => setFiltersOpen(false)}>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Search</div>
+        <SearchInput value={query} onChange={actions.setQuery} className="mb-5" />
+        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Categories</div>
+        <div className="mb-5"><CategoryMultiSelect options={options.filter((option) => option !== "All")} value={filter} emojiByName={emojiByName} onToggle={actions.setFilter} onClear={() => actions.setFilter("All")} /></div>
+        {paymentOptions.length > 1 ? <><div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Payment methods</div><PaymentMethodFilter inputStyle value={paymentFilter} options={paymentOptions} onChange={actions.setPaymentFilter} className="w-full" /></> : null}
+        <div className="mt-5 flex gap-3">
+          <Button variant="secondary" fullWidth onClick={() => { actions.setQuery(""); actions.setFilter("All"); actions.setPaymentFilter("All"); setFiltersOpen(false); }}>Clear</Button>
+          <Button variant="accent" fullWidth onClick={() => setFiltersOpen(false)}>Done</Button>
+        </div>
+      </Modal> : null}
+    </>
   );
+  return embedded ? content : <WebScreen>{content}</WebScreen>;
 }

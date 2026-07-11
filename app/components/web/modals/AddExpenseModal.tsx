@@ -57,6 +57,7 @@ export function AddExpenseModal() {
 
       <p className="mb-2 text-xs text-muted">Category</p>
       <CategoryChips
+        selectedFirst
         categories={categoryNames(limits)}
         value={expenseDraft.category}
         onChange={actions.setExpenseCategory}

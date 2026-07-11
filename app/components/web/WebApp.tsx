@@ -7,8 +7,8 @@ import { Sidebar } from "@/components/web/Sidebar";
 import { OverviewScreen } from "@/components/web/screens/OverviewScreen";
 import { Toaster } from "@/components/common/Toaster";
 
-const loadActivityScreen = () =>
-  import("@/components/web/screens/ActivityScreen").then((m) => ({ default: m.ActivityScreen }));
+const loadSettingsScreen = () =>
+  import("@/components/web/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
 const loadStatsScreen = () =>
   import("@/components/web/screens/StatsScreen").then((m) => ({ default: m.StatsScreen }));
 const loadRecurringScreen = () =>
@@ -26,7 +26,7 @@ const loadAddRecurringModal = () =>
 const loadNewCategoryModal = () =>
   import("@/components/web/modals/NewCategoryModal").then((m) => ({ default: m.NewCategoryModal }));
 
-const ActivityScreen = lazy(loadActivityScreen);
+const SettingsScreen = lazy(loadSettingsScreen);
 const StatsScreen = lazy(loadStatsScreen);
 const RecurringScreen = lazy(loadRecurringScreen);
 const BudgetsScreen = lazy(loadBudgetsScreen);
@@ -37,7 +37,7 @@ const AddRecurringModal = lazy(loadAddRecurringModal);
 const NewCategoryModal = lazy(loadNewCategoryModal);
 
 const PREFETCH = [
-  loadActivityScreen,
+  loadSettingsScreen,
   loadStatsScreen,
   loadRecurringScreen,
   loadBudgetsScreen,
@@ -58,13 +58,15 @@ function CurrentScreen() {
     case "home":
       return <OverviewScreen />;
     case "tx":
-      return <ActivityScreen />;
+      return <OverviewScreen />;
     case "stats":
       return <StatsScreen />;
     case "recurring":
       return <RecurringScreen />;
     case "budgets":
       return <BudgetsScreen />;
+    case "settings":
+      return <SettingsScreen />;
     case "account":
       return <AccountScreen />;
     default:

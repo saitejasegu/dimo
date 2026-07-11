@@ -54,11 +54,23 @@ export function monthBars(range: StatsRange, transactions: Transaction[], select
 }
 
 export interface StatCategory { category: CategoryName; amount: number; caption: string; relative: number; primary: boolean; }
-export function statCategories(scope: StatsScope): StatCategory[] {
+export function statCategories(scope: StatsScope, limit: number): { categories: StatCategory[]; total: number } {
   const totals = new Map<string, number>();
   for (const t of scope.transactions) totals.set(t.category, (totals.get(t.category) ?? 0) + t.amount);
-  const entries = [...totals].sort((a, b) => b[1] - a[1]); const max = entries[0]?.[1] ?? 1;
-  return entries.map(([category, amount], index) => ({ category, amount, caption: `${money(amount)} · ${percent(amount, scope.scopeTotal)}%`, relative: Math.max(4, Math.round(amount / max * 100)), primary: index === 0 }));
+  const entries = [...totals].sort((a, b) => b[1] - a[1]);
+  const max = entries[0]?.[1] ?? 1;
+  return {
+    total: entries.length,
+    categories: entries
+      .slice(0, Number.isFinite(limit) ? limit : undefined)
+      .map(([category, amount], index) => ({
+        category,
+        amount,
+        caption: `${money(amount)} · ${percent(amount, scope.scopeTotal)}%`,
+        relative: Math.max(4, Math.round(amount / max * 100)),
+        primary: index === 0,
+      })),
+  };
 }
 
 export interface MerchantStat { name: string; count: number; amount: number; green: boolean; emoji?: string; sub: string; relative: number; }

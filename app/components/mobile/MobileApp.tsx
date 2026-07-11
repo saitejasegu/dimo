@@ -9,8 +9,8 @@ import { Fab } from "@/components/mobile/Fab";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
 import { Toaster } from "@/components/common/Toaster";
 
-const loadActivityScreen = () =>
-  import("@/components/mobile/screens/ActivityScreen").then((m) => ({ default: m.ActivityScreen }));
+const loadSettingsScreen = () =>
+  import("@/components/mobile/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
 const loadStatsScreen = () =>
   import("@/components/mobile/screens/StatsScreen").then((m) => ({ default: m.StatsScreen }));
 const loadRecurringScreen = () =>
@@ -28,7 +28,7 @@ const loadAddRecurringSheet = () =>
 const loadNewCategorySheet = () =>
   import("@/components/mobile/sheets/NewCategorySheet").then((m) => ({ default: m.NewCategorySheet }));
 
-const ActivityScreen = lazy(loadActivityScreen);
+const SettingsScreen = lazy(loadSettingsScreen);
 const StatsScreen = lazy(loadStatsScreen);
 const RecurringScreen = lazy(loadRecurringScreen);
 const BudgetsScreen = lazy(loadBudgetsScreen);
@@ -39,7 +39,7 @@ const AddRecurringSheet = lazy(loadAddRecurringSheet);
 const NewCategorySheet = lazy(loadNewCategorySheet);
 
 const PREFETCH = [
-  loadActivityScreen,
+  loadSettingsScreen,
   loadStatsScreen,
   loadRecurringScreen,
   loadBudgetsScreen,
@@ -60,13 +60,15 @@ function CurrentScreen() {
     case "home":
       return <HomeScreen />;
     case "tx":
-      return <ActivityScreen />;
+      return <HomeScreen />;
     case "stats":
       return <StatsScreen />;
     case "recurring":
       return <RecurringScreen />;
     case "budgets":
       return <BudgetsScreen />;
+    case "settings":
+      return <SettingsScreen />;
     default:
       // Account renders as a full-screen overlay above the tab bar.
       return null;
