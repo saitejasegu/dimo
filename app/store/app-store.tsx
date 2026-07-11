@@ -75,7 +75,9 @@ export interface AppActions {
   setRecurringName: (name: string) => void; setRecurringAmount: (amount: string) => void;
   setRecurringAnchorDate: (date: string) => void; setRecurringDay: (day: string) => void;
   setRecurringFrequency: (frequency: Frequency) => void;
-  setRecurringCategory: (category: CategoryName) => void; saveRecurring: () => void;
+  setRecurringCategory: (category: CategoryName) => void;
+  setRecurringPaymentMethod: (paymentMethod: PaymentMethod) => void;
+  saveRecurring: () => void;
   deleteRecurring: () => void;
   setCategoryName: (name: string) => void; setCategoryEmoji: (emoji: string) => void;
   setCategoryLimit: (limit: string) => void;
@@ -178,10 +180,12 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setRecurringName: (name) => dispatch({ type: "SET_RECURRING_NAME", name }), setRecurringAmount: (amount) => dispatch({ type: "SET_RECURRING_AMOUNT", amount }),
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),
     setRecurringFrequency: (frequency) => dispatch({ type: "SET_RECURRING_FREQUENCY", frequency }), setRecurringCategory: (category) => dispatch({ type: "SET_RECURRING_CATEGORY", category }),
+    setRecurringPaymentMethod: (paymentMethod) => dispatch({ type: "SET_RECURRING_PAYMENT_METHOD", paymentMethod }),
     saveRecurring: () => {
       const state = getState();
       const draft = state.recurringDraft;
       const category = state.categories.find((c) => c.name === draft.category);
+      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === draft.paymentMethod);
       const amount = Number(draft.amount);
       if (!category || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.anchorDate)) return;
 
@@ -194,7 +198,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           name: draft.name.trim(),
           amountMinor: Math.round(amount * 100),
           categoryId: category.id,
-          paymentMethodId: current.paymentMethodId ?? null,
+          paymentMethodId: method?.id ?? null,
           frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
           anchorDate: draft.anchorDate,
           paused: current.paused,
@@ -211,7 +215,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         name: draft.name.trim(),
         amountMinor: Math.round(amount * 100),
         categoryId: category.id,
-        paymentMethodId: null,
+        paymentMethodId: method?.id ?? null,
         frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: draft.anchorDate,
         paused: false,
@@ -226,7 +230,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           amountMinor: entity.amountMinor,
           occurredAt: occurrenceTimestamp(date),
           categoryId: entity.categoryId,
-          paymentMethodId: null,
+          paymentMethodId: entity.paymentMethodId,
         };
         return saveEntity("transaction", tx);
       });
@@ -398,14 +402,17 @@ export function AppStoreProvider({
     const apply = () => {
       document.documentElement.dataset.theme = state.theme;
       const resolved = state.theme === "system" ? (media.matches ? "dark" : "light") : state.theme;
+      const canvas = resolved === "dark" ? "#0c1210" : "#f5f8f6";
       document.documentElement.style.colorScheme = resolved;
-      document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-        ?.setAttribute("content", resolved === "dark" ? "#0c1210" : "#f5f8f6");
-      // Keep the native WebView chrome on canvas too (Capacitor reads --background on html).
-      document.documentElement.style.backgroundColor =
-        resolved === "dark" ? "#0c1210" : "#f5f8f6";
-      document.body.style.backgroundColor =
-        resolved === "dark" ? "#0c1210" : "#f5f8f6";
+      // iOS home-screen PWAs color the status-bar band from theme-color + page bg.
+      // Drop media-specific tags so OS dark mode can't force a black chrome over a light UI.
+      document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
+      const themeMeta = document.createElement("meta");
+      themeMeta.name = "theme-color";
+      themeMeta.content = canvas;
+      document.head.appendChild(themeMeta);
+      document.documentElement.style.backgroundColor = canvas;
+      document.body.style.backgroundColor = canvas;
     };
     apply();
     if (state.theme !== "system") return;

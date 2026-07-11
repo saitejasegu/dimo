@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Frequency } from "@/lib/types";
+import { paymentMethodLabel, type Frequency } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { localDateKey, nextOccurrence, occurrencesThrough } from "@/lib/dates";
 import { useAppActions, useAppState } from "@/store/app-store";
@@ -12,6 +12,7 @@ import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CategoryChips } from "@/components/forms/CategoryChips";
+import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 
 const FREQUENCIES: Frequency[] = ["Monthly", "Yearly"];
 
@@ -26,7 +27,7 @@ export function AddRecurringForm({
   onCancel,
   fillFrequency = false,
 }: AddRecurringFormProps) {
-  const { recurringDraft, recurring, limits } = useAppState();
+  const { recurringDraft, recurring, limits, paymentMethods } = useAppState();
   const actions = useAppActions();
   const [backfillCount, setBackfillCount] = useState<number | null>(null);
 
@@ -45,6 +46,24 @@ export function AddRecurringForm({
         }),
       )
     : "";
+  const activeMethods = paymentMethods.filter((method) => !method.archived);
+  const defaultMethod =
+    activeMethods.find((method) => method.isDefault) ?? activeMethods[0];
+  const originalMethod = original?.paymentMethodId
+    ? paymentMethods.find((method) => method.id === original.paymentMethodId)
+    : undefined;
+  const originalPaymentMethod = originalMethod
+    ? paymentMethodLabel(originalMethod)
+    : defaultMethod
+      ? paymentMethodLabel(defaultMethod)
+      : "Cash";
+  const selectedArchived = paymentMethods.find(
+    (method) =>
+      method.archived && paymentMethodLabel(method) === recurringDraft.paymentMethod,
+  );
+  const methodOptions = selectedArchived
+    ? [...activeMethods, selectedArchived]
+    : activeMethods;
   const dirty =
     !editing ||
     !original ||
@@ -52,7 +71,8 @@ export function AddRecurringForm({
     recurringDraft.amount !== String(Math.round(original.amount)) ||
     recurringDraft.anchorDate !== originalDueDate ||
     recurringDraft.frequency !== originalFrequency ||
-    recurringDraft.category !== original.category;
+    recurringDraft.category !== original.category ||
+    recurringDraft.paymentMethod !== originalPaymentMethod;
 
   const amount = parseInt(recurringDraft.amount.replace(/[^0-9]/g, ""), 10) || 0;
   const valid =
@@ -125,6 +145,14 @@ export function AddRecurringForm({
         categories={categoryNames(limits)}
         value={recurringDraft.category}
         onChange={actions.setRecurringCategory}
+        className="mb-3.5"
+      />
+
+      <PaymentMethodSelect
+        value={recurringDraft.paymentMethod}
+        onChange={actions.setRecurringPaymentMethod}
+        methods={methodOptions}
+        onManage={actions.managePaymentMethods}
         className="mb-3.5"
       />
 

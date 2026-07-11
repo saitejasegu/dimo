@@ -39,10 +39,13 @@ export function MobileApp() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-canvas font-body">
-      {/* Keep the Dynamic Island / status-bar band on canvas so iOS never shows the native black gap. */}
+      {/*
+        iOS home-screen PWA with black-translucent status bar: paint the
+        Dynamic Island / status-bar band so it matches the app canvas.
+      */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 z-[32] h-[env(safe-area-inset-top)] bg-canvas"
+        className="pointer-events-none fixed inset-x-0 top-0 z-[40] h-[env(safe-area-inset-top,0px)] min-h-[env(safe-area-inset-top,0px)] bg-canvas"
       />
       <div key={view} className="h-full animate-screen-in">
         <CurrentScreen />

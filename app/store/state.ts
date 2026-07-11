@@ -39,6 +39,7 @@ export interface RecurringDraft {
   anchorDate: string;
   frequency: Frequency;
   category: CategoryName;
+  paymentMethod: PaymentMethod;
 }
 
 export interface CategoryDraft {
@@ -109,6 +110,7 @@ export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
   anchorDate: "",
   frequency: "Monthly",
   category: "Bills",
+  paymentMethod: "Cash",
 };
 
 export const EMPTY_CATEGORY_DRAFT: CategoryDraft = {

@@ -34,7 +34,9 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Dimo",
-    statusBarStyle: "default",
+    // Home-screen PWA: draw under the status bar so the canvas fills the
+    // Dynamic Island band (default paints a separate system chrome that goes black).
+    statusBarStyle: "black-translucent",
   },
   other: {
     "mobile-web-app-capable": "yes",
@@ -45,10 +47,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f8f6" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c1210" },
-  ],
+  // Single value — media-query variants can leave a dark status chrome while the
+  // app theme is still light. Runtime code in app-store keeps this in sync.
+  themeColor: "#f5f8f6",
 };
 
 export default function RootLayout({

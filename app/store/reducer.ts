@@ -1,4 +1,10 @@
-import { paymentMethodLabel, type Frequency, type Recurring, type Transaction } from "@/lib/types";
+import {
+  paymentMethodLabel,
+  type Frequency,
+  type PaymentMethod,
+  type Recurring,
+  type Transaction,
+} from "@/lib/types";
 import { localDateKey, nextOccurrence } from "@/lib/dates";
 import type { Action } from "@/store/actions";
 import {
@@ -18,17 +24,29 @@ function withToast(state: AppState, message: string): AppState {
   return { ...state, toast: message, toastNonce: state.toastNonce + 1 };
 }
 
+function defaultPaymentMethodLabel(state: AppState): PaymentMethod {
+  const active = state.paymentMethods.filter((method) => !method.archived);
+  const defaultMethod = active.find((method) => method.isDefault) ?? active[0];
+  return defaultMethod
+    ? paymentMethodLabel(defaultMethod)
+    : EMPTY_EXPENSE_DRAFT.paymentMethod;
+}
+
 function expenseDraftFor(state: AppState) {
   const active = state.paymentMethods.filter((method) => !method.archived);
   const activeLabels = active.map(paymentMethodLabel);
-  const defaultMethod = active.find((method) => method.isDefault) ?? active[0];
   const paymentMethod =
     state.lastPaymentMethod && activeLabels.includes(state.lastPaymentMethod)
       ? state.lastPaymentMethod
-      : defaultMethod
-        ? paymentMethodLabel(defaultMethod)
-        : EMPTY_EXPENSE_DRAFT.paymentMethod;
+      : defaultPaymentMethodLabel(state);
   return { ...EMPTY_EXPENSE_DRAFT, paymentMethod };
+}
+
+function recurringDraftFor(state: AppState) {
+  return {
+    ...EMPTY_RECURRING_DRAFT,
+    paymentMethod: defaultPaymentMethodLabel(state),
+  };
 }
 
 /** Append a keypad press to the amount string (mobile add-expense flow). */
@@ -113,7 +131,7 @@ export function reducer(state: AppState, action: Action): AppState {
           return {
             ...state,
             overlay: "recurring",
-            recurringDraft: EMPTY_RECURRING_DRAFT,
+            recurringDraft: recurringDraftFor(state),
           };
         case "category":
           return {
@@ -289,6 +307,10 @@ export function reducer(state: AppState, action: Action): AppState {
             state.expenseDraft.paymentMethod === previousLabel
               ? { ...state.expenseDraft, paymentMethod: nextLabel }
               : state.expenseDraft,
+          recurringDraft:
+            state.recurringDraft.paymentMethod === previousLabel
+              ? { ...state.recurringDraft, paymentMethod: nextLabel }
+              : state.recurringDraft,
         },
         `${name} updated`,
       );
@@ -366,6 +388,9 @@ export function reducer(state: AppState, action: Action): AppState {
           frequency: item.frequency ?? "monthly",
         }),
       );
+      const method = item.paymentMethodId
+        ? state.paymentMethods.find((m) => m.id === item.paymentMethodId)
+        : undefined;
       return {
         ...state,
         overlay: "recurring",
@@ -376,6 +401,9 @@ export function reducer(state: AppState, action: Action): AppState {
           anchorDate: dueDate,
           frequency,
           category: item.category,
+          paymentMethod: method
+            ? paymentMethodLabel(method)
+            : defaultPaymentMethodLabel(state),
         },
       };
     }
@@ -427,6 +455,15 @@ export function reducer(state: AppState, action: Action): AppState {
         recurringDraft: { ...state.recurringDraft, category: action.category },
       };
 
+    case "SET_RECURRING_PAYMENT_METHOD":
+      return {
+        ...state,
+        recurringDraft: {
+          ...state.recurringDraft,
+          paymentMethod: action.paymentMethod,
+        },
+      };
+
     case "SAVE_RECURRING": {
       const draft = state.recurringDraft;
       const amount = parseInt(draft.amount.replace(/[^0-9]/g, ""), 10) || 0;
@@ -448,6 +485,10 @@ export function reducer(state: AppState, action: Action): AppState {
         green: true,
         anchorDate: draft.anchorDate,
         frequency: freqWord as "monthly" | "yearly",
+        paymentMethodId:
+          state.paymentMethods.find(
+            (m) => paymentMethodLabel(m) === draft.paymentMethod,
+          )?.id ?? null,
       };
       const tx: Transaction = {
         id: nextId("t"),
@@ -457,6 +498,7 @@ export function reducer(state: AppState, action: Action): AppState {
         day: "Today",
         amount,
         green: true,
+        paymentMethod: draft.paymentMethod,
       };
 
       return withToast(

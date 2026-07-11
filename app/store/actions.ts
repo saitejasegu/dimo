@@ -55,6 +55,7 @@ export type Action =
   | { type: "SET_RECURRING_ANCHOR_DATE"; anchorDate: string }
   | { type: "SET_RECURRING_FREQUENCY"; frequency: Frequency }
   | { type: "SET_RECURRING_CATEGORY"; category: CategoryName }
+  | { type: "SET_RECURRING_PAYMENT_METHOD"; paymentMethod: PaymentMethod }
   | { type: "SAVE_RECURRING" }
   // category draft
   | { type: "OPEN_EDIT_CATEGORY"; id: ID }
