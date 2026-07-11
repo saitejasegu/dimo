@@ -10,7 +10,7 @@ import { Card, HeroCard } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Sheet } from "@/components/ui/Sheet";
 import { SparklesIcon } from "@/components/ui/icons";
-import { MobileScreen } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function BudgetsScreen() {
   const { currency, categories, transactions } = useAppState();
@@ -27,22 +27,24 @@ export function BudgetsScreen() {
       <MobileScreen
         header={
           <>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h1 className="font-display text-2xl font-semibold text-ink">Budgets</h1>
-              <button
-                type="button"
-                aria-label="Update budgets"
-                onClick={suggestedUpdates.length > 0 ? () => setReviewOpen(true) : undefined}
-                className={
-                  suggestedUpdates.length > 0
-                    ? "flex h-9 w-9 items-center justify-center rounded-xl text-green"
-                    : "pointer-events-none flex h-9 w-9 items-center justify-center rounded-xl text-faint"
-                }
-              >
-                <SparklesIcon size={20} />
-              </button>
-            </div>
-            <HeroCard className="p-5">
+            <MobileTopBar
+              title="Budgets"
+              trailing={
+                <button
+                  type="button"
+                  aria-label="Update budgets"
+                  onClick={suggestedUpdates.length > 0 ? () => setReviewOpen(true) : undefined}
+                  className={
+                    suggestedUpdates.length > 0
+                      ? "flex h-9 w-9 items-center justify-center rounded-xl text-green"
+                      : "pointer-events-none flex h-9 w-9 items-center justify-center rounded-xl text-faint"
+                  }
+                >
+                  <SparklesIcon size={20} />
+                </button>
+              }
+            />
+            <HeroCard className="mt-4 p-5">
               <div className="mb-2 flex items-baseline justify-between">
                 <span className="text-[13px] text-side-muted">Monthly budget</span>
                 <span className="text-xs text-side-sub">{totals.pct}% used</span>

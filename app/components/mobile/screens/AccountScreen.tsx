@@ -22,7 +22,7 @@ export function AccountScreen() {
       className="absolute inset-0 z-[18] flex animate-account-in flex-col overflow-hidden bg-canvas shadow-[-12px_0_32px_rgba(0,0,0,0.12)]"
     >
       <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.75rem,calc(env(safe-area-inset-top)+0.75rem))]">
-        <div className="flex items-center gap-3.5">
+        <div className="flex h-11 items-center gap-3.5">
           <button
             type="button"
             onClick={actions.closeAccount}
@@ -31,7 +31,7 @@ export function AccountScreen() {
           >
             <ChevronIcon direction="left" />
           </button>
-          <h1 className="font-display text-2xl font-semibold text-ink">Account</h1>
+          <h1 className="font-display text-2xl font-semibold leading-none text-ink">Account</h1>
         </div>
       </div>
 

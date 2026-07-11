@@ -1,6 +1,39 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+/** Fixed-height title row shared by every mobile screen. */
+export function MobileTopBar({
+  title,
+  subtitle,
+  trailing,
+  className,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  trailing?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex h-11 items-center justify-between gap-3", className)}>
+      <div className="min-w-0 flex-1">
+        {subtitle ? (
+          <>
+            <div className="text-[13px] leading-none text-muted">{subtitle}</div>
+            <div className="mt-1 truncate font-display text-[22px] font-semibold leading-none text-ink">
+              {title}
+            </div>
+          </>
+        ) : (
+          <h1 className="truncate font-display text-2xl font-semibold leading-none text-ink">
+            {title}
+          </h1>
+        )}
+      </div>
+      {trailing ? <div className="flex shrink-0 items-center">{trailing}</div> : null}
+    </div>
+  );
+}
+
 /** Fixed header + independently scrollable body for the mobile app. */
 export function MobileScreen({
   header,

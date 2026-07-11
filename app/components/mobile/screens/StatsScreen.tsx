@@ -8,7 +8,7 @@ import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { MonthBars } from "@/components/common/MonthBars";
 import { MerchantRow } from "@/components/common/MerchantRow";
-import { MobileScreen } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function StatsScreen() {
   const { currency } = useAppState();
@@ -29,16 +29,16 @@ export function StatsScreen() {
     <MobileScreen
       header={
         <>
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="font-display text-2xl font-semibold text-ink">
-              Stats
-            </h1>
-            <StatsRangeDropdown
-              value={range}
-              onChange={actions.setStatsRange}
-              onChangeDefaults={actions.manageStatsDefaults}
-            />
-          </div>
+          <MobileTopBar
+            title="Stats"
+            trailing={
+              <StatsRangeDropdown
+                value={range}
+                onChange={actions.setStatsRange}
+                onChangeDefaults={actions.manageStatsDefaults}
+              />
+            }
+          />
           <HeroCard className="mt-4 p-5">
             <div className="mb-2 text-[13px] text-side-muted">
               {scope.spentLabel}

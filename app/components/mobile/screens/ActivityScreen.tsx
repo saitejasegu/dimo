@@ -9,7 +9,7 @@ import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TransactionRow } from "@/components/common/TransactionRow";
-import { MobileScreen } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function ActivityScreen() {
   const { query, currency, categories } = useAppState();
@@ -29,29 +29,23 @@ export function ActivityScreen() {
     <MobileScreen
       header={
         <>
-          <div
-            className={
-              selection.selecting
-                ? "mb-3.5 flex flex-col gap-3"
-                : "mb-3.5 flex items-center justify-between gap-3"
+          <MobileTopBar
+            title="Transactions"
+            trailing={
+              <ActivitySelectionBar
+                selecting={selection.selecting}
+                selectedCount={selection.selectedCount}
+                allSelected={selection.allSelected}
+                visibleCount={filtered.length}
+                selectedIds={selection.selectedIds}
+                onEnter={selection.enter}
+                onExit={selection.exit}
+                onSelectAll={selection.selectAll}
+                onDeselectAll={selection.deselectAll}
+                className="shrink-0"
+              />
             }
-          >
-            <h1 className="font-display text-2xl font-semibold text-ink">
-              Transactions
-            </h1>
-            <ActivitySelectionBar
-              selecting={selection.selecting}
-              selectedCount={selection.selectedCount}
-              allSelected={selection.allSelected}
-              visibleCount={filtered.length}
-              selectedIds={selection.selectedIds}
-              onEnter={selection.enter}
-              onExit={selection.exit}
-              onSelectAll={selection.selectAll}
-              onDeselectAll={selection.deselectAll}
-              className={selection.selecting ? undefined : "shrink-0"}
-            />
-          </div>
+          />
           <SearchInput
             value={query}
             onChange={actions.setQuery}

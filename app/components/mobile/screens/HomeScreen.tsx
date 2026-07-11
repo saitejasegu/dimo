@@ -16,7 +16,7 @@ import { FilterIcon } from "@/components/ui/icons";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { Button } from "@/components/ui/Button";
 import { UpcomingRow } from "@/components/common/UpcomingRow";
-import { MobileScreen, SectionHeader } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar, SectionHeader } from "@/components/mobile/MobileScreen";
 
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -39,17 +39,14 @@ export function HomeScreen() {
     <MobileScreen
       header={
         <>
-          <div className="mb-[18px] flex items-center justify-between">
-            <div>
-              <div className="text-[13px] text-muted">{greetingFor()}</div>
-              <div className="font-display text-[22px] font-semibold text-ink">
-                {profile.name}
-              </div>
-            </div>
-            <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openAccount} />
-          </div>
-
-          <HeroCard className="mb-3.5 p-[22px]">
+          <MobileTopBar
+            subtitle={greetingFor()}
+            title={profile.name}
+            trailing={
+              <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openAccount} />
+            }
+          />
+          <HeroCard className="mt-4 p-[22px]">
             <div className="mb-2 text-[13px] text-side-muted">
               Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
             </div>

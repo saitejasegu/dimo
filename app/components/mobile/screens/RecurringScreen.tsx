@@ -5,7 +5,7 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useRecurring } from "@/features/recurring/hooks";
 import { HeroCard } from "@/components/ui/Card";
 import { RecurringRow } from "@/components/common/RecurringRow";
-import { MobileScreen } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function RecurringScreen() {
   const { currency } = useAppState();
@@ -16,10 +16,8 @@ export function RecurringScreen() {
     <MobileScreen
       header={
         <>
-          <div className="mb-4">
-            <h1 className="font-display text-2xl font-semibold text-ink">Recurring</h1>
-          </div>
-          <HeroCard className="p-5">
+          <MobileTopBar title="Recurring" />
+          <HeroCard className="mt-4 p-5">
             <div className="mb-2 text-[13px] text-side-muted">
               Monthly recurring total
             </div>
