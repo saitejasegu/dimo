@@ -27,27 +27,26 @@ export function SyncStatusCard() {
 
   return (
     <div>
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display text-base font-semibold text-ink">Cloud sync</h2>
-          <p className="mt-1 text-xs text-muted">
-            {sync.configured
-              ? `${label} · ${sync.pending} pending${sync.blocked ? ` · ${sync.blocked} blocked` : ""}`
-              : "Add NEXT_PUBLIC_CONVEX_URL to enable cloud sync."}
-          </p>
-          <p className="mt-1 text-[11px] text-faint">Last successful sync: {lastSync}</p>
-        </div>
+      <div className="mb-3 text-center">
+        <h2 className="font-display text-base font-semibold text-ink">Cloud sync</h2>
+        <p className="mt-1 text-xs text-muted">
+          {sync.configured
+            ? `${label} · ${sync.pending} pending${sync.blocked ? ` · ${sync.blocked} blocked` : ""}`
+            : "Add NEXT_PUBLIC_CONVEX_URL to enable cloud sync."}
+        </p>
+        <p className="mt-1 text-[11px] text-faint">Last successful sync: {lastSync}</p>
         <Button
           size="sm"
           variant="secondary"
           enabled={sync.configured && !sync.syncing}
           onClick={actions.syncNow}
+          className="mt-3"
         >
           {sync.syncing ? "Syncing…" : "Sync now"}
         </Button>
       </div>
       {sync.error && !offline ? (
-        <p className="rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+        <p className="rounded-lg bg-danger-soft px-3 py-2 text-center text-xs text-danger">
           {sync.error}
         </p>
       ) : null}
