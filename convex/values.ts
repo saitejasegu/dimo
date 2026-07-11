@@ -24,6 +24,8 @@ export const notificationValidator = v.object({
 export const categoryValidator = v.object({
   id: v.string(),
   name: v.string(),
+  /** Optional for backwards compatibility with pre-emoji category payloads. */
+  emoji: v.optional(v.string()),
   monthlyBudgetMinor: v.union(v.number(), v.null()),
   tint: v.union(v.literal("green"), v.literal("neutral")),
   sortOrder: v.number(),

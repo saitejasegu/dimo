@@ -56,7 +56,10 @@ export function BudgetsScreen() {
               }}
             >
               <div className="mb-2.5 flex items-baseline justify-between">
-                <span className="text-sm font-medium text-ink">{b.category}</span>
+                <span className="text-sm font-medium text-ink">
+                  {category?.emoji ? `${category.emoji} ` : ""}
+                  {b.category}
+                </span>
                 <span className="text-[13px] text-muted">
                   {b.hasLimit
                     ? `${money(b.spent, currency)} of ${money(b.limit as number, currency)}`

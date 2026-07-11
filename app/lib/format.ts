@@ -13,10 +13,11 @@ const CURRENCY_SYMBOL: Record<Currency, string> = {
 export function money(amount: number, currency: Currency = "INR"): string {
   const symbol = CURRENCY_SYMBOL[currency] ?? "₹";
   const hasFraction = Math.abs(amount % 1) > 0.0001;
-  return symbol + amount.toLocaleString("en-IN", {
+  const formatted = Math.abs(amount).toLocaleString("en-IN", {
     minimumFractionDigits: hasFraction ? 2 : 0,
     maximumFractionDigits: 2,
   });
+  return (amount < 0 ? "−" : "") + symbol + formatted;
 }
 
 /** Money prefixed with a minus sign, used for outgoing transaction amounts. */
@@ -24,10 +25,10 @@ export function spent(amount: number, currency: Currency = "INR"): string {
   return "−" + money(amount, currency);
 }
 
-/** Rounded integer percentage, clamped to [0, 100]. */
+/** Rounded integer percentage. Not clamped — overspend can exceed 100. */
 export function percent(value: number, total: number): number {
   if (total <= 0) return 0;
-  return Math.min(100, Math.round((value / total) * 100));
+  return Math.round((value / total) * 100);
 }
 
 /** Compact money for chart labels, e.g. 9200 -> "₹9.2k". */

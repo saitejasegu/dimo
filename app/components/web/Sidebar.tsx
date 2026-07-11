@@ -94,7 +94,11 @@ export function Sidebar() {
         <div className="mb-1.5 text-[11px] text-side-sub">
           Budget left in {new Date().toLocaleDateString(undefined, { month: "long" })}
         </div>
-        <div className="font-display text-[19px] font-semibold text-green-bright">
+        <div
+          className={`font-display text-[19px] font-semibold ${
+            totals.left < 0 ? "text-danger" : "text-green-bright"
+          }`}
+        >
           {money(totals.left, currency)}
         </div>
       </div>

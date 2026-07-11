@@ -4,6 +4,7 @@ import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { TextField } from "@/components/ui/TextField";
+import { EmojiField } from "@/components/ui/EmojiField";
 import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 
@@ -30,6 +31,7 @@ export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
   const dirty =
     !editing ||
     name !== (original?.name ?? "") ||
+    categoryDraft.emoji !== (original?.emoji ?? "") ||
     categoryDraft.limit !== originalLimit;
   const valid =
     name.length > 0 &&
@@ -41,13 +43,22 @@ export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
 
   return (
     <div>
-      <TextField
-        label="Name"
-        value={categoryDraft.name}
-        onChange={actions.setCategoryName}
-        placeholder="e.g. Pets, Travel, Health"
-        className="mb-4"
-      />
+      <div className="mb-4">
+        <span className="mb-1.5 block text-xs text-muted">Name</span>
+        <div className="flex items-center gap-2.5">
+          <EmojiField
+            value={categoryDraft.emoji}
+            onChange={actions.setCategoryEmoji}
+          />
+          <input
+            type="text"
+            value={categoryDraft.name}
+            onChange={(e) => actions.setCategoryName(e.target.value)}
+            placeholder="e.g. Pets, Travel, Health"
+            className="min-w-0 flex-1 rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint"
+          />
+        </div>
+      </div>
 
       <TextField
         label={

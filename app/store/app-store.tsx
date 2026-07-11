@@ -13,6 +13,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, type SyncMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
+  DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   WORKSPACE_ID,
   type CategoryEntity,
@@ -73,7 +74,8 @@ export interface AppActions {
   setRecurringFrequency: (frequency: Frequency) => void;
   setRecurringCategory: (category: CategoryName) => void; saveRecurring: () => void;
   deleteRecurring: () => void;
-  setCategoryName: (name: string) => void; setCategoryLimit: (limit: string) => void;
+  setCategoryName: (name: string) => void; setCategoryEmoji: (emoji: string) => void;
+  setCategoryLimit: (limit: string) => void;
   openEditCategory: (id: ID) => void;
   saveCategory: () => void; deleteCategory: () => void;
   setProfileName: (name: string) => void;
@@ -245,12 +247,15 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         dispatch({ type: "SHOW_TOAST", message: `${current.name} deleted` });
       });
     },
-    setCategoryName: (name) => dispatch({ type: "SET_CATEGORY_NAME", name }), setCategoryLimit: (limit) => dispatch({ type: "SET_CATEGORY_LIMIT", limit }),
+    setCategoryName: (name) => dispatch({ type: "SET_CATEGORY_NAME", name }),
+    setCategoryEmoji: (emoji) => dispatch({ type: "SET_CATEGORY_EMOJI", emoji }),
+    setCategoryLimit: (limit) => dispatch({ type: "SET_CATEGORY_LIMIT", limit }),
     openEditCategory: (id) => dispatch({ type: "OPEN_EDIT_CATEGORY", id }),
     saveCategory: () => {
       const state = getState();
       const name = state.categoryDraft.name.trim();
       if (!name) return;
+      const emoji = state.categoryDraft.emoji || DEFAULT_CATEGORY_EMOJI;
       const amount = Number(state.categoryDraft.limit);
       const monthlyBudgetMinor = amount > 0 ? Math.round(amount * 100) : null;
       const editingId = state.categoryDraft.id;
@@ -265,6 +270,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         const entity: CategoryEntity = {
           ...current,
           name,
+          emoji,
           monthlyBudgetMinor,
         };
         persist(saveEntity("category", entity), () => {
@@ -278,6 +284,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const entity: CategoryEntity = {
         id: crypto.randomUUID(),
         name,
+        emoji,
         monthlyBudgetMinor,
         tint: "neutral",
         sortOrder: state.categories.length,
@@ -336,13 +343,22 @@ export function AppStoreProvider({ children, userName }: { children: ReactNode; 
   useEffect(() => {
     if (!entities?.length) return;
     const active = entities.filter((row) => !row.deleted);
-    const categories = active.filter((r) => r.entityType === "category").map((r) => r.payload as CategoryEntity).sort((a, b) => a.sortOrder - b.sortOrder);
+    const categories = active
+      .filter((r) => r.entityType === "category")
+      .map((r) => {
+        const payload = r.payload as CategoryEntity & { emoji?: string };
+        return {
+          ...payload,
+          emoji: payload.emoji || DEFAULT_CATEGORY_EMOJI,
+        } satisfies CategoryEntity;
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder);
     const preference = active.find((r) => r.entityType === "preferences")?.payload as PreferencesEntity | undefined ?? DEFAULT_PREFERENCES;
     const methodEntities = active.filter((r) => r.entityType === "paymentMethod").map((r) => r.payload as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; return { id: t.id, name: t.name, amount: t.amountMinor / 100, amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green" }; });
-    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); return { id: item.id, name: item.name, amount: item.amountMinor / 100, amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency }; });
+    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; return { id: t.id, name: t.name, amount: t.amountMinor / 100, amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green" }; });
+    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); return { id: item.id, name: item.name, amount: item.amountMinor / 100, amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency }; });
     dispatch({ type: "HYDRATE_DATA", data: { transactions, recurring, categories, limits: Object.fromEntries(categories.map((c) => [c.name, c.monthlyBudgetMinor === null ? null : c.monthlyBudgetMinor / 100])), paymentMethods, preferences: { ...preference, defaultView: preference.defaultView }, lastPaymentMethod: device?.lastPaymentMethodId && methodMap.get(device.lastPaymentMethodId) ? paymentMethodLabel(methodMap.get(device.lastPaymentMethodId)!) : null } });
   }, [entities, device]);
 

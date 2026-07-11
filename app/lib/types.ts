@@ -51,6 +51,8 @@ export interface Transaction {
   paymentMethod?: PaymentMethod;
   /** Whether the category tint should use the brand-green accent. */
   green?: boolean;
+  /** Category emoji when available. */
+  emoji?: string;
   /** Canonical fields used by the local-first backend. */
   amountMinor?: number;
   occurredAt?: number;
@@ -75,6 +77,7 @@ export interface Recurring {
   paused: boolean;
   urgent?: boolean;
   green?: boolean;
+  emoji?: string;
   amountMinor?: number;
   categoryId?: ID;
   paymentMethodId?: ID | null;

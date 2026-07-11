@@ -6,6 +6,7 @@ import {
   WORKSPACE_ID,
   compareVersions,
   entityKey,
+  type CategoryEntity,
   type EntityPayloadMap,
   type EntityType,
   type LogicalVersion,
@@ -13,7 +14,7 @@ import {
   type SyncOperation,
 } from "@/data/model";
 
-const BOOTSTRAP_VERSION = 1;
+const BOOTSTRAP_VERSION = 2;
 const listeners = new Set<() => void>();
 
 export function onLocalWrite(listener: () => void) {
@@ -91,8 +92,19 @@ export async function initializeLocalDatabase() {
     const device = await ensureDevice();
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
       for (const category of DEFAULT_CATEGORY_ENTITIES) {
-        if (!(await db.entities.get(entityKey("category", category.id)))) {
+        const key = entityKey("category", category.id);
+        const existing = await db.entities.get(key);
+        if (!existing) {
           await putInCurrentTransaction("category", category);
+          continue;
+        }
+        if (existing.deleted) continue;
+        const payload = existing.payload as CategoryEntity & { emoji?: string };
+        if (!payload.emoji) {
+          await putInCurrentTransaction("category", {
+            ...payload,
+            emoji: category.emoji,
+          });
         }
       }
       if (!(await db.entities.get(entityKey("paymentMethod", CASH_PAYMENT_METHOD.id)))) {

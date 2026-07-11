@@ -58,6 +58,7 @@ export type Action =
   // category draft
   | { type: "OPEN_EDIT_CATEGORY"; id: ID }
   | { type: "SET_CATEGORY_NAME"; name: string }
+  | { type: "SET_CATEGORY_EMOJI"; emoji: string }
   | { type: "SET_CATEGORY_LIMIT"; limit: string }
   | { type: "SAVE_CATEGORY" }
   // account

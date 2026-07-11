@@ -18,6 +18,7 @@ import type {
 import type { CategoryEntity, PreferencesEntity } from "@/data/model";
 import {
   CASH_PAYMENT_METHOD,
+  DEFAULT_CATEGORY_EMOJI,
   DEFAULT_CATEGORY_ENTITIES,
   DEFAULT_PREFERENCES,
 } from "@/data/model";
@@ -43,6 +44,7 @@ export interface CategoryDraft {
   /** Set when editing an existing category; null when creating. */
   id: string | null;
   name: string;
+  emoji: string;
   limit: string;
 }
 
@@ -110,6 +112,7 @@ export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
 export const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
   id: null,
   name: "",
+  emoji: DEFAULT_CATEGORY_EMOJI,
   limit: "",
 };
 

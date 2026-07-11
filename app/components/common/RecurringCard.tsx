@@ -1,7 +1,10 @@
+"use client";
+
 import type { Currency, Recurring } from "@/lib/types";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { recurringSubtitle } from "@/features/recurring/selectors";
+import { useAppState } from "@/store/app-store";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 import { Badge } from "@/components/ui/Badge";
 
@@ -21,6 +24,12 @@ export function RecurringCard({
   currency: Currency;
   onClick: () => void;
 }) {
+  const { categories } = useAppState();
+  const emoji =
+    recurring.emoji ??
+    categories.find((c) => c.id === recurring.categoryId)?.emoji ??
+    categories.find((c) => c.name === recurring.category)?.emoji;
+
   return (
     <button
       type="button"
@@ -31,7 +40,7 @@ export function RecurringCard({
       )}
     >
       <div className="mb-3.5 flex items-center gap-3">
-        <CategoryTint green={recurring.green} size={38} radius={11} />
+        <CategoryTint green={recurring.green} emoji={emoji} size={38} radius={11} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-ink">
             {recurring.name}

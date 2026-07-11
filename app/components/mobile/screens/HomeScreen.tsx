@@ -56,7 +56,11 @@ export function HomeScreen() {
             </Card>
             <Card onClick={() => actions.setView("budgets")} className="p-4">
               <div className="mb-1.5 text-xs text-muted">Budget left</div>
-              <div className="font-display text-xl font-semibold text-green">
+              <div
+                className={`font-display text-xl font-semibold ${
+                  totals.left < 0 ? "text-danger" : "text-green"
+                }`}
+              >
                 {money(totals.left, currency)}
               </div>
             </Card>

@@ -21,9 +21,14 @@ export interface LogicalVersion {
   deviceId: string;
 }
 
+/** Fallback when a category has no emoji yet (pre-emoji data). */
+export const DEFAULT_CATEGORY_EMOJI = "🙂";
+
 export interface CategoryEntity {
   id: string;
   name: string;
+  /** Single emoji used as the category icon. */
+  emoji: string;
   monthlyBudgetMinor: number | null;
   tint: "green" | "neutral";
   sortOrder: number;
@@ -115,14 +120,15 @@ export function compareVersions(a: LogicalVersion, b: LogicalVersion): number {
 }
 
 export const DEFAULT_CATEGORY_ENTITIES: CategoryEntity[] = [
-  ["category-dining", "Dining", "green"],
-  ["category-groceries", "Groceries", "neutral"],
-  ["category-bills", "Bills", "green"],
-  ["category-transit", "Transit", "neutral"],
-  ["category-shopping", "Shopping", "neutral"],
-].map(([id, name, tint], sortOrder) => ({
+  ["category-dining", "Dining", "🍽️", "green"],
+  ["category-groceries", "Groceries", "🛒", "neutral"],
+  ["category-bills", "Bills", "📄", "green"],
+  ["category-transit", "Transit", "🚌", "neutral"],
+  ["category-shopping", "Shopping", "🛍️", "neutral"],
+].map(([id, name, emoji, tint], sortOrder) => ({
   id,
   name,
+  emoji,
   tint: tint as CategoryEntity["tint"],
   sortOrder,
   system: true,

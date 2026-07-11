@@ -23,7 +23,7 @@ describe("local repository", () => {
 
   it("atomically replaces the outbox operation for a newer entity edit", async () => {
     await initializeLocalDatabase();
-    const payload = { id: "category-test", name: "Test", monthlyBudgetMinor: null, tint: "neutral" as const, sortOrder: 10, system: false };
+    const payload = { id: "category-test", name: "Test", emoji: "🧪", monthlyBudgetMinor: null, tint: "neutral" as const, sortOrder: 10, system: false };
     await saveEntity("category", payload);
     const first = await db.outbox.get(entityKey("category", payload.id));
     await saveEntity("category", { ...payload, name: "Updated" });

@@ -1,5 +1,6 @@
 import type { CategoryName } from "@/lib/types";
 import { cn } from "@/lib/cn";
+import { useAppState } from "@/store/app-store";
 import { Chip } from "@/components/ui/Chip";
 
 /** A horizontally scrollable row of single-select category chips. */
@@ -16,6 +17,9 @@ export function CategoryChips({
   surface?: "white" | "canvas";
   className?: string;
 }) {
+  const { categories: categoryEntities } = useAppState();
+  const emojiByName = new Map(categoryEntities.map((c) => [c.name, c.emoji]));
+
   return (
     <div
       className={cn(
@@ -23,15 +27,18 @@ export function CategoryChips({
         className,
       )}
     >
-      {categories.map((category) => (
-        <Chip
-          key={category}
-          label={category}
-          selected={value === category}
-          surface={surface}
-          onClick={() => onChange(category)}
-        />
-      ))}
+      {categories.map((category) => {
+        const emoji = emojiByName.get(category);
+        return (
+          <Chip
+            key={category}
+            label={emoji ? `${emoji} ${category}` : category}
+            selected={value === category}
+            surface={surface}
+            onClick={() => onChange(category)}
+          />
+        );
+      })}
     </div>
   );
 }

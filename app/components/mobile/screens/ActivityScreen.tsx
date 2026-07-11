@@ -9,9 +9,10 @@ import { TransactionRow } from "@/components/common/TransactionRow";
 import { MobileScreen } from "@/components/mobile/MobileScreen";
 
 export function ActivityScreen() {
-  const { query, currency } = useAppState();
+  const { query, currency, categories } = useAppState();
   const actions = useAppActions();
   const { options, filter, groups } = useActivity();
+  const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
 
   return (
     <MobileScreen
@@ -26,14 +27,17 @@ export function ActivityScreen() {
             className="mb-3"
           />
           <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-0.5">
-            {options.map((option) => (
+            {options.map((option) => {
+              const emoji = option === "All" ? null : emojiByName.get(option);
+              return (
               <Chip
                 key={option}
-                label={option}
+                label={emoji ? `${emoji} ${option}` : option}
                 selected={filter === option}
                 onClick={() => actions.setFilter(option)}
               />
-            ))}
+              );
+            })}
           </div>
         </>
       }

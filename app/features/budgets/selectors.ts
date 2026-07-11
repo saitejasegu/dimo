@@ -66,7 +66,7 @@ export function budgetTotals(
     totalSpent,
     totalLimit,
     pct,
-    left: Math.max(0, totalLimit - totalSpent),
+    left: totalLimit - totalSpent,
     over: totalLimit > 0 && totalSpent / totalLimit >= 0.9,
   };
 }

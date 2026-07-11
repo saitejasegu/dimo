@@ -10,10 +10,11 @@ import { TransactionRow } from "@/components/common/TransactionRow";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function ActivityScreen() {
-  const { query, currency } = useAppState();
+  const { query, currency, categories } = useAppState();
   const actions = useAppActions();
   const { options, filter, groups, summary, shownCount, totalCount } =
     useActivity();
+  const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
 
   return (
     <WebScreen>
@@ -30,14 +31,17 @@ export function ActivityScreen() {
       </div>
 
       <div className="mb-[22px] flex flex-wrap gap-2.5">
-        {options.map((option) => (
+        {options.map((option) => {
+          const emoji = option === "All" ? null : emojiByName.get(option);
+          return (
           <Chip
             key={option}
-            label={option}
+            label={emoji ? `${emoji} ${option}` : option}
             selected={filter === option}
             onClick={() => actions.setFilter(option)}
           />
-        ))}
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-[1fr_300px] items-start gap-5">

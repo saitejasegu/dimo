@@ -1,6 +1,9 @@
+"use client";
+
 import type { Currency, Transaction } from "@/lib/types";
 import { spent } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { useAppState } from "@/store/app-store";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 import { Badge } from "@/components/ui/Badge";
 
@@ -24,6 +27,11 @@ export function TransactionRow({
   showCategoryPill = false,
   dividerTop = false,
 }: TransactionRowProps) {
+  const { categories } = useAppState();
+  const emoji =
+    transaction.emoji ??
+    categories.find((c) => c.id === transaction.categoryId)?.emoji ??
+    categories.find((c) => c.name === transaction.category)?.emoji;
   const sub = `${transaction.category} · ${transaction.time}`;
 
   return (
@@ -38,7 +46,7 @@ export function TransactionRow({
         dividerTop && "border-t border-line-soft",
       )}
     >
-      <CategoryTint green={transaction.green} />
+      <CategoryTint green={transaction.green} emoji={emoji} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-ink">
           {transaction.name}

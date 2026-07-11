@@ -70,7 +70,11 @@ export function OverviewScreen() {
           <div className="flex h-full flex-col justify-between">
             <div className="mb-3.5 text-[13px] text-muted">Budget left</div>
             <div>
-              <div className="font-display text-[28px] font-semibold text-green">
+              <div
+                className={`font-display text-[28px] font-semibold ${
+                  totals.left < 0 ? "text-danger" : "text-green"
+                }`}
+              >
                 {money(totals.left, currency)}
               </div>
               <div className="mt-1 text-xs text-faint">{totals.pct}% used</div>

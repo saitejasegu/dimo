@@ -70,6 +70,7 @@ export function BudgetsScreen() {
             >
               <div className="mb-3.5 flex items-center justify-between">
                 <span className="text-[15px] font-semibold text-ink">
+                  {category?.emoji ? `${category.emoji} ` : ""}
                   {b.category}
                 </span>
                 <Badge

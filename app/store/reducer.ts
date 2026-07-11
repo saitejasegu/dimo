@@ -481,7 +481,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         overlay: "category",
-        categoryDraft: { id: category.id, name: category.name, limit },
+        categoryDraft: {
+          id: category.id,
+          name: category.name,
+          emoji: category.emoji,
+          limit,
+        },
       };
     }
 
@@ -489,6 +494,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         categoryDraft: { ...state.categoryDraft, name: action.name },
+      };
+
+    case "SET_CATEGORY_EMOJI":
+      return {
+        ...state,
+        categoryDraft: { ...state.categoryDraft, emoji: action.emoji },
       };
 
     case "SET_CATEGORY_LIMIT":
