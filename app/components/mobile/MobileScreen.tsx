@@ -14,17 +14,17 @@ export function MobileTopBar({
   className?: string;
 }) {
   return (
-    <div className={cn("flex h-11 items-center justify-between gap-3", className)}>
+    <div className={cn("flex min-h-14 items-center justify-between gap-3", className)}>
       <div className="min-w-0 flex-1">
         {subtitle ? (
           <>
-            <div className="text-[13px] leading-none text-muted">{subtitle}</div>
-            <div className="mt-1 truncate font-display text-[22px] font-semibold leading-none text-ink">
+            <div className="text-[13px] leading-5 text-muted">{subtitle}</div>
+            <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[22px] font-semibold leading-8 text-ink">
               {title}
             </div>
           </>
         ) : (
-          <h1 className="truncate font-display text-2xl font-semibold leading-none text-ink">
+          <h1 className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-2xl font-semibold leading-9 text-ink">
             {title}
           </h1>
         )}
