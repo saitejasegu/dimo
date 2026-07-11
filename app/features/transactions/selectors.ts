@@ -86,6 +86,36 @@ export function groupByDay(transactions: Transaction[]): DayGroup[] {
   });
 }
 
+/** Default page size for the home transaction list. */
+export const HOME_TRANSACTION_PAGE_SIZE = 50;
+
+/**
+ * Take the first `limit` transactions, then include any remaining items that
+ * share the oldest included day's label so day groups are never split.
+ */
+export function paginateTransactionsByDay(
+  transactions: Transaction[],
+  limit: number,
+): { items: Transaction[]; hasMore: boolean } {
+  if (limit <= 0) {
+    return { items: [], hasMore: transactions.length > 0 };
+  }
+  if (transactions.length <= limit) {
+    return { items: transactions, hasMore: false };
+  }
+
+  let end = limit;
+  const oldestDay = transactions[limit - 1]!.day;
+  while (end < transactions.length && transactions[end]!.day === oldestDay) {
+    end += 1;
+  }
+
+  return {
+    items: transactions.slice(0, end),
+    hasMore: end < transactions.length,
+  };
+}
+
 export function summarize(transactions: Transaction[]): TransactionsSummary {
   const byCategory = new Map<CategoryName, number>();
   let total = 0;

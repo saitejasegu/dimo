@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Transaction } from "@/lib/types";
 import {
   filterTransactions,
+  paginateTransactionsByDay,
   paymentMethodFilterOptions,
 } from "@/features/transactions/selectors";
 
@@ -34,6 +35,21 @@ const transactions: Transaction[] = [
     paymentMethod: "Cash",
   },
 ];
+
+function tx(
+  id: string,
+  day: string,
+  amount = 1,
+): Transaction {
+  return {
+    id,
+    name: `Merchant ${id}`,
+    category: "Dining",
+    time: "12:00 PM",
+    day,
+    amount,
+  };
+}
 
 describe("transaction payment method filters", () => {
   it("returns unique payment methods in label order", () => {
@@ -71,5 +87,44 @@ describe("transaction payment method filters", () => {
         query: "",
       }),
     ).toEqual(transactions);
+  });
+});
+
+describe("paginateTransactionsByDay", () => {
+  const list = [
+    tx("1", "Today"),
+    tx("2", "Today"),
+    tx("3", "Yesterday"),
+    tx("4", "Yesterday"),
+    tx("5", "Yesterday"),
+    tx("6", "Monday"),
+  ];
+
+  it("returns all items when under the limit", () => {
+    expect(paginateTransactionsByDay(list, 50)).toEqual({
+      items: list,
+      hasMore: false,
+    });
+  });
+
+  it("extends through the oldest included day", () => {
+    expect(paginateTransactionsByDay(list, 3)).toEqual({
+      items: list.slice(0, 5),
+      hasMore: true,
+    });
+  });
+
+  it("does not extend when the cut lands on a day boundary", () => {
+    expect(paginateTransactionsByDay(list, 2)).toEqual({
+      items: list.slice(0, 2),
+      hasMore: true,
+    });
+  });
+
+  it("reports no more when the extended page consumes the list", () => {
+    expect(paginateTransactionsByDay(list.slice(0, 5), 3)).toEqual({
+      items: list.slice(0, 5),
+      hasMore: false,
+    });
   });
 });

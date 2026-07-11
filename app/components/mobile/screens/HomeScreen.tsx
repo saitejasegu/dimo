@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { money, spent } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { useActivity } from "@/features/transactions/hooks";
+import {
+  groupByDay,
+  HOME_TRANSACTION_PAGE_SIZE,
+  paginateTransactionsByDay,
+} from "@/features/transactions/selectors";
 import { Avatar } from "@/components/ui/Avatar";
 import { HeroCard } from "@/components/ui/Card";
 import { TransactionRow } from "@/components/common/TransactionRow";
@@ -20,6 +25,7 @@ import { MobileScreen, MobileTopBar, SectionHeader } from "@/components/mobile/M
 
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(HOME_TRANSACTION_PAGE_SIZE);
   const { profile, currency, query, categories } = useAppState();
   const actions = useAppActions();
   const {
@@ -27,9 +33,15 @@ export function HomeScreen() {
     upcoming,
     transactionCount,
   } = useOverview();
-  const { options, filter, paymentFilter, paymentOptions, groups } = useActivity();
+  const { options, filter, paymentFilter, paymentOptions, filtered } = useActivity();
+  const { items: visible, hasMore } = paginateTransactionsByDay(filtered, visibleLimit);
+  const groups = groupByDay(visible);
   const emojiByName = new Map(categories.map((category) => [category.name, category.emoji]));
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
+
+  useEffect(() => {
+    setVisibleLimit(HOME_TRANSACTION_PAGE_SIZE);
+  }, [query, filter, paymentFilter]);
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
@@ -92,6 +104,17 @@ export function HomeScreen() {
         <div className="mb-2 flex items-baseline justify-between"><span className="text-xs font-medium uppercase tracking-[0.08em] text-muted">{group.label}</span><span className="text-xs text-faint">{spent(group.total, currency)}</span></div>
         <div className="flex flex-col gap-2">{group.items.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} currency={currency} onClick={() => actions.openDetail(transaction.id)} />)}</div>
       </div>)}
+      {hasMore ? (
+        <Button
+          variant="secondary"
+          fullWidth
+          size="sm"
+          className="mb-2"
+          onClick={() => setVisibleLimit((limit) => limit + HOME_TRANSACTION_PAGE_SIZE)}
+        >
+          Load more
+        </Button>
+      ) : null}
       {filtersOpen ? <Sheet title="Filter transactions" onClose={() => setFiltersOpen(false)}>
         <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Search</div>
         <SearchInput value={query} onChange={actions.setQuery} className="mb-4" />
