@@ -39,7 +39,9 @@ export function MobileApp() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-canvas font-body">
-      <CurrentScreen />
+      <div key={view} className="h-full animate-screen-in">
+        <CurrentScreen />
+      </div>
       <Fab />
       <TabBar />
 

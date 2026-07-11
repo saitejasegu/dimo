@@ -45,6 +45,7 @@
   --color-side-avatar: #28402f;
 
   --animate-fade-up: fade-up 0.22s ease;
+  --animate-screen-in: screen-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-sheet-up: sheet-up 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
   --animate-dim-in: dim-in 0.2s ease;
   --animate-pop-in: pop-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -53,6 +54,10 @@
   @keyframes fade-up {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes screen-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.995); filter: blur(2px); }
+    to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
   }
   @keyframes sheet-up {
     from { transform: translateY(100%); }
@@ -163,5 +168,11 @@
     border-width: 1px;
     background: var(--color-green-deep);
     background-clip: padding-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-screen-in {
+      animation: none;
+    }
   }
 }

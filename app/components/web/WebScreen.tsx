@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-/** Standard padded, animated content area for a web screen. */
+/** Standard padded content area for a web screen. */
 export function WebScreen({
   children,
   className,
@@ -10,7 +10,7 @@ export function WebScreen({
   className?: string;
 }) {
   return (
-    <div className={cn("animate-fade-up px-10 pb-12 pt-[34px]", className)}>
+    <div className={cn("px-10 pb-12 pt-[34px]", className)}>
       {children}
     </div>
   );

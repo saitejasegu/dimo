@@ -35,13 +35,15 @@ function CurrentScreen() {
 }
 
 export function WebApp() {
-  const { overlay, detailId } = useAppState();
+  const { view, overlay, detailId } = useAppState();
 
   return (
     <div className="fixed inset-0 flex overflow-hidden bg-canvas font-body">
       <Sidebar />
       <main className="bubble-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas">
-        <CurrentScreen />
+        <div key={view} className="min-h-full animate-screen-in">
+          <CurrentScreen />
+        </div>
       </main>
 
       {detailId ? <TxDetailModal /> : null}

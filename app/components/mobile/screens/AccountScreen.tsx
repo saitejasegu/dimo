@@ -28,7 +28,7 @@ export function AccountScreen() {
   const { signOut } = useAuth();
 
   return (
-    <div className="fixed inset-0 z-[18] flex flex-col overflow-hidden bg-canvas">
+    <div className="fixed inset-0 z-[18] flex animate-screen-in flex-col overflow-hidden bg-canvas">
       <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-3.5">
           <button
@@ -43,7 +43,7 @@ export function AccountScreen() {
         </div>
       </div>
 
-      <div className="bubble-scrollbar min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <div className="bubble-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-none px-[22px] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
       <Card className="mb-3.5 p-5">
         <div className="mb-4 flex items-center gap-4">
           <Avatar
