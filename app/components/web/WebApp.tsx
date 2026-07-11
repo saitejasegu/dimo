@@ -2,37 +2,51 @@
 
 import { lazy, Suspense } from "react";
 import { useAppState } from "@/store/app-store";
+import { usePrefetchOnMount } from "@/hooks/usePrefetchOnMount";
 import { Sidebar } from "@/components/web/Sidebar";
 import { OverviewScreen } from "@/components/web/screens/OverviewScreen";
 import { Toaster } from "@/components/common/Toaster";
 
-const ActivityScreen = lazy(() =>
-  import("@/components/web/screens/ActivityScreen").then((m) => ({ default: m.ActivityScreen })),
-);
-const StatsScreen = lazy(() =>
-  import("@/components/web/screens/StatsScreen").then((m) => ({ default: m.StatsScreen })),
-);
-const RecurringScreen = lazy(() =>
-  import("@/components/web/screens/RecurringScreen").then((m) => ({ default: m.RecurringScreen })),
-);
-const BudgetsScreen = lazy(() =>
-  import("@/components/web/screens/BudgetsScreen").then((m) => ({ default: m.BudgetsScreen })),
-);
-const AccountScreen = lazy(() =>
-  import("@/components/web/screens/AccountScreen").then((m) => ({ default: m.AccountScreen })),
-);
-const TxDetailModal = lazy(() =>
-  import("@/components/web/modals/TxDetailModal").then((m) => ({ default: m.TxDetailModal })),
-);
-const AddExpenseModal = lazy(() =>
-  import("@/components/web/modals/AddExpenseModal").then((m) => ({ default: m.AddExpenseModal })),
-);
-const AddRecurringModal = lazy(() =>
-  import("@/components/web/modals/AddRecurringModal").then((m) => ({ default: m.AddRecurringModal })),
-);
-const NewCategoryModal = lazy(() =>
-  import("@/components/web/modals/NewCategoryModal").then((m) => ({ default: m.NewCategoryModal })),
-);
+const loadActivityScreen = () =>
+  import("@/components/web/screens/ActivityScreen").then((m) => ({ default: m.ActivityScreen }));
+const loadStatsScreen = () =>
+  import("@/components/web/screens/StatsScreen").then((m) => ({ default: m.StatsScreen }));
+const loadRecurringScreen = () =>
+  import("@/components/web/screens/RecurringScreen").then((m) => ({ default: m.RecurringScreen }));
+const loadBudgetsScreen = () =>
+  import("@/components/web/screens/BudgetsScreen").then((m) => ({ default: m.BudgetsScreen }));
+const loadAccountScreen = () =>
+  import("@/components/web/screens/AccountScreen").then((m) => ({ default: m.AccountScreen }));
+const loadTxDetailModal = () =>
+  import("@/components/web/modals/TxDetailModal").then((m) => ({ default: m.TxDetailModal }));
+const loadAddExpenseModal = () =>
+  import("@/components/web/modals/AddExpenseModal").then((m) => ({ default: m.AddExpenseModal }));
+const loadAddRecurringModal = () =>
+  import("@/components/web/modals/AddRecurringModal").then((m) => ({ default: m.AddRecurringModal }));
+const loadNewCategoryModal = () =>
+  import("@/components/web/modals/NewCategoryModal").then((m) => ({ default: m.NewCategoryModal }));
+
+const ActivityScreen = lazy(loadActivityScreen);
+const StatsScreen = lazy(loadStatsScreen);
+const RecurringScreen = lazy(loadRecurringScreen);
+const BudgetsScreen = lazy(loadBudgetsScreen);
+const AccountScreen = lazy(loadAccountScreen);
+const TxDetailModal = lazy(loadTxDetailModal);
+const AddExpenseModal = lazy(loadAddExpenseModal);
+const AddRecurringModal = lazy(loadAddRecurringModal);
+const NewCategoryModal = lazy(loadNewCategoryModal);
+
+const PREFETCH = [
+  loadActivityScreen,
+  loadStatsScreen,
+  loadRecurringScreen,
+  loadBudgetsScreen,
+  loadAccountScreen,
+  loadTxDetailModal,
+  loadAddExpenseModal,
+  loadAddRecurringModal,
+  loadNewCategoryModal,
+];
 
 function ScreenFallback() {
   return <div className="min-h-full bg-canvas" />;
@@ -60,6 +74,7 @@ function CurrentScreen() {
 
 export function WebApp() {
   const { view, overlay, detailId } = useAppState();
+  usePrefetchOnMount(PREFETCH);
 
   return (
     <div className="flex h-full overflow-hidden bg-canvas font-body">
