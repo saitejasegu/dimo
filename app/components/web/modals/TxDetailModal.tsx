@@ -2,22 +2,18 @@
 
 import { useAppActions, useAppState } from "@/store/app-store";
 import { Modal } from "@/components/ui/Modal";
-import { TransactionDetailContent } from "@/components/forms/TransactionDetailContent";
+import { EditExpenseForm } from "@/components/forms/EditExpenseForm";
 
 export function TxDetailModal() {
-  const { transactions, detailId, currency } = useAppState();
+  const { transactions, detailId } = useAppState();
   const actions = useAppActions();
 
   const transaction = transactions.find((t) => t.id === detailId);
   if (!transaction) return null;
 
   return (
-    <Modal onClose={actions.closeDetail} width={420}>
-      <TransactionDetailContent
-        transaction={transaction}
-        currency={currency}
-        size="web"
-      />
+    <Modal onClose={actions.closeDetail} width={440}>
+      <EditExpenseForm transaction={transaction} size="web" />
     </Modal>
   );
 }

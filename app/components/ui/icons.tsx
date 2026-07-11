@@ -46,6 +46,27 @@ export function SearchIcon({ className, size = 16 }: IconProps) {
   );
 }
 
+export function TrashIcon({ className, size = 18 }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M4 6h12M8 3h4l1 3H7l1-3Zm-2 3 .7 11h6.6L16 6M8.5 9v5M11.5 9v5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 type ChevronDirection = "left" | "right" | "up" | "down";
 
 const CHEVRON_ROTATION: Record<ChevronDirection, string> = {

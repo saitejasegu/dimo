@@ -309,6 +309,7 @@ export function reducer(state: AppState, action: Action): AppState {
             transaction.id === action.id
               ? {
                   ...transaction,
+                  name: action.input.name,
                   amount: action.input.amount,
                   category: action.input.category,
                   paymentMethod: action.input.paymentMethod,

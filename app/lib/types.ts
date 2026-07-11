@@ -54,6 +54,7 @@ export interface Transaction {
 }
 
 export interface TransactionEditInput {
+  name: string;
   amount: number;
   category: CategoryName;
   paymentMethod: PaymentMethod;

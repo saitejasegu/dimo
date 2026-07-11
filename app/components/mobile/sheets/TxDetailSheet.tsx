@@ -2,10 +2,10 @@
 
 import { useAppActions, useAppState } from "@/store/app-store";
 import { Sheet } from "@/components/ui/Sheet";
-import { TransactionDetailContent } from "@/components/forms/TransactionDetailContent";
+import { EditExpenseForm } from "@/components/forms/EditExpenseForm";
 
 export function TxDetailSheet() {
-  const { transactions, detailId, currency } = useAppState();
+  const { transactions, detailId } = useAppState();
   const actions = useAppActions();
 
   const transaction = transactions.find((t) => t.id === detailId);
@@ -13,11 +13,7 @@ export function TxDetailSheet() {
 
   return (
     <Sheet onClose={actions.closeDetail}>
-      <TransactionDetailContent
-        transaction={transaction}
-        currency={currency}
-        size="mobile"
-      />
+      <EditExpenseForm transaction={transaction} size="mobile" />
     </Sheet>
   );
 }
