@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isNativeApp } from "@/lib/native";
+import { isElectronApp, isNativeApp } from "@/lib/native";
 
 /**
  * Tracks whether the viewport is below the given breakpoint.
  * Returns `null` until mounted to avoid a hydration mismatch.
- * Native Capacitor builds always use the mobile shell.
+ * Capacitor always uses the mobile shell; Electron always uses the web UI.
  */
 export function useIsMobile(breakpoint = 900): boolean | null {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
@@ -14,6 +14,11 @@ export function useIsMobile(breakpoint = 900): boolean | null {
   useEffect(() => {
     if (isNativeApp()) {
       setIsMobile(true);
+      return;
+    }
+
+    if (isElectronApp()) {
+      setIsMobile(false);
       return;
     }
 

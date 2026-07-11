@@ -2,6 +2,7 @@
   "name": "dimo-expenses-ui",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.mjs",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -10,14 +11,19 @@
     "build": "next build",
     "start": "npx --yes serve out",
     "test": "npm run build",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern design --ignore-pattern ios",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern design --ignore-pattern ios --ignore-pattern release --ignore-pattern electron",
     "cap:sync": "npm run build && npx cap sync ios",
     "cap:open": "npx cap open ios",
-    "ios": "npm run cap:sync && npx cap open ios"
+    "ios": "npm run cap:sync && npx cap open ios",
+    "electron:dev": "concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV=1 electron .\"",
+    "electron:preview": "npm run build && electron .",
+    "electron:pack": "npm run build && electron-builder --dir",
+    "electron:dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
+    "electron-serve": "^2.1.1",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -28,10 +34,14 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "concurrently": "^9.2.1",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "4.2.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wait-on": "^8.0.3"
   },
   "type": "module"
 }

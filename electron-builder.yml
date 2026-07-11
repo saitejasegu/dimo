@@ -1,0 +1,26 @@
+appId: app.dimo.expenses
+productName: Dimo
+copyright: Copyright © Dimo
+
+directories:
+  output: release
+
+files:
+  - electron/**/*
+  - out/**/*
+  - package.json
+
+mac:
+  category: public.app-category.finance
+  target:
+    - dmg
+    - zip
+
+win:
+  target:
+    - nsis
+
+linux:
+  target:
+    - AppImage
+  category: Office

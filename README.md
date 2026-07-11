@@ -4,8 +4,8 @@ A client-side personal spending tracker built with **Next.js 16**, **React 19**,
 and **Tailwind CSS 4**. It renders two distinct, pixel-faithful experiences from
 a single shared state layer:
 
-- a **mobile** app (phone frame, bottom tab bar, bottom sheets)
-- a **web** app (window chrome, sidebar navigation, centered modals)
+- a **mobile** app (phone frame, bottom tab bar, bottom sheets) — Capacitor iOS
+- a **web** app (window chrome, sidebar navigation, centered modals) — browser + Electron
 
 The UI is data-driven from in-memory seed data. There is no backend yet — the
 architecture is intentionally structured so a real backend can be dropped in by
@@ -30,6 +30,20 @@ npm run dev      # http://localhost:3000
 - `npm run lint` — ESLint (the reference `design/` mockups are ignored).
 - `npm run ios` — build, sync Capacitor, open the Xcode iOS project.
 - `npm run cap:sync` — build + sync web assets into `ios/` without opening Xcode.
+- `npm run electron:dev` — Next.js + Electron together (desktop shell against the dev server).
+- `npm run electron:preview` — build the static export, then open it in Electron.
+- `npm run electron:pack` — build an unpackaged app under `release/` (for smoke-testing).
+- `npm run electron:dist` — build installers (macOS `.dmg`, Windows NSIS, Linux AppImage).
+
+## Desktop (Electron)
+
+Electron hosts the **web** UI in a desktop window (`electron/`, app ID `app.dimo.expenses`).
+
+```bash
+npm run electron:dev      # develop against localhost:3000
+npm run electron:preview # production static export in Electron
+npm run electron:dist    # package installers into release/
+```
 
 ## iOS / App Store
 

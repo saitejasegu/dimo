@@ -18,6 +18,9 @@
 /.vinext/
 /out/
 
+# electron
+/release/
+
 # misc
 .DS_Store
 *.pem
