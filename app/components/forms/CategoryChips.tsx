@@ -81,7 +81,7 @@ export function CategoryChips({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search categories"
-              className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-faint"
+              className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
             />
           </div>
           <div role="listbox" className="max-h-52 overflow-y-auto">
