@@ -5,11 +5,9 @@ import { useAppState } from "@/store/app-store";
 import { usePrefetchOnMount } from "@/hooks/usePrefetchOnMount";
 import { useBrowserSwipeGuard } from "@/hooks/useBrowserSwipeGuard";
 import { TabBar } from "@/components/mobile/TabBar";
+import { TabPager } from "@/components/mobile/TabPager";
 import { Fab } from "@/components/mobile/Fab";
-import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
 import { Toaster } from "@/components/common/Toaster";
-import { cn } from "@/lib/cn";
-import type { ViewKey } from "@/lib/types";
 
 const loadSettingsScreen = () =>
   import("@/components/mobile/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
@@ -30,10 +28,6 @@ const loadAddRecurringSheet = () =>
 const loadNewCategorySheet = () =>
   import("@/components/mobile/sheets/NewCategorySheet").then((m) => ({ default: m.NewCategorySheet }));
 
-const SettingsScreen = lazy(loadSettingsScreen);
-const StatsScreen = lazy(loadStatsScreen);
-const RecurringScreen = lazy(loadRecurringScreen);
-const BudgetsScreen = lazy(loadBudgetsScreen);
 const AccountScreen = lazy(loadAccountScreen);
 const TxDetailSheet = lazy(loadTxDetailSheet);
 const AddExpenseSheet = lazy(loadAddExpenseSheet);
@@ -51,29 +45,6 @@ const PREFETCH = [
   loadAddRecurringSheet,
   loadNewCategorySheet,
 ];
-
-function ScreenFallback() {
-  return <div className="h-full bg-canvas" />;
-}
-
-function CurrentScreen({ screen }: { screen: ViewKey }) {
-  switch (screen) {
-    case "home":
-      return <HomeScreen />;
-    case "tx":
-      return <HomeScreen />;
-    case "stats":
-      return <StatsScreen />;
-    case "recurring":
-      return <RecurringScreen />;
-    case "budgets":
-      return <BudgetsScreen />;
-    case "settings":
-      return <SettingsScreen />;
-    default:
-      return <HomeScreen />;
-  }
-}
 
 export function MobileApp() {
   const { view, accountReturnView, overlay, detailId } = useAppState();
@@ -93,14 +64,7 @@ export function MobileApp() {
         className="pointer-events-none absolute inset-x-0 top-0 z-[40] h-[env(safe-area-inset-top,0px)] min-h-[env(safe-area-inset-top,0px)] bg-canvas"
       />
       <div className="relative min-h-0 flex-1">
-        <div
-          key={underlayView}
-          className={cn("h-full", view !== "account" && "animate-screen-in")}
-        >
-          <Suspense fallback={<ScreenFallback />}>
-            <CurrentScreen screen={underlayView} />
-          </Suspense>
-        </div>
+        <TabPager activeView={underlayView} swipeEnabled={view !== "account"} />
         <Fab />
       </div>
       <TabBar />

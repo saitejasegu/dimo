@@ -69,6 +69,7 @@ export function MonthBars({
         scrollable &&
           "overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       )}
+      data-no-tab-swipe={scrollable ? "" : undefined}
     >
       <div
         className="flex min-w-full items-end gap-0.5"
