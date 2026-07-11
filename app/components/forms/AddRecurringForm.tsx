@@ -26,12 +26,10 @@ export function AddRecurringForm({
   const actions = useAppActions();
 
   const amount = parseInt(recurringDraft.amount.replace(/[^0-9]/g, ""), 10) || 0;
-  const day = parseInt(recurringDraft.day, 10) || 0;
   const valid =
     recurringDraft.name.trim().length > 0 &&
     amount > 0 &&
-    day >= 1 &&
-    day <= 31;
+    /^\d{4}-\d{2}-\d{2}$/.test(recurringDraft.anchorDate);
 
   return (
     <div>
@@ -52,11 +50,10 @@ export function AddRecurringForm({
           inputMode="numeric"
         />
         <TextField
-          label="Day of month"
-          value={recurringDraft.day}
-          onChange={actions.setRecurringDay}
-          placeholder="1–31"
-          inputMode="numeric"
+          label="Next due date"
+          value={recurringDraft.anchorDate}
+          onChange={actions.setRecurringAnchorDate}
+          type="date"
         />
       </div>
 

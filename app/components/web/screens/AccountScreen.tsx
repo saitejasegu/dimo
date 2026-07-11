@@ -15,6 +15,7 @@ import { TextField } from "@/components/ui/TextField";
 import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
+import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { WebScreen } from "@/components/web/WebScreen";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
@@ -85,12 +86,7 @@ export function AccountScreen() {
             value={profile.email}
             onChange={actions.setProfileEmail}
           />
-          <div>
-            <div className="mb-1.5 text-xs text-muted">Member since</div>
-            <div className="py-[11px] text-sm font-medium text-ink">
-              March 2024
-            </div>
-          </div>
+          <div />
           <div className="flex items-end justify-end">
             <Button size="sm" onClick={actions.saveProfile}>
               Save changes
@@ -174,23 +170,7 @@ export function AccountScreen() {
       <Card className="mb-[18px] p-[22px]">
         <PaymentMethodsManager />
       </Card>
-
-      <div className="flex justify-end gap-3">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => actions.showToast("Signed out")}
-        >
-          Sign out
-        </Button>
-        <Button
-          variant="danger"
-          size="sm"
-          onClick={() => actions.showToast("Account deletion coming soon")}
-        >
-          Delete account
-        </Button>
-      </div>
+      <Card className="mb-[18px] p-[22px]"><SyncStatusCard /></Card>
     </WebScreen>
   );
 }

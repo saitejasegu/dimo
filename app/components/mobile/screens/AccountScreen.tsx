@@ -15,6 +15,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
+import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -129,22 +130,7 @@ export function AccountScreen() {
         </div>
       </Card>
 
-      <div className="flex flex-col gap-2.5">
-        <Button
-          variant="secondary"
-          fullWidth
-          onClick={() => actions.showToast("Signed out")}
-        >
-          Sign out
-        </Button>
-        <Button
-          variant="danger"
-          fullWidth
-          onClick={() => actions.showToast("Account deletion coming soon")}
-        >
-          Delete account
-        </Button>
-      </div>
+      <Card className="mb-3.5 p-5"><SyncStatusCard /></Card>
     </div>
   );
 }

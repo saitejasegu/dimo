@@ -51,6 +51,11 @@ export interface Transaction {
   paymentMethod?: PaymentMethod;
   /** Whether the category tint should use the brand-green accent. */
   green?: boolean;
+  /** Canonical fields used by the local-first backend. */
+  amountMinor?: number;
+  occurredAt?: number;
+  categoryId?: ID;
+  paymentMethodId?: ID | null;
 }
 
 export interface TransactionEditInput {
@@ -70,6 +75,11 @@ export interface Recurring {
   paused: boolean;
   urgent?: boolean;
   green?: boolean;
+  amountMinor?: number;
+  categoryId?: ID;
+  paymentMethodId?: ID | null;
+  anchorDate?: string;
+  frequency?: "monthly" | "yearly";
 }
 
 /** Category -> monthly limit. `null` means the category has no budget. */

@@ -15,13 +15,12 @@ import type {
   ViewKey,
   WeekStart,
 } from "@/lib/types";
+import type { CategoryEntity, PreferencesEntity } from "@/data/model";
 import {
-  DEFAULT_USER_NAME,
-  SEED_LIMITS,
-  SEED_NOTIFICATIONS,
-  SEED_RECURRING,
-  SEED_TRANSACTIONS,
-} from "@/data/seed";
+  CASH_PAYMENT_METHOD,
+  DEFAULT_CATEGORY_ENTITIES,
+  DEFAULT_PREFERENCES,
+} from "@/data/model";
 
 export interface ExpenseDraft {
   amount: string;
@@ -33,7 +32,7 @@ export interface ExpenseDraft {
 export interface RecurringDraft {
   name: string;
   amount: string;
-  day: string;
+  anchorDate: string;
   frequency: Frequency;
   category: CategoryName;
 }
@@ -44,12 +43,15 @@ export interface CategoryDraft {
 }
 
 export interface AppState {
+  /** True after the first IndexedDB snapshot has been applied. */
+  dataReady: boolean;
   /** Active top-level view. */
   view: ViewKey;
 
   // ----- Data (backend-owned in the future) -----
   transactions: Transaction[];
   recurring: Recurring[];
+  categories: CategoryEntity[];
   limits: CategoryLimits;
   paymentMethods: PaymentMethodOption[];
   lastPaymentMethod: PaymentMethod | null;
@@ -95,7 +97,7 @@ export const EMPTY_EXPENSE_DRAFT: ExpenseDraft = {
 export const EMPTY_RECURRING_DRAFT: RecurringDraft = {
   name: "",
   amount: "",
-  day: "",
+  anchorDate: "",
   frequency: "Monthly",
   category: "Bills",
 };
@@ -105,50 +107,22 @@ export const EMPTY_CATEGORY_DRAFT: CategoryDraft = {
   limit: "",
 };
 
-export const SEED_PAYMENT_METHODS: PaymentMethodOption[] = [
-  {
-    id: "pm-hdfc",
-    name: "HDFC Debit",
-    type: "UPI",
-    detail: "••42",
-    isDefault: true,
-    archived: false,
-  },
-  {
-    id: "pm-icici",
-    name: "ICICI Credit",
-    type: "Card",
-    detail: "••08",
-    isDefault: false,
-    archived: false,
-  },
-  {
-    id: "pm-paytm",
-    name: "Paytm Wallet",
-    type: "Wallet",
-    detail: "aarav@paytm",
-    isDefault: false,
-    archived: false,
-  },
-  {
-    id: "pm-cash",
-    name: "Cash",
-    type: "Cash",
-    detail: "",
-    isDefault: false,
-    archived: false,
-  },
-];
+export const DEFAULT_PAYMENT_METHODS: PaymentMethodOption[] = [{
+  ...CASH_PAYMENT_METHOD,
+  isDefault: true,
+}];
 
 export function createInitialState(
-  userName: string = DEFAULT_USER_NAME,
+  userName: string = "",
 ): AppState {
   return {
+    dataReady: false,
     view: "home",
-    transactions: SEED_TRANSACTIONS,
-    recurring: SEED_RECURRING,
-    limits: SEED_LIMITS,
-    paymentMethods: SEED_PAYMENT_METHODS,
+    transactions: [],
+    recurring: [],
+    categories: DEFAULT_CATEGORY_ENTITIES,
+    limits: Object.fromEntries(DEFAULT_CATEGORY_ENTITIES.map((c) => [c.name, null])),
+    paymentMethods: DEFAULT_PAYMENT_METHODS,
     lastPaymentMethod: null,
     filter: "All",
     query: "",
@@ -162,13 +136,23 @@ export function createInitialState(
     categoryDraft: EMPTY_CATEGORY_DRAFT,
     profile: {
       name: userName,
-      email: userName.toLowerCase().replace(/\s+/g, ".") + "@gmail.com",
+      email: "",
     },
-    currency: "INR",
-    weekStart: "Mon",
-    defaultView: "Home",
-    notifications: SEED_NOTIFICATIONS,
+    currency: DEFAULT_PREFERENCES.currency,
+    weekStart: DEFAULT_PREFERENCES.weekStart,
+    defaultView: DEFAULT_PREFERENCES.defaultView,
+    notifications: DEFAULT_PREFERENCES.notifications,
     toast: null,
     toastNonce: 0,
   };
+}
+
+export interface HydratedData {
+  transactions: Transaction[];
+  recurring: Recurring[];
+  categories: CategoryEntity[];
+  limits: CategoryLimits;
+  paymentMethods: PaymentMethodOption[];
+  preferences: PreferencesEntity;
+  lastPaymentMethod: PaymentMethod | null;
 }

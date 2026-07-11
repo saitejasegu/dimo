@@ -12,8 +12,10 @@ import type {
   ViewKey,
   WeekStart,
 } from "@/lib/types";
+import type { HydratedData } from "@/store/state";
 
 export type Action =
+  | { type: "HYDRATE_DATA"; data: HydratedData }
   // navigation
   | { type: "SET_VIEW"; view: ViewKey }
   // activity
@@ -48,7 +50,7 @@ export type Action =
   // recurring draft
   | { type: "SET_RECURRING_NAME"; name: string }
   | { type: "SET_RECURRING_AMOUNT"; amount: string }
-  | { type: "SET_RECURRING_DAY"; day: string }
+  | { type: "SET_RECURRING_ANCHOR_DATE"; anchorDate: string }
   | { type: "SET_RECURRING_FREQUENCY"; frequency: Frequency }
   | { type: "SET_RECURRING_CATEGORY"; category: CategoryName }
   | { type: "SAVE_RECURRING" }

@@ -51,6 +51,21 @@ function sanitizeDecimal(value: string): string {
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "HYDRATE_DATA":
+      return {
+        ...state,
+        ...action.data,
+        dataReady: true,
+        view: state.dataReady ? state.view : action.data.preferences.defaultView,
+        profile: {
+          name: action.data.preferences.profileName,
+          email: action.data.preferences.profileEmail,
+        },
+        currency: action.data.preferences.currency,
+        weekStart: action.data.preferences.weekStart,
+        defaultView: action.data.preferences.defaultView,
+        notifications: action.data.preferences.notifications,
+      };
     case "SET_VIEW":
       return { ...state, view: action.view };
 
@@ -337,12 +352,12 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
 
-    case "SET_RECURRING_DAY":
+    case "SET_RECURRING_ANCHOR_DATE":
       return {
         ...state,
         recurringDraft: {
           ...state.recurringDraft,
-          day: action.day.replace(/[^0-9]/g, "").slice(0, 2),
+          anchorDate: action.anchorDate,
         },
       };
 
@@ -364,16 +379,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case "SAVE_RECURRING": {
       const draft = state.recurringDraft;
       const amount = parseInt(draft.amount.replace(/[^0-9]/g, ""), 10) || 0;
-      const day = parseInt(draft.day, 10) || 0;
       const valid =
-        draft.name.trim().length > 0 && amount > 0 && day >= 1 && day <= 31;
+        draft.name.trim().length > 0 && amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(draft.anchorDate);
       if (!valid) return state;
 
       const freqWord = draft.frequency.toLowerCase();
-      const due =
-        day >= 9
-          ? `Due Jul ${day} · ${freqWord}`
-          : `Due Aug ${day} · ${freqWord}`;
+      const due = `Due ${draft.anchorDate} · ${freqWord}`;
       const name = draft.name.trim();
 
       const rec: Recurring = {
@@ -384,6 +395,8 @@ export function reducer(state: AppState, action: Action): AppState {
         amount,
         paused: false,
         green: true,
+        anchorDate: draft.anchorDate,
+        frequency: freqWord as "monthly" | "yearly",
       };
       const tx: Transaction = {
         id: nextId("t"),

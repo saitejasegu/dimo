@@ -7,6 +7,7 @@ interface TextFieldProps {
   placeholder?: string;
   label?: ReactNode;
   inputMode?: "text" | "numeric" | "decimal";
+  type?: "text" | "date" | "email";
   autoFocus?: boolean;
   className?: string;
 }
@@ -18,6 +19,7 @@ export function TextField({
   placeholder,
   label,
   inputMode = "text",
+  type = "text",
   autoFocus,
   className,
 }: TextFieldProps) {
@@ -27,6 +29,7 @@ export function TextField({
         <span className="mb-1.5 block text-xs text-muted">{label}</span>
       ) : null}
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

@@ -27,7 +27,10 @@ export default function PrivacyPage() {
           <p>
             Expense entries, budgets, recurring bills, payment method labels,
             and profile preferences you enter in the app are stored on your
-            device for the purpose of running Dimo.
+            device for the purpose of running Dimo. When cloud sync is enabled,
+            an encrypted network connection sends a replica to the configured
+            Convex deployment so the same data can be restored and synchronized
+            across devices.
           </p>
         </section>
 
@@ -37,8 +40,8 @@ export default function PrivacyPage() {
           </h2>
           <p>
             Dimo does not sell personal data. The current version does not
-            require an account and does not send your expense data to our
-            servers for analytics, advertising, or profiling.
+            require an account and does not use your expense data for analytics,
+            advertising, or profiling.
           </p>
         </section>
 
@@ -68,8 +71,7 @@ export default function PrivacyPage() {
             Changes
           </h2>
           <p>
-            We may update this policy as the product evolves (for example, if
-            cloud sync is added). Material changes will be reflected on this
+            We may update this policy as the product evolves. Material changes will be reflected on this
             page with a new &quot;Last updated&quot; date.
           </p>
         </section>
