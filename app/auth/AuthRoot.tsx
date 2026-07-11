@@ -51,9 +51,9 @@ function SignedInApp() {
 
 function SignInScreen() {
   const { getSignInUrl } = useAuth();
-  const socialSignIn = async (provider: "GoogleOAuth" | "AppleOAuth") => {
+  const signInWithGoogle = async () => {
     const url = new URL(await getSignInUrl());
-    url.searchParams.set("provider", provider);
+    url.searchParams.set("provider", "GoogleOAuth");
     window.location.assign(url);
   };
   return (
@@ -67,15 +67,8 @@ function SignInScreen() {
           Sign in to keep your expenses private and synchronized across your devices.
         </p>
         <div className="mt-8 flex flex-col gap-3">
-          <Button fullWidth onClick={() => void socialSignIn("GoogleOAuth")}>
+          <Button fullWidth onClick={() => void signInWithGoogle()}>
             Continue with Google
-          </Button>
-          <Button
-            fullWidth
-            variant="secondary"
-            onClick={() => void socialSignIn("AppleOAuth")}
-          >
-            Continue with Apple
           </Button>
         </div>
         <p className="mt-6 text-center text-xs leading-5 text-muted">
@@ -113,7 +106,9 @@ export function AuthRoot() {
     <AuthKitProvider
       clientId={clientId}
       redirectUri={redirectUri}
-      onRedirectCallback={() => window.location.replace("/")}
+      // Keep AuthKit's freshly exchanged in-memory access token. A full page
+      // navigation here would recreate the client before Convex can receive it.
+      onRedirectCallback={() => window.history.replaceState({}, "", "/")}
     >
       <ConvexProviderWithAuthKit client={convex} useAuth={useAuth}>
         <AuthLoading><LoadingScreen /></AuthLoading>
