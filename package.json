@@ -28,6 +28,8 @@
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
     "@convex-dev/workos": "^0.0.3",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
     "@workos-inc/authkit-react": "^0.16.1",
     "convex": "^1.42.1",
     "dexie": "^4.4.4",
