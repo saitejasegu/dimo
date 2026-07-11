@@ -55,7 +55,7 @@ export function StatsScreen() {
         <Card className="mb-4 p-4">
           <div className="mb-3 flex items-baseline justify-between">
             <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted">
-              By month
+              {bars.title}
             </span>
             <span className="text-xs text-muted">{bars.caption}</span>
           </div>

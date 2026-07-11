@@ -88,6 +88,7 @@ export const preferencesValidator = v.object({
   // Optional so preferences written by older clients continue to sync.
   defaultStatsRange: v.optional(
     v.union(
+      v.literal("1W"),
       v.literal("M"),
       v.literal("3M"),
       v.literal("6M"),

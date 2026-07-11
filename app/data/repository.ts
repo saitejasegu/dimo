@@ -129,7 +129,7 @@ export function sanitizePayload<T extends EntityType>(
       const defaultView = value.defaultView;
       const defaultStatsRange = value.defaultStatsRange;
       const views = ["home", "tx", "stats", "recurring", "budgets", "settings", "account"] as const;
-      const statsRanges = ["M", "3M", "6M", "1Y", "2Y"] as const;
+      const statsRanges = ["1W", "M", "3M", "6M", "1Y", "2Y"] as const;
       return {
         id: "preferences",
         profileName: value.profileName ?? "",

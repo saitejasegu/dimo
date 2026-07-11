@@ -49,21 +49,15 @@ export function StatsScreen() {
           <div className="text-xs text-side-sub">{scope.averageLabel}</div>
         </HeroCard>
 
-        {bars.visible ? (
-          <Card className="p-[22px]">
-            <div className="mb-4 flex items-baseline justify-between">
-              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
-                By month
-              </span>
-              <span className="text-xs text-muted">{bars.caption}</span>
-            </div>
-            <MonthBars bars={bars.bars} onSelect={actions.setSelectedMonth} size="web" />
-          </Card>
-        ) : (
-          <Card className="flex items-center justify-center p-[22px] text-center text-[13px] text-faint">
-            Pick a longer range (3M, 6M, 1Y) to see the month-by-month trend.
-          </Card>
-        )}
+        <Card className="p-[22px]">
+          <div className="mb-4 flex items-baseline justify-between">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">
+              {bars.title}
+            </span>
+            <span className="text-xs text-muted">{bars.caption}</span>
+          </div>
+          <MonthBars bars={bars.bars} onSelect={actions.setSelectedMonth} size="web" />
+        </Card>
       </div>
 
       <div className="grid grid-cols-2 items-start gap-[18px]">

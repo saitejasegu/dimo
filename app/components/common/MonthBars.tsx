@@ -49,7 +49,7 @@ export function MonthBars({
 }) {
   const cfg = SIZES[size];
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const scrollable = bars.length > 6;
+  const scrollable = bars.length > 7;
   const lastBarKey = bars.at(-1)?.key;
 
   useEffect(() => {

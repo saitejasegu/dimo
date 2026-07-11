@@ -88,7 +88,7 @@ export interface Recurring {
 /** Category -> monthly limit. `null` means the category has no budget. */
 export type CategoryLimits = Record<CategoryName, number | null>;
 
-export type StatsRange = "M" | "3M" | "6M" | "1Y" | "2Y";
+export type StatsRange = "1W" | "M" | "3M" | "6M" | "1Y" | "2Y";
 
 export type Frequency = "Monthly" | "Yearly";
 

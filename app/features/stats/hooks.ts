@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useAppState } from "@/store/app-store";
 import {
-  monthBars,
   statCategories,
   statsScope,
   topMerchants,
+  trendBars,
 } from "@/features/stats/selectors";
 
 export function useStats() {
@@ -30,7 +30,7 @@ export function useStats() {
     return {
       range: statsRange,
       scope,
-      bars: monthBars(statsRange, transactions, selectedMonth),
+      bars: trendBars(statsRange, transactions, selectedMonth),
       categories,
       categoryCount,
       categoriesExpanded,
