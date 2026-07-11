@@ -22,7 +22,7 @@ export function Sheet({ onClose, title, children, className }: SheetProps) {
         role="dialog"
         aria-modal
         className={cn(
-          "absolute inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] bg-surface px-6 pb-9 pt-3.5",
+          "absolute inset-x-0 bottom-0 z-[31] animate-sheet-up rounded-t-[28px] bg-surface px-6 pb-[max(2.25rem,env(safe-area-inset-bottom))] pt-3.5",
           className,
         )}
       >

@@ -2,7 +2,7 @@
  * Domain types for the Dimo expenses app.
  *
  * These are intentionally UI-agnostic and mirror what a backend would return,
- * so swapping the mock data layer for a real API means changing only the
+ * so swapping the data layer for a real API means changing only the
  * data/selectors layers — components keep consuming these shapes.
  */
 

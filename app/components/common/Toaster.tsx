@@ -11,7 +11,7 @@ export function Toaster({ variant }: { variant: "mobile" | "web" }) {
   return (
     <Toast
       message={toast}
-      top={variant === "mobile" ? 64 : 24}
+      top={24}
       withShadow={variant === "web"}
     />
   );
