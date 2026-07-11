@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin:0; background:#e9efeb; }
+    a { color:#1f9d63; text-decoration:none; }
+    a:hover { color:#14231c; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes sheetUp { from { transform:translateY(100%); } to { transform:translateY(0); } }
+    @keyframes dimIn { from { opacity:0; } to { opacity:1; } }
+    @keyframes toastIn { from { opacity:0; transform:translate(-50%,-8px); } to { opacity:1; transform:translate(-50%,0); } }
+  </style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px;font-family:'IBM Plex Sans',sans-serif;">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:18px;">
+
+    <div style="width:392px;background:#0d1512;border-radius:52px;padding:12px;box-shadow:0 40px 80px -30px rgba(20,35,28,0.55);">
+      <div data-screen-label="Dimo Click Demo" style="position:relative;background:#f5f8f6;border-radius:41px;overflow:hidden;height:812px;">
+
+        <!-- status bar -->
+        <div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#14231c;z-index:20;pointer-events:none;">
+          <span>9:41</span>
+          <div style="width:132px;height:34px;background:#0d1512;border-radius:100px;position:absolute;left:50%;top:9px;transform:translateX(-50%);"></div>
+          <span style="display:flex;gap:6px;align-items:center;"><span style="font-size:12px;">5G</span><span style="width:24px;height:12px;border:1.5px solid #14231c;border-radius:3px;display:inline-block;position:relative;"><span style="position:absolute;inset:1.5px;right:6px;background:#14231c;border-radius:1px;"></span></span></span>
+        </div>
+
+        <!-- ============ HOME ============ -->
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+          <div style="height:100%;overflow:auto;padding:66px 22px 110px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+              <div>
+                <div style="font-size:13px;color:#7c8a84;">Good morning</div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:22px;color:#14231c;">{{ userName }}</div>
+              </div>
+              <div style="width:40px;height:40px;border-radius:13px;background:#e6f4ec;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:600;color:#1f9d63;cursor:pointer;" onClick="{{ openAccount }}">{{ userInitial }}</div>
+            </div>
+
+            <div style="background:#14231c;border-radius:22px;padding:22px;color:#eaf5ef;margin-bottom:14px;">
+              <div style="font-size:13px;color:#8ba699;margin-bottom:8px;">Spent in July</div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:34px;margin-bottom:8px;">{{ monthSpent }}</div>
+              <div style="font-size:12px;color:#7d968a;">{{ monthSub }}</div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;">
+              <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;cursor:pointer;" onClick="{{ goRecurring }}" style-hover="border-color:#1f9d63;">
+                <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Recurring / mo</div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:20px;color:#14231c;">{{ recTotal }}</div>
+              </div>
+              <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;cursor:pointer;" onClick="{{ goBudgets }}" style-hover="border-color:#1f9d63;">
+                <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Budget left</div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:20px;color:#1f9d63;">{{ budgetLeft }}</div>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+              <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16px;color:#14231c;">Upcoming this month</span>
+              <span style="font-size:13px;color:#1f9d63;font-weight:500;cursor:pointer;" onClick="{{ goRecurring }}">See all</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:22px;">
+              <sc-for list="{{ upcoming }}" as="u" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:13px;background:#fff;border:1px solid #e4eae7;border-radius:14px;padding:11px 13px;cursor:pointer;" style-hover="border-color:#1f9d63;" onClick="{{ goRecurring }}">
+                  <div style="{{ u.tintStyle }}"></div>
+                  <div style="flex:1;min-width:0;"><div style="font-size:14px;color:#14231c;font-weight:500;">{{ u.name }}</div><div style="{{ u.subStyle }}">{{ u.sub }}</div></div>
+                  <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#14231c;">{{ u.amt }}</div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+              <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16px;color:#14231c;">Recent</span>
+              <span style="font-size:13px;color:#1f9d63;font-weight:500;cursor:pointer;" onClick="{{ goTx }}">See all</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <sc-for list="{{ recent }}" as="t" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:13px;background:#fff;border:1px solid #e4eae7;border-radius:14px;padding:11px 13px;cursor:pointer;" style-hover="border-color:#1f9d63;" onClick="{{ t.open }}">
+                  <div style="{{ t.tintStyle }}"></div>
+                  <div style="flex:1;min-width:0;"><div style="font-size:14px;color:#14231c;font-weight:500;">{{ t.name }}</div><div style="font-size:12px;color:#7c8a84;">{{ t.sub }}</div></div>
+                  <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#14231c;">{{ t.amt }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ TRANSACTIONS ============ -->
+        <sc-if value="{{ isTx }}" hint-placeholder-val="{{ false }}">
+          <div style="height:100%;overflow:auto;padding:66px 22px 110px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:24px;color:#14231c;margin-bottom:14px;">Transactions</div>
+
+            <div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e4eae7;border-radius:14px;padding:9px 14px;margin-bottom:12px;">
+              <span style="width:14px;height:14px;border:2px solid #a3aea8;border-radius:100px;position:relative;flex-shrink:0;"><span style="position:absolute;width:2px;height:6px;background:#a3aea8;border-radius:2px;transform:rotate(-45deg);left:13px;top:11px;"></span></span>
+              <input value="{{ query }}" onChange="{{ setQuery }}" placeholder="Search merchant or category" style="border:none;outline:none;background:transparent;font-size:14px;color:#14231c;font-family:'IBM Plex Sans',sans-serif;flex:1;padding:2px 0;">
+            </div>
+
+            <div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:16px;padding-bottom:2px;">
+              <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
+                <div style="{{ c.style }}" onClick="{{ c.pick }}">{{ c.label }}</div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ noResults }}" hint-placeholder-val="{{ false }}">
+              <div style="text-align:center;padding:48px 20px;color:#a3aea8;font-size:14px;">No transactions match.</div>
+            </sc-if>
+
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                <span style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7c8a84;font-weight:500;">{{ g.label }}</span>
+                <span style="font-size:12px;color:#a3aea8;">{{ g.total }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;">
+                <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="2">
+                  <div style="display:flex;align-items:center;gap:13px;background:#fff;border:1px solid #e4eae7;border-radius:14px;padding:11px 13px;cursor:pointer;" style-hover="border-color:#1f9d63;" onClick="{{ t.open }}">
+                    <div style="{{ t.tintStyle }}"></div>
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;color:#14231c;font-weight:500;">{{ t.name }}</div><div style="font-size:12px;color:#7c8a84;">{{ t.sub }}</div></div>
+                    <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;color:#14231c;">{{ t.amt }}</div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+
+        </sc-if>
+
+        <!-- FAB (home + transactions) -->
+        <sc-if value="{{ showFab }}" hint-placeholder-val="{{ true }}">
+          <div style="position:absolute;right:20px;bottom:106px;width:54px;height:54px;border-radius:18px;background:#1f9d63;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px -8px rgba(31,157,99,0.6);cursor:pointer;z-index:15;" onClick="{{ openAdd }}">
+            <div style="position:relative;width:20px;height:20px;"><span style="position:absolute;top:9px;left:0;width:20px;height:2.5px;background:#fff;border-radius:2px;"></span><span style="position:absolute;left:9px;top:0;width:2.5px;height:20px;background:#fff;border-radius:2px;"></span></div>
+          </div>
+        </sc-if>
+
+        <!-- ============ STATS ============ -->
+        <sc-if value="{{ isStats }}" hint-placeholder-val="{{ false }}">
+          <div style="height:100%;overflow:auto;padding:66px 22px 110px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:24px;color:#14231c;margin-bottom:14px;">Stats</div>
+
+            <div style="display:flex;gap:2px;background:#eef2f0;border-radius:100px;padding:3px;margin-bottom:16px;">
+              <sc-for list="{{ statsRanges }}" as="r" hint-placeholder-count="3">
+                <div style="{{ r.style }}" onClick="{{ r.pick }}">{{ r.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="background:#14231c;border-radius:20px;padding:20px;color:#eaf5ef;margin-bottom:16px;">
+              <div style="font-size:13px;color:#8ba699;margin-bottom:8px;">{{ spentLabel }}</div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:30px;margin-bottom:6px;">{{ spentTotal }}</div>
+              <div style="font-size:12px;color:#7d968a;">{{ statAvg }}</div>
+            </div>
+
+            <!-- monthly bars (3M / 6M / 1Y) -->
+            <sc-if value="{{ showMonthBars }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+                  <span style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7c8a84;font-weight:500;">By month</span>
+                  <span style="font-size:12px;color:#7c8a84;">{{ monthBarCaption }}</span>
+                </div>
+                <div style="display:flex;align-items:flex-end;gap:8px;height:104px;">
+                  <sc-for list="{{ monthBars }}" as="m" hint-placeholder-count="6">
+                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;cursor:pointer;" onClick="{{ m.pick }}">
+                      <div style="{{ m.amtStyle }}">{{ m.amt }}</div>
+                      <div style="{{ m.barStyle }}"></div>
+                      <div style="{{ m.labelStyle }}">{{ m.label }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <!-- category breakdown -->
+            <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;margin-bottom:16px;">
+              <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7c8a84;font-weight:500;margin-bottom:14px;">By category</div>
+              <div style="display:flex;flex-direction:column;gap:12px;">
+                <sc-for list="{{ statCats }}" as="c" hint-placeholder-count="5">
+                  <div>
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+                      <span style="font-size:13px;color:#14231c;font-weight:500;">{{ c.cat }}</span>
+                      <span style="font-size:12px;color:#7c8a84;">{{ c.caption }}</span>
+                    </div>
+                    <div style="height:6px;border-radius:100px;background:#eef2f0;overflow:hidden;">
+                      <div style="{{ c.barStyle }}"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <!-- top merchants -->
+            <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#7c8a84;font-weight:500;">Top merchants</span>
+                <span style="font-size:12px;color:#1f9d63;font-weight:500;cursor:pointer;" onClick="{{ toggleMerchCount }}">{{ merchCountLabel }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                <sc-for list="{{ topMerchants }}" as="m" hint-placeholder-count="3">
+                  <div style="display:flex;align-items:center;gap:12px;padding:6px 8px;margin:0 -8px;border-radius:10px;cursor:pointer;" style-hover="background:#f5f8f6;" onClick="{{ m.open }}">
+                    <div style="{{ m.tintStyle }}"></div>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:14px;color:#14231c;font-weight:500;">{{ m.name }}</div>
+                      <div style="font-size:11px;color:#7c8a84;">{{ m.sub }}</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+                      <span style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;color:#14231c;">{{ m.amt }}</span>
+                      <span style="width:52px;height:4px;border-radius:100px;background:#eef2f0;overflow:hidden;display:block;"><span style="{{ m.barStyle }}"></span></span>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="font-size:11px;color:#a3aea8;margin-top:10px;">Tap a merchant to see its transactions.</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ RECURRING ============ -->
+        <sc-if value="{{ isRecurring }}" hint-placeholder-val="{{ false }}">
+          <div style="height:100%;overflow:auto;padding:66px 22px 110px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:24px;color:#14231c;">Recurring</div>
+              <div style="width:34px;height:34px;border-radius:10px;background:#1f9d63;display:flex;align-items:center;justify-content:center;cursor:pointer;" onClick="{{ openRec }}">
+                <div style="position:relative;width:16px;height:16px;"><span style="position:absolute;top:7px;left:0;width:16px;height:2px;background:#fff;border-radius:2px;"></span><span style="position:absolute;left:7px;top:0;width:2px;height:16px;background:#fff;border-radius:2px;"></span></div>
+              </div>
+            </div>
+
+            <div style="background:#14231c;border-radius:20px;padding:20px;color:#eaf5ef;margin-bottom:16px;">
+              <div style="font-size:13px;color:#8ba699;margin-bottom:8px;">Monthly recurring total</div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:30px;margin-bottom:6px;">{{ recTotal }}</div>
+              <div style="font-size:12px;color:#7d968a;">{{ recSub }}</div>
+            </div>
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:12px;">Tap a bill to pause or resume it.</div>
+
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <sc-for list="{{ recs }}" as="r" hint-placeholder-count="6">
+                <div style="{{ r.rowStyle }}" style-hover="border-color:#1f9d63;" onClick="{{ r.toggle }}">
+                  <div style="{{ r.tintStyle }}"></div>
+                  <div style="flex:1;min-width:0;"><div style="font-size:14px;color:#14231c;font-weight:500;">{{ r.name }}</div><div style="{{ r.subStyle }}">{{ r.sub }}</div></div>
+                  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                    <span style="{{ r.amtStyle }}">{{ r.amt }}</span>
+                    <span style="{{ r.badgeStyle }}">{{ r.badge }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ BUDGETS ============ -->
+        <sc-if value="{{ isBudgets }}" hint-placeholder-val="{{ false }}">
+          <div style="height:100%;overflow:auto;padding:66px 22px 110px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:24px;color:#14231c;">Budgets</div>
+              <div style="width:34px;height:34px;border-radius:10px;background:#1f9d63;display:flex;align-items:center;justify-content:center;cursor:pointer;" onClick="{{ openCat }}">
+                <div style="position:relative;width:16px;height:16px;"><span style="position:absolute;top:7px;left:0;width:16px;height:2px;background:#fff;border-radius:2px;"></span><span style="position:absolute;left:7px;top:0;width:2px;height:16px;background:#fff;border-radius:2px;"></span></div>
+              </div>
+            </div>
+
+            <div style="background:#14231c;border-radius:20px;padding:20px;color:#eaf5ef;margin-bottom:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">
+                <span style="font-size:13px;color:#8ba699;">Monthly budget</span>
+                <span style="font-size:12px;color:#7d968a;">{{ budgetPct }} used</span>
+              </div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:30px;margin-bottom:12px;">{{ budgetTotalSpent }} <span style="font-size:16px;color:#7d968a;font-weight:500;">of {{ budgetTotalLimit }}</span></div>
+              <div style="height:8px;border-radius:100px;background:rgba(234,245,239,0.15);overflow:hidden;margin-bottom:8px;">
+                <div style="{{ budgetTotalBarStyle }}"></div>
+              </div>
+              <div style="font-size:12px;color:#7d968a;">{{ budgetLeftCaption }}</div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <sc-for list="{{ budgets }}" as="b" hint-placeholder-count="5">
+                <div style="background:#fff;border:1px solid #e4eae7;border-radius:16px;padding:16px;">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+                    <span style="font-size:14px;color:#14231c;font-weight:500;">{{ b.cat }}</span>
+                    <span style="font-size:13px;color:#7c8a84;">{{ b.caption }}</span>
+                  </div>
+                  <div style="height:8px;border-radius:100px;background:#eef2f0;overflow:hidden;">
+                    <div style="{{ b.barStyle }}"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ ACCOUNT ============ -->
+        <sc-if value="{{ isAccount }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;z-index:18;background:#f5f8f6;overflow:auto;padding:60px 22px 40px;box-sizing:border-box;animation:fadeUp 0.22s ease;">
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+              <div style="width:38px;height:38px;border-radius:12px;background:#fff;border:1px solid #e4eae7;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;" onClick="{{ closeAccount }}">
+                <span style="width:11px;height:11px;border-left:2px solid #14231c;border-bottom:2px solid #14231c;transform:rotate(45deg);margin-left:3px;"></span>
+              </div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:24px;color:#14231c;">Account</div>
+            </div>
+
+            <!-- profile -->
+            <div style="background:#fff;border:1px solid #e4eae7;border-radius:18px;padding:20px;margin-bottom:14px;">
+              <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
+                <div style="width:60px;height:60px;border-radius:18px;background:#e6f4ec;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:26px;color:#1f9d63;flex-shrink:0;">{{ userInitial }}</div>
+                <div><div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:#14231c;">{{ accName }}</div><div style="font-size:12px;color:#1f9d63;font-weight:500;cursor:pointer;margin-top:2px;" onClick="{{ toastPhoto }}">Change photo</div></div>
+              </div>
+              <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Full name</div>
+              <input value="{{ accName }}" onChange="{{ setAccName }}" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:12px;background:#f5f8f6;">
+              <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Email</div>
+              <input value="{{ accEmail }}" onChange="{{ setAccEmail }}" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:16px;background:#f5f8f6;">
+              <div style="{{ saveProfileStyle }}" onClick="{{ saveProfile }}">Save changes</div>
+            </div>
+
+            <!-- preferences -->
+            <div style="background:#fff;border:1px solid #e4eae7;border-radius:18px;padding:20px;margin-bottom:14px;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16px;color:#14231c;margin-bottom:16px;">Preferences</div>
+              <div style="font-size:13px;color:#14231c;font-weight:500;margin-bottom:8px;">Currency</div>
+              <div style="display:flex;gap:2px;background:#eef2f0;border-radius:100px;padding:3px;margin-bottom:16px;">
+                <sc-for list="{{ currencyOpts }}" as="o" hint-placeholder-count="3"><div style="{{ o.style }}" onClick="{{ o.pick }}">{{ o.label }}</div></sc-for>
+              </div>
+              <div style="font-size:13px;color:#14231c;font-weight:500;margin-bottom:8px;">Week starts on</div>
+              <div style="display:flex;gap:2px;background:#eef2f0;border-radius:100px;padding:3px;margin-bottom:16px;">
+                <sc-for list="{{ weekOpts }}" as="o" hint-placeholder-count="2"><div style="{{ o.style }}" onClick="{{ o.pick }}">{{ o.label }}</div></sc-for>
+              </div>
+              <div style="font-size:13px;color:#14231c;font-weight:500;margin-bottom:8px;">Default view</div>
+              <div style="display:flex;gap:2px;background:#eef2f0;border-radius:100px;padding:3px;">
+                <sc-for list="{{ viewOpts }}" as="o" hint-placeholder-count="3"><div style="{{ o.style }}" onClick="{{ o.pick }}">{{ o.label }}</div></sc-for>
+              </div>
+            </div>
+
+            <!-- notifications -->
+            <div style="background:#fff;border:1px solid #e4eae7;border-radius:18px;padding:20px;margin-bottom:14px;">
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16px;color:#14231c;margin-bottom:16px;">Notifications</div>
+              <div style="display:flex;flex-direction:column;gap:16px;">
+                <sc-for list="{{ notifications }}" as="n" hint-placeholder-count="4">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;">
+                    <div style="flex:1;min-width:0;"><div style="font-size:14px;color:#14231c;font-weight:500;">{{ n.label }}</div><div style="font-size:12px;color:#7c8a84;">{{ n.sub }}</div></div>
+                    <div style="{{ n.trackStyle }}" onClick="{{ n.toggle }}"><div style="{{ n.knobStyle }}"></div></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="text-align:center;border:1px solid #dbe4df;border-radius:14px;padding:13px;font-size:14px;color:#14231c;font-weight:500;cursor:pointer;background:#fff;" onClick="{{ toastSignOut }}">Sign out</div>
+              <div style="text-align:center;border:1px solid #f2d9d3;background:#fdf3f0;border-radius:14px;padding:13px;font-size:14px;color:#c4573c;font-weight:500;cursor:pointer;" onClick="{{ toastDelete }}">Delete account</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ TAB BAR ============ -->
+        <div style="position:absolute;bottom:0;left:0;right:0;height:88px;background:rgba(245,248,246,0.92);backdrop-filter:blur(12px);border-top:1px solid #e4eae7;display:flex;align-items:flex-start;padding:12px 22px 0;justify-content:space-between;z-index:15;">
+          <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="4">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;padding:2px 8px;" onClick="{{ tab.go }}">
+              <div style="{{ tab.iconStyle }}"></div>
+              <span style="{{ tab.labelStyle }}">{{ tab.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:134px;height:5px;border-radius:100px;background:#14231c;z-index:16;"></div>
+
+        <!-- ============ TX DETAIL SHEET ============ -->
+        <sc-if value="{{ hasDetail }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(13,21,18,0.45);z-index:30;animation:dimIn 0.2s ease;" onClick="{{ closeDetail }}"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;padding:14px 24px 40px;z-index:31;animation:sheetUp 0.28s cubic-bezier(0.2,0.9,0.3,1);">
+            <div style="width:40px;height:4px;border-radius:100px;background:#dbe4df;margin:0 auto 20px;"></div>
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+              <div style="{{ detailTintStyle }}"></div>
+              <div style="flex:1;">
+                <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;color:#14231c;">{{ detailName }}</div>
+                <div style="font-size:13px;color:#7c8a84;">{{ detailSub }}</div>
+              </div>
+              <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:22px;color:#14231c;">{{ detailAmt }}</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:0;background:#f5f8f6;border-radius:16px;padding:4px 16px;margin-bottom:20px;">
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e4eae7;font-size:13px;"><span style="color:#7c8a84;">Category</span><span style="color:#14231c;font-weight:500;">{{ detailCat }}</span></div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #e4eae7;font-size:13px;"><span style="color:#7c8a84;">Paid with</span><span style="color:#14231c;font-weight:500;">UPI · HDFC ••42</span></div>
+              <div style="display:flex;justify-content:space-between;padding:12px 0;font-size:13px;"><span style="color:#7c8a84;">Note</span><span style="color:#a3aea8;">Add a note…</span></div>
+            </div>
+            <div style="display:flex;gap:10px;">
+              <div style="flex:1;text-align:center;border:1px solid #dbe4df;border-radius:12px;padding:12px;font-size:14px;color:#14231c;font-weight:500;cursor:pointer;" onClick="{{ closeDetail }}">Close</div>
+              <div style="flex:1;text-align:center;border:1px solid #f2d9d3;background:#fdf3f0;border-radius:12px;padding:12px;font-size:14px;color:#c4573c;font-weight:500;cursor:pointer;" onClick="{{ deleteDetail }}">Delete</div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ============ ADD EXPENSE SHEET ============ -->
+        <sc-if value="{{ showAdd }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(13,21,18,0.45);z-index:30;animation:dimIn 0.2s ease;" onClick="{{ closeAdd }}"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;padding:14px 24px 34px;z-index:31;animation:sheetUp 0.28s cubic-bezier(0.2,0.9,0.3,1);">
+            <div style="width:40px;height:4px;border-radius:100px;background:#dbe4df;margin:0 auto 16px;"></div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;color:#14231c;margin-bottom:16px;">Add expense</div>
+
+            <div style="{{ addAmtStyle }}">{{ addAmtDisplay }}</div>
+
+            <input value="{{ addName }}" onChange="{{ setAddName }}" placeholder="Merchant (e.g. Chai Point)" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:12px;background:#f5f8f6;">
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+              <sc-for list="{{ addCats }}" as="c" hint-placeholder-count="5">
+                <div style="{{ c.style }}" onClick="{{ c.pick }}">{{ c.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+              <sc-for list="{{ keys }}" as="k" hint-placeholder-count="12">
+                <div style="text-align:center;padding:13px 0;border-radius:12px;background:#f5f8f6;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;color:#14231c;cursor:pointer;" style-hover="background:#e6f4ec;" onClick="{{ k.press }}">{{ k.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="{{ saveStyle }}" onClick="{{ saveAdd }}">Save expense</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ NEW RECURRING SHEET ============ -->
+        <sc-if value="{{ showRec }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(13,21,18,0.45);z-index:30;animation:dimIn 0.2s ease;" onClick="{{ closeRec }}"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;padding:14px 24px 34px;z-index:31;animation:sheetUp 0.28s cubic-bezier(0.2,0.9,0.3,1);">
+            <div style="width:40px;height:4px;border-radius:100px;background:#dbe4df;margin:0 auto 16px;"></div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;color:#14231c;margin-bottom:16px;">Add recurring</div>
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Name</div>
+            <input value="{{ recName }}" onChange="{{ setRecName }}" placeholder="e.g. iCloud, House help, SIP" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:14px;background:#f5f8f6;">
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+              <div>
+                <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Amount</div>
+                <input value="{{ recAmt }}" onChange="{{ setRecAmt }}" placeholder="₹" inputMode="numeric" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;background:#f5f8f6;">
+              </div>
+              <div>
+                <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Day of month</div>
+                <input value="{{ recDay }}" onChange="{{ setRecDay }}" placeholder="1–31" inputMode="numeric" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;background:#f5f8f6;">
+              </div>
+            </div>
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Category</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+              <sc-for list="{{ recCats }}" as="c" hint-placeholder-count="5">
+                <div style="{{ c.style }}" onClick="{{ c.pick }}">{{ c.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Repeats</div>
+            <div style="display:flex;gap:8px;margin-bottom:20px;">
+              <sc-for list="{{ recFreqs }}" as="f" hint-placeholder-count="3">
+                <div style="{{ f.style }}" onClick="{{ f.pick }}">{{ f.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="{{ recSaveStyle }}" onClick="{{ saveRec }}">Add recurring</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ NEW CATEGORY SHEET ============ -->
+        <sc-if value="{{ showCat }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(13,21,18,0.45);z-index:30;animation:dimIn 0.2s ease;" onClick="{{ closeCat }}"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:28px 28px 0 0;padding:14px 24px 34px;z-index:31;animation:sheetUp 0.28s cubic-bezier(0.2,0.9,0.3,1);">
+            <div style="width:40px;height:4px;border-radius:100px;background:#dbe4df;margin:0 auto 16px;"></div>
+            <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:18px;color:#14231c;margin-bottom:16px;">New category</div>
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Name</div>
+            <input value="{{ catName }}" onChange="{{ setCatName }}" placeholder="e.g. Pets, Travel, Health" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:16px;background:#f5f8f6;">
+
+            <div style="font-size:12px;color:#7c8a84;margin-bottom:6px;">Monthly budget <span style="color:#a3aea8;">(optional)</span></div>
+            <input value="{{ catLimit }}" onChange="{{ setCatLimit }}" placeholder="₹ amount" inputMode="numeric" style="width:100%;box-sizing:border-box;border:1px solid #e4eae7;border-radius:12px;padding:11px 14px;font-size:14px;font-family:'IBM Plex Sans',sans-serif;color:#14231c;outline:none;margin-bottom:12px;background:#f5f8f6;">
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+              <sc-for list="{{ catPresets }}" as="p" hint-placeholder-count="4">
+                <div style="{{ p.style }}" onClick="{{ p.pick }}">{{ p.label }}</div>
+              </sc-for>
+            </div>
+
+            <div style="{{ catSaveStyle }}" onClick="{{ saveCat }}">Create category</div>
+          </div>
+        </sc-if>
+
+        <!-- ============ TOAST ============ -->
+        <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:64px;left:50%;transform:translateX(-50%);background:#14231c;color:#eaf5ef;border-radius:100px;padding:9px 18px;font-size:13px;z-index:40;animation:toastIn 0.25s ease;white-space:nowrap;">{{ toast }}</div>
+        </sc-if>
+
+      </div>
+    </div>
+
+    <div style="font-size:13px;color:#7c8a84;text-align:center;max-width:360px;line-height:1.5;">Click demo — switch tabs, search &amp; filter transactions, tap one for details, add an expense with the <span style="color:#1f9d63;font-weight:600;">+</span> button, and tap recurring bills to pause them.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;userName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Saiteja Segu&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;tx&quot;,&quot;recurring&quot;,&quot;budgets&quot;],&quot;default&quot;:&quot;home&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = {
+    tab: null,
+    filter: 'All',
+    query: '',
+    detailId: null,
+    showAdd: false,
+    addAmount: '',
+    addName: '',
+    addCat: 'Dining',
+    toast: null,
+    limits: { Dining: 4000, Groceries: 6000, Bills: 3000, Transit: 2500, Shopping: 5000 },
+    showCat: false,
+    catName: '',
+    catLimit: '',
+    showRec: false,
+    recName: '',
+    recAmt: '',
+    recDay: '',
+    recFreq: 'Monthly',
+    recCat: 'Bills',
+    trendRange: '6M',
+    selMonth: null,
+    merchCount: 3,
+    currency: 'INR',
+    weekStart: 'Mon',
+    defaultView: 'Home',
+    notif: { bills: true, budget: true, weekly: false, large: true },
+    accName: null,
+    accEmail: null,
+    txs: [
+      { id: 1, name: 'Blue Tokai Coffee', cat: 'Dining', time: '8:42 AM', day: 'Today', amount: 280, green: true },
+      { id: 2, name: 'Swiggy', cat: 'Dining', time: '1:15 PM', day: 'Today', amount: 430 },
+      { id: 3, name: 'Auto Rickshaw', cat: 'Transit', time: '6:05 PM', day: 'Today', amount: 300 },
+      { id: 4, name: 'BigBasket', cat: 'Groceries', time: '11:20 AM', day: 'Yesterday', amount: 1890 },
+      { id: 5, name: 'Netflix', cat: 'Bills', time: '9:00 AM', day: 'Yesterday', amount: 649, green: true },
+      { id: 6, name: 'Metro Recharge', cat: 'Transit', time: '8:10 AM', day: 'Sunday, Jul 6', amount: 600 },
+      { id: 7, name: 'Nykaa', cat: 'Shopping', time: '4:40 PM', day: 'Sunday, Jul 6', amount: 2280 },
+      { id: 8, name: 'Zepto', cat: 'Groceries', time: '7:32 PM', day: 'Saturday, Jul 5', amount: 740 },
+      { id: 9, name: 'Uber', cat: 'Transit', time: '9:48 PM', day: 'Saturday, Jul 5', amount: 315 }
+    ],
+    recs: [
+      { id: 'r1', name: 'Electricity — BESCOM', cat: 'Bills', due: 'Due Jul 10 · in 2 days', urgent: true, amount: 1480, paused: false, green: true },
+      { id: 'r2', name: 'Airtel Postpaid', cat: 'Bills', due: 'Due Jul 12 · monthly', amount: 599, paused: false },
+      { id: 'r3', name: 'ACT Fibernet', cat: 'Bills', due: 'Due Jul 14 · monthly', amount: 1131, paused: false },
+      { id: 'r4', name: 'Gym — Cult.fit', cat: 'Bills', due: 'Due Jul 18 · monthly', amount: 1299, paused: false },
+      { id: 'r5', name: 'Spotify Duo', cat: 'Bills', due: 'Due Jul 21 · monthly', amount: 149, paused: false },
+      { id: 'r6', name: 'Rent', cat: 'Bills', due: 'Due Aug 1 · monthly', amount: 18000, paused: false },
+      { id: 'r7', name: 'Hotstar', cat: 'Bills', due: 'Due Jul 25 · monthly', amount: 299, paused: true }
+    ]
+  };
+
+  rupee(n) { return '₹' + n.toLocaleString('en-IN'); }
+
+  showToast(msg) {
+    clearTimeout(this._toastT);
+    this.setState({ toast: msg });
+    this._toastT = setTimeout(() => this.setState({ toast: null }), 1800);
+  }
+
+  componentWillUnmount() { clearTimeout(this._toastT); }
+
+  renderVals() {
+    const s = this.state;
+    const tab = s.tab || this.props.startTab || 'home';
+    const userName = this.props.userName || 'Aarav';
+    const go = (t) => this.setState({ tab: t });
+
+    const tint = (green, size, radius) => ({
+      width: (size || 38) + 'px', height: (size || 38) + 'px',
+      borderRadius: (radius || 11) + 'px', flexShrink: 0,
+      background: green ? '#e6f4ec' : '#eef2f0'
+    });
+    const chipBase = { borderRadius: '100px', padding: '7px 14px', fontSize: '13px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0 };
+    const mkTx = (t) => ({
+      name: t.name,
+      sub: t.cat + ' · ' + t.time,
+      amt: '−' + this.rupee(t.amount),
+      tintStyle: tint(t.green),
+      open: () => this.setState({ detailId: t.id })
+    });
+
+    // ---- transactions: filter + search + group ----
+    const q = s.query.trim().toLowerCase();
+    const filtered = s.txs.filter(t =>
+      (s.filter === 'All' || t.cat === s.filter) &&
+      (!q || t.name.toLowerCase().includes(q) || t.cat.toLowerCase().includes(q))
+    );
+    const dayOrder = [];
+    const byDay = {};
+    filtered.forEach(t => {
+      if (!byDay[t.day]) { byDay[t.day] = []; dayOrder.push(t.day); }
+      byDay[t.day].push(t);
+    });
+    const groups = dayOrder.map(day => ({
+      label: day,
+      total: '−' + this.rupee(byDay[day].reduce((a, t) => a + t.amount, 0)),
+      items: byDay[day].map(mkTx)
+    }));
+
+    const catNames = Object.keys(s.limits);
+    const cats = ['All'].concat(catNames);
+    const chips = cats.map(c => ({
+      label: c,
+      style: s.filter === c
+        ? { ...chipBase, background: '#14231c', color: '#fff', fontWeight: 500 }
+        : { ...chipBase, background: '#fff', border: '1px solid #e4eae7', color: '#5f6d67' },
+      pick: () => this.setState({ filter: c })
+    }));
+
+    // ---- recurring ----
+    const active = s.recs.filter(r => !r.paused);
+    const recTotalN = active.reduce((a, r) => a + r.amount, 0);
+    const recs = s.recs.map(r => ({
+      name: r.name,
+      sub: (r.cat ? r.cat + ' · ' : '') + (r.paused ? 'Paused' : r.due),
+      subStyle: { fontSize: '12px', color: r.paused ? '#a3aea8' : (r.urgent ? '#d97b5a' : '#7c8a84'), fontWeight: r.urgent && !r.paused ? 500 : 400 },
+      amt: this.rupee(r.amount),
+      amtStyle: { fontFamily: "'Space Grotesk',sans-serif", fontWeight: 600, fontSize: '15px', color: r.paused ? '#a3aea8' : '#14231c' },
+      badge: r.paused ? 'Paused' : 'Active',
+      badgeStyle: {
+        fontSize: '11px', borderRadius: '100px', padding: '2px 9px', fontWeight: 500,
+        background: r.paused ? '#eef2f0' : '#e6f4ec', color: r.paused ? '#7c8a84' : '#1f9d63'
+      },
+      rowStyle: {
+        display: 'flex', alignItems: 'center', gap: '13px', background: '#fff',
+        border: '1px solid #e4eae7', borderRadius: '14px', padding: '12px 13px',
+        cursor: 'pointer', opacity: r.paused ? 0.65 : 1
+      },
+      tintStyle: tint(r.green),
+      toggle: () => {
+        const recsNext = s.recs.map(x => x.id === r.id ? { ...x, paused: !x.paused } : x);
+        this.setState({ recs: recsNext });
+        this.showToast(r.paused ? r.name + ' resumed' : r.name + ' paused');
+      }
+    }));
+
+    // ---- budgets (spent computed from txs) ----
+    const limits = s.limits;
+    const budgets = Object.keys(limits).map(cat => {
+      const spent = s.txs.filter(t => t.cat === cat).reduce((a, t) => a + t.amount, 0);
+      const hasLimit = limits[cat] > 0;
+      const pct = hasLimit ? Math.min(100, Math.round(spent / limits[cat] * 100)) : 0;
+      const over = pct >= 90;
+      return {
+        cat,
+        caption: hasLimit ? this.rupee(spent) + ' of ' + this.rupee(limits[cat]) : this.rupee(spent) + ' · no budget',
+        barStyle: { height: '100%', borderRadius: '100px', width: pct + '%', background: over ? '#d97b5a' : '#1f9d63' }
+      };
+    });
+    const totalSpent = s.txs.reduce((a, t) => a + t.amount, 0);
+    const totalLimit = Object.values(limits).reduce((a, b) => a + (b || 0), 0);
+
+    // ---- stats range scope ----
+    const statsRange = s.statsRange || 'M';
+    const statsHistory = [
+      { label: 'Aug', amt: 7200 }, { label: 'Sep', amt: 6800 }, { label: 'Oct', amt: 9800 },
+      { label: 'Nov', amt: 8900 }, { label: 'Dec', amt: 11400 }, { label: 'Jan', amt: 7600 },
+      { label: 'Feb', amt: 6100 }, { label: 'Mar', amt: 7800 }, { label: 'Apr', amt: 6900 },
+      { label: 'May', amt: 9200 }, { label: 'Jun', amt: 8400 }
+    ];
+    const statsAll = statsHistory.concat([{ label: 'Jul', amt: totalSpent, now: true }]);
+    const statsRangeN = { M: 1, '3M': 3, '6M': 6, '1Y': 12 }[statsRange];
+    const scopeTotal = statsAll.slice(-statsRangeN).reduce((a, m) => a + m.amt, 0);
+    const scopePast = scopeTotal - totalSpent;
+    const prevScopeArr = statsAll.slice(-2 * statsRangeN, -statsRangeN);
+    const prevScopeTotal = statsRange === '1Y' ? 91500 : prevScopeArr.reduce((a, m) => a + m.amt, 0);
+    const prevLabel = { M: 'Jun', '3M': 'Feb–Apr', '6M': 'Aug–Jan', '1Y': 'prior year' }[statsRange];
+    const catShares = { Groceries: 0.30, Dining: 0.22, Bills: 0.16, Transit: 0.13, Shopping: 0.19 };
+
+    // ---- detail sheet ----
+    const det = s.txs.find(t => t.id === s.detailId);
+
+    // ---- add sheet ----
+    const amtOk = parseFloat(s.addAmount) > 0;
+    const keys = ['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(k => ({
+      label: k,
+      press: () => {
+        let a = s.addAmount;
+        if (k === '⌫') a = a.slice(0, -1);
+        else if (k === '.') { if (!a.includes('.')) a = (a || '0') + '.'; }
+        else if (a.replace('.', '').length < 7) a = a + k;
+        this.setState({ addAmount: a });
+      }
+    }));
+    const addCatList = catNames.map(c => ({
+      label: c,
+      style: s.addCat === c
+        ? { ...chipBase, background: '#14231c', color: '#fff', fontWeight: 500 }
+        : { ...chipBase, background: '#f5f8f6', border: '1px solid #e4eae7', color: '#5f6d67' },
+      pick: () => this.setState({ addCat: c })
+    }));
+
+    // ---- tabs ----
+    const tabDefs = [
+      { key: 'home', label: 'Home', round: false },
+      { key: 'tx', label: 'Activity', round: false },
+      { key: 'stats', label: 'Stats', round: false },
+      { key: 'recurring', label: 'Recurring', round: false },
+      { key: 'budgets', label: 'Budgets', round: true }
+    ];
+    const tabs = tabDefs.map(t => {
+      const on = tab === t.key;
+      const col = on ? '#1f9d63' : '#a3aea8';
+      return {
+        label: t.label,
+        iconStyle: { width: '22px', height: '22px', border: '2px solid ' + col, borderRadius: t.round ? '100px' : '6px', boxSizing: 'border-box' },
+        labelStyle: { fontSize: '10px', color: col, fontWeight: on ? 600 : 400 },
+        go: () => go(t.key)
+      };
+    });
+
+    return {
+      userName,
+      userInitial: userName.charAt(0).toUpperCase(),
+      isHome: tab === 'home', isTx: tab === 'tx', isStats: tab === 'stats', isRecurring: tab === 'recurring', isBudgets: tab === 'budgets',
+      showFab: tab === 'home' || tab === 'tx',
+      goTx: () => go('tx'), goRecurring: () => go('recurring'), goBudgets: () => go('budgets'),
+      tabs,
+
+      monthSpent: this.rupee(totalSpent),
+      monthSub: s.txs.length + ' transactions · ' + this.rupee(totalLimit - totalSpent) + ' of budget left',
+      budgetLeft: this.rupee(totalLimit - totalSpent),
+      recent: filtered.length ? s.txs.slice(0, 4).map(mkTx) : s.txs.slice(0, 4).map(mkTx),
+
+      query: s.query,
+      setQuery: (e) => this.setState({ query: e.target.value }),
+      chips,
+      groups,
+      noResults: groups.length === 0,
+
+      upcoming: active.filter(r => r.due.indexOf('Jul') !== -1).slice(0, 3).map(r => ({
+        name: r.name,
+        sub: r.due,
+        subStyle: { fontSize: '12px', color: r.urgent ? '#d97b5a' : '#7c8a84', fontWeight: r.urgent ? 500 : 400 },
+        amt: this.rupee(r.amount),
+        tintStyle: tint(r.green)
+      })),
+
+      ...((() => {
+        const amtN = parseInt(s.recAmt.replace(/[^0-9]/g, ''), 10) || 0;
+        const dayN = parseInt(s.recDay, 10) || 0;
+        const ok = s.recName.trim().length > 0 && amtN > 0 && dayN >= 1 && dayN <= 31;
+        const chip = (on) => ({
+          flex: 1, textAlign: 'center', borderRadius: '100px', padding: '8px 0', fontSize: '13px', cursor: 'pointer',
+          background: on ? '#14231c' : '#f5f8f6',
+          border: '1px solid #e4eae7',
+          color: on ? '#fff' : '#5f6d67',
+          fontWeight: on ? 500 : 400
+        });
+        return {
+          showRec: s.showRec,
+          openRec: () => this.setState({ showRec: true, recName: '', recAmt: '', recDay: '', recFreq: 'Monthly', recCat: 'Bills' }),
+          closeRec: () => this.setState({ showRec: false }),
+          recName: s.recName,
+          setRecName: (e) => this.setState({ recName: e.target.value }),
+          recAmt: s.recAmt,
+          setRecAmt: (e) => this.setState({ recAmt: e.target.value.replace(/[^0-9]/g, '') }),
+          recDay: s.recDay,
+          setRecDay: (e) => this.setState({ recDay: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) }),
+          recFreqs: ['Monthly', 'Yearly'].map(f => ({
+            label: f,
+            style: chip(s.recFreq === f),
+            pick: () => this.setState({ recFreq: f })
+          })),
+          recCats: catNames.map(c => ({
+            label: c,
+            style: { ...chip(s.recCat === c), flex: 'none', padding: '7px 14px' },
+            pick: () => this.setState({ recCat: c })
+          })),
+          recSaveStyle: {
+            borderRadius: '14px', padding: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+            background: ok ? '#1f9d63' : '#eef2f0',
+            color: ok ? '#fff' : '#a3aea8',
+            pointerEvents: ok ? 'auto' : 'none'
+          },
+          saveRec: () => {
+            if (!ok) return;
+            const freqWord = s.recFreq.toLowerCase();
+            const due = dayN >= 9
+              ? 'Due Jul ' + dayN + ' · ' + freqWord
+              : 'Due Aug ' + dayN + ' · ' + freqWord;
+            const rec = {
+              id: 'r' + Date.now(),
+              name: s.recName.trim(),
+              cat: s.recCat,
+              due,
+              amount: amtN,
+              paused: false,
+              green: true
+            };
+            const tx = {
+              id: Date.now(),
+              name: rec.name,
+              cat: s.recCat,
+              time: 'Recurring · just added',
+              day: 'Today',
+              amount: amtN,
+              green: true
+            };
+            this.setState({ recs: s.recs.concat([rec]), txs: [tx, ...s.txs], showRec: false });
+            this.showToast(rec.name + ' added');
+          }
+        };
+      })()),
+
+      recTotal: this.rupee(recTotalN),
+      recSub: active.length + ' active · next due in 2 days',
+      recs,
+
+      statsRanges: ['M', '3M', '6M', '1Y'].map(r => ({
+        label: { M: 'July', '3M': '3M', '6M': '6M', '1Y': '1Y' }[r],
+        style: {
+          flex: 1, textAlign: 'center', borderRadius: '100px', padding: '7px 0', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+          background: statsRange === r ? '#14231c' : 'transparent',
+          color: statsRange === r ? '#fff' : '#7c8a84'
+        },
+        pick: () => this.setState({ statsRange: r, selMonth: null })
+      })),
+      spentLabel: { M: 'Spent in July', '3M': 'Spent · May – Jul', '6M': 'Spent · Feb – Jul', '1Y': 'Spent · Aug 2025 – Jul 2026' }[statsRange],
+      spentTotal: this.rupee(scopeTotal),
+      statAvg: this.rupee(Math.round(scopeTotal / ({ M: 8, '3M': 69, '6M': 158, '1Y': 365 }[statsRange]))) + ' avg per day' + (statsRange === 'M' ? ' · Jul 1–8' : ''),
+      ...((() => {
+        if (statsRange === 'M') return { showMonthBars: false, monthBars: [], monthBarCaption: '' };
+        const months = statsAll.slice(-statsRangeN);
+        const max = Math.max(...months.map(m => m.amt), 1);
+        const selLabel = s.selMonth && months.some(m => m.label === s.selMonth) ? s.selMonth : 'Jul';
+        const sel = months.find(m => m.label === selLabel);
+        const wide = statsRangeN > 6;
+        return {
+          showMonthBars: true,
+          monthBarCaption: sel.label + ': ' + this.rupee(sel.amt),
+          monthBars: months.map(m => {
+            const on = m.label === selLabel;
+            const k = m.amt >= 1000 ? (m.amt / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(m.amt);
+            return {
+              label: m.label,
+              amt: on || !wide ? '₹' + k : '',
+              amtStyle: { fontSize: wide ? '8px' : '10px', color: on ? '#1f9d63' : '#7c8a84', fontWeight: on ? 600 : 400, height: '12px' },
+              barStyle: {
+                width: '100%', maxWidth: wide ? '16px' : '30px', borderRadius: '6px 6px 3px 3px',
+                height: Math.max(8, Math.round(m.amt / max * 62)) + 'px',
+                background: on ? '#1f9d63' : '#cfe6d9'
+              },
+              labelStyle: { fontSize: wide ? '9px' : '11px', color: on ? '#1f9d63' : '#a3aea8', fontWeight: on ? 600 : 400 },
+              pick: () => this.setState({ selMonth: m.label })
+            };
+          })
+        };
+      })()),
+
+      statCats: (() => {
+        const byCat = {};
+        s.txs.forEach(t => { byCat[t.cat] = (byCat[t.cat] || 0) + t.amount; });
+        if (statsRange !== 'M') Object.keys(catShares).forEach(cat => {
+          byCat[cat] = Math.round((byCat[cat] || 0) + catShares[cat] * scopePast);
+        });
+        const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+        const max = entries.length ? entries[0][1] : 1;
+        return entries.map(([cat, amt], i) => ({
+          cat,
+          caption: this.rupee(amt) + ' · ' + Math.round(amt / scopeTotal * 100) + '%',
+          barStyle: {
+            height: '100%', borderRadius: '100px',
+            width: Math.max(4, Math.round(amt / max * 100)) + '%',
+            background: i === 0 ? '#1f9d63' : '#9fceb5'
+          }
+        }));
+      })(),
+      ...((() => {
+        const byM = {};
+        s.txs.forEach(t => {
+          if (!byM[t.name]) byM[t.name] = { amt: 0, count: 0, green: t.green };
+          byM[t.name].amt += t.amount;
+          byM[t.name].count += 1;
+        });
+        // synthetic history for wider ranges
+        const extras = {
+          M: {},
+          '3M': { 'Swiggy': [2600, 7], 'BigBasket': [3400, 4], 'Uber': [900, 5], 'Netflix': [1298, 2], 'Zomato': [1850, 5], 'Amazon': [2400, 3] },
+          '6M': { 'Swiggy': [5400, 14], 'BigBasket': [7800, 9], 'Uber': [2100, 11], 'Netflix': [3245, 5], 'Zomato': [4100, 11], 'Amazon': [6200, 7] },
+          '1Y': { 'Swiggy': [11200, 29], 'BigBasket': [15600, 18], 'Uber': [4100, 22], 'Netflix': [7139, 11], 'Zomato': [8300, 21], 'Amazon': [12800, 14] }
+        }[statsRange];
+        Object.entries(extras).forEach(([name, [amt, count]]) => {
+          if (!amt) return;
+          if (!byM[name]) byM[name] = { amt: 0, count: 0, green: false };
+          byM[name].amt += amt;
+          byM[name].count += count;
+        });
+        const periodName = { M: 'July', '3M': '3 months', '6M': '6 months', '1Y': 'year' }[statsRange];
+        const sorted = Object.entries(byM).sort((a, b) => b[1].amt - a[1].amt);
+        const maxAmt = sorted.length ? sorted[0][1].amt : 1;
+        const n = s.merchCount === 3 ? 3 : sorted.length;
+        return {
+          merchCountLabel: s.merchCount === 3 ? 'Show all (' + sorted.length + ')' : 'Show top 3',
+          toggleMerchCount: () => this.setState({ merchCount: s.merchCount === 3 ? 99 : 3 }),
+          topMerchants: sorted.slice(0, n).map(([name, v]) => ({
+            name,
+            sub: v.count + (v.count === 1 ? ' transaction' : ' transactions') + ' · ' + Math.round(v.amt / scopeTotal * 100) + '% of ' + periodName,
+            amt: this.rupee(v.amt),
+            tintStyle: tint(v.green, 34, 10),
+            barStyle: { display: 'block', height: '100%', borderRadius: '100px', width: Math.max(6, Math.round(v.amt / maxAmt * 100)) + '%', background: '#1f9d63' },
+            open: () => this.setState({ tab: 'tx', query: name, filter: 'All' })
+          }))
+        };
+      })()),
+
+      budgets,
+      budgetTotalSpent: this.rupee(totalSpent),
+      budgetTotalLimit: this.rupee(totalLimit),
+      budgetPct: Math.min(100, Math.round(totalSpent / totalLimit * 100)) + '%',
+      budgetTotalBarStyle: {
+        height: '100%', borderRadius: '100px',
+        width: Math.min(100, Math.round(totalSpent / totalLimit * 100)) + '%',
+        background: totalSpent / totalLimit >= 0.9 ? '#d97b5a' : '#1f9d63'
+      },
+      budgetLeftCaption: this.rupee(Math.max(0, totalLimit - totalSpent)) + ' left · 23 days to go in July',
+      ...((() => {
+        const nameOk = s.catName.trim().length > 0 && !catNames.some(c => c.toLowerCase() === s.catName.trim().toLowerCase());
+        const limitN = parseInt(s.catLimit.replace(/[^0-9]/g, ''), 10) || 0;
+        const ok = nameOk;
+        return {
+          showCat: s.showCat,
+          openCat: () => this.setState({ showCat: true, catName: '', catLimit: '' }),
+          closeCat: () => this.setState({ showCat: false }),
+          catName: s.catName,
+          setCatName: (e) => this.setState({ catName: e.target.value }),
+          catLimit: s.catLimit,
+          setCatLimit: (e) => this.setState({ catLimit: e.target.value.replace(/[^0-9]/g, '') }),
+          catPresets: [1000, 2500, 5000, 10000].map(v => ({
+            label: '₹' + v.toLocaleString('en-IN'),
+            style: {
+              borderRadius: '100px', padding: '7px 14px', fontSize: '13px', cursor: 'pointer',
+              background: limitN === v ? '#14231c' : '#f5f8f6',
+              border: '1px solid #e4eae7',
+              color: limitN === v ? '#fff' : '#5f6d67',
+              fontWeight: limitN === v ? 500 : 400
+            },
+            pick: () => this.setState({ catLimit: String(v) })
+          })),
+          catSaveStyle: {
+            borderRadius: '14px', padding: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+            background: ok ? '#1f9d63' : '#eef2f0',
+            color: ok ? '#fff' : '#a3aea8',
+            pointerEvents: ok ? 'auto' : 'none'
+          },
+          saveCat: () => {
+            if (!ok) return;
+            const name = s.catName.trim();
+            this.setState({ limits: { ...s.limits, [name]: limitN || null }, showCat: false, tab: 'budgets' });
+            this.showToast(name + ' category added');
+          }
+        };
+      })()),
+
+      budgetSummary: this.rupee(totalSpent) + ' spent of ' + this.rupee(totalLimit) + ' across 5 categories',
+
+      hasDetail: !!det,
+      detailName: det ? det.name : '',
+      detailSub: det ? det.day + ' · ' + det.time : '',
+      detailAmt: det ? '−' + this.rupee(det.amount) : '',
+      detailCat: det ? det.cat : '',
+      detailTintStyle: tint(det && det.green, 48, 14),
+      closeDetail: () => this.setState({ detailId: null }),
+      deleteDetail: () => {
+        this.setState({ txs: s.txs.filter(t => t.id !== s.detailId), detailId: null });
+        this.showToast('Transaction deleted');
+      },
+
+      showAdd: s.showAdd,
+      openAdd: () => this.setState({ showAdd: true, addAmount: '', addName: '' }),
+      closeAdd: () => this.setState({ showAdd: false }),
+      addAmtDisplay: '₹' + (s.addAmount || '0'),
+      addAmtStyle: { textAlign: 'center', fontFamily: "'Space Grotesk',sans-serif", fontWeight: 600, fontSize: '40px', marginBottom: '14px', color: amtOk ? '#14231c' : '#c3cdc7' },
+      addName: s.addName,
+      setAddName: (e) => this.setState({ addName: e.target.value }),
+      addCats: addCatList,
+      keys,
+      saveStyle: {
+        borderRadius: '14px', padding: '14px', textAlign: 'center', fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+        background: amtOk ? '#1f9d63' : '#eef2f0',
+        color: amtOk ? '#fff' : '#a3aea8',
+        pointerEvents: amtOk ? 'auto' : 'none'
+      },
+      saveAdd: () => {
+        if (!amtOk) return;
+        const tx = {
+          id: Date.now(),
+          name: s.addName.trim() || 'New expense',
+          cat: s.addCat,
+          time: 'Just now',
+          day: 'Today',
+          amount: Math.round(parseFloat(s.addAmount)),
+          green: true
+        };
+        this.setState({ txs: [tx, ...s.txs], showAdd: false, tab: 'tx', filter: 'All', query: '' });
+        this.showToast('Expense added');
+      },
+
+      isAccount: tab === 'account',
+      openAccount: () => this.setState({ tab: 'account' }),
+      closeAccount: () => this.setState({ tab: 'home' }),
+      ...((() => {
+        const seg = (on) => ({ flex: 1, textAlign: 'center', padding: '7px 0', borderRadius: '100px', fontSize: '12px', fontWeight: on ? 600 : 500, cursor: 'pointer', background: on ? '#14231c' : 'transparent', color: on ? '#fff' : '#7c8a84' });
+        const toggle = (on) => ({ trackStyle: { width: '46px', height: '26px', borderRadius: '100px', background: on ? '#1f9d63' : '#d7ded9', position: 'relative', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s' }, knobStyle: { position: 'absolute', top: '3px', left: on ? '23px' : '3px', width: '20px', height: '20px', borderRadius: '100px', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(13,21,18,0.25)' } });
+        const notifDefs = [
+          { key: 'bills', label: 'Bill reminders', sub: 'Notified 2 days before a bill is due' },
+          { key: 'budget', label: 'Budget alerts', sub: 'When a category crosses 90% of its limit' },
+          { key: 'weekly', label: 'Weekly summary', sub: 'A spending recap every Monday' },
+          { key: 'large', label: 'Large transactions', sub: 'Any single expense above ₹5,000' }
+        ];
+        return {
+          accName: s.accName === null ? userName : s.accName,
+          setAccName: (e) => this.setState({ accName: e.target.value }),
+          accEmail: s.accEmail === null ? userName.toLowerCase().replace(/\s+/g, '.') + '@gmail.com' : s.accEmail,
+          setAccEmail: (e) => this.setState({ accEmail: e.target.value }),
+          saveProfileStyle: { borderRadius: '12px', padding: '13px', fontSize: '15px', fontWeight: 600, cursor: 'pointer', background: '#1f9d63', color: '#fff', textAlign: 'center' },
+          saveProfile: () => this.showToast('Profile saved'),
+          toastPhoto: () => this.showToast('Photo upload — demo'),
+          currencyOpts: [['INR', '₹ INR'], ['USD', '$ USD'], ['EUR', '€ EUR']].map(([k, l]) => ({ label: l, style: seg(s.currency === k), pick: () => this.setState({ currency: k }) })),
+          weekOpts: [['Mon', 'Monday'], ['Sun', 'Sunday']].map(([k, l]) => ({ label: l, style: seg(s.weekStart === k), pick: () => this.setState({ weekStart: k }) })),
+          viewOpts: ['Home', 'Activity', 'Stats'].map(k => ({ label: k, style: seg(s.defaultView === k), pick: () => this.setState({ defaultView: k }) })),
+          notifications: notifDefs.map(n => {
+            const tg = toggle(!!s.notif[n.key]);
+            return { label: n.label, sub: n.sub, trackStyle: tg.trackStyle, knobStyle: tg.knobStyle, toggle: () => this.setState({ notif: { ...s.notif, [n.key]: !s.notif[n.key] } }) };
+          }),
+          toastSignOut: () => this.showToast('Signed out — demo'),
+          toastDelete: () => this.showToast('Account deletion — demo')
+        };
+      })()),
+
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
