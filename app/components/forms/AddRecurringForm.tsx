@@ -12,6 +12,7 @@ import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CategoryChips } from "@/components/forms/CategoryChips";
+import { MerchantField } from "@/components/forms/MerchantField";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 
 const FREQUENCIES: Frequency[] = ["Monthly", "Yearly"];
@@ -27,7 +28,7 @@ export function AddRecurringForm({
   onCancel,
   fillFrequency = false,
 }: AddRecurringFormProps) {
-  const { recurringDraft, recurring, limits, paymentMethods } = useAppState();
+  const { recurringDraft, recurring, limits, paymentMethods, transactions } = useAppState();
   const actions = useAppActions();
   const [backfillCount, setBackfillCount] = useState<number | null>(null);
 
@@ -114,14 +115,28 @@ export function AddRecurringForm({
 
   return (
     <div>
-      <TextField
-        label="Name"
-        value={recurringDraft.name}
-        onChange={actions.setRecurringName}
-        placeholder="e.g. iCloud, House help, SIP"
-        autoComplete="off"
-        className="mb-3.5"
-      />
+      <div className="mb-3.5">
+        <span className="mb-1.5 block text-xs text-muted">Name</span>
+        <MerchantField
+          value={recurringDraft.name}
+          onChange={actions.setRecurringName}
+          transactions={transactions}
+          placeholder="e.g. iCloud, House help, SIP"
+          onSelectSuggestion={(suggestion) => {
+            actions.setRecurringName(suggestion.name);
+            actions.setRecurringCategory(suggestion.category);
+            if (
+              suggestion.paymentMethod &&
+              methodOptions.some(
+                (method) =>
+                  paymentMethodLabel(method) === suggestion.paymentMethod,
+              )
+            ) {
+              actions.setRecurringPaymentMethod(suggestion.paymentMethod);
+            }
+          }}
+        />
+      </div>
 
       <TextField
         label="Amount"
