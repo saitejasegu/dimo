@@ -101,22 +101,22 @@ export function AddRecurringForm({
         className="mb-3.5"
       />
 
-      <div className="mb-3.5 grid grid-cols-2 gap-3">
-        <TextField
-          label="Amount"
-          value={recurringDraft.amount}
-          onChange={actions.setRecurringAmount}
-          placeholder="₹"
-          inputMode="numeric"
-        />
-        <TextField
-          label={editing ? "Next due date" : "Start date"}
-          value={recurringDraft.anchorDate}
-          onChange={actions.setRecurringAnchorDate}
-          type="date"
-          min={editing ? today : undefined}
-        />
-      </div>
+      <TextField
+        label="Amount"
+        value={recurringDraft.amount}
+        onChange={actions.setRecurringAmount}
+        placeholder="₹"
+        inputMode="numeric"
+        className="mb-3.5"
+      />
+      <TextField
+        label={editing ? "Next due date" : "Start date"}
+        value={recurringDraft.anchorDate}
+        onChange={actions.setRecurringAnchorDate}
+        type="date"
+        min={editing ? today : undefined}
+        className="mb-3.5"
+      />
 
       <p className="mb-1.5 text-xs text-muted">Category</p>
       <CategoryChips
