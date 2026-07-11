@@ -280,3 +280,14 @@ export function requestSync() {
 export function requestFullSync() {
   return sharedCoordinator?.requestFullSync() ?? Promise.resolve();
 }
+
+/** Delete every cloud entity for the signed-in owner (paged). */
+export async function clearCloudWorkspace(client: ConvexReactClient) {
+  while (true) {
+    const result = await client.mutation(clearRef, {
+      workspaceId: WORKSPACE_ID,
+      limit: 100,
+    });
+    if (!result.hasMore) return;
+  }
+}

@@ -3,6 +3,8 @@
 import { money, spent } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
+import { useActivitySelection } from "@/features/transactions/useActivitySelection";
+import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -12,13 +14,14 @@ import { WebScreen } from "@/components/web/WebScreen";
 export function ActivityScreen() {
   const { query, currency, categories } = useAppState();
   const actions = useAppActions();
-  const { options, filter, groups, summary, shownCount, totalCount } =
+  const { options, filter, groups, summary, shownCount, totalCount, filtered } =
     useActivity();
   const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
+  const selection = useActivitySelection(filtered.map((tx) => tx.id));
 
   return (
     <WebScreen>
-      <div className="mb-[22px] flex items-end justify-between">
+      <div className="mb-[22px] flex items-end justify-between gap-4">
         <div>
           <div className="font-display text-[28px] font-semibold text-ink">
             Activity
@@ -27,7 +30,20 @@ export function ActivityScreen() {
             {shownCount} of {totalCount} transactions shown
           </div>
         </div>
-        <SearchInput value={query} onChange={actions.setQuery} className="w-80 py-2.5" />
+        <div className="flex items-center gap-3">
+          <ActivitySelectionBar
+            selecting={selection.selecting}
+            selectedCount={selection.selectedCount}
+            allSelected={selection.allSelected}
+            visibleCount={filtered.length}
+            selectedIds={selection.selectedIds}
+            onEnter={selection.enter}
+            onExit={selection.exit}
+            onSelectAll={selection.selectAll}
+            onDeselectAll={selection.deselectAll}
+          />
+          <SearchInput value={query} onChange={actions.setQuery} className="w-80 py-2.5" />
+        </div>
       </div>
 
       <div className="mb-[22px] flex min-w-0 items-center gap-2.5">
@@ -80,7 +96,13 @@ export function ActivityScreen() {
                       key={tx.id}
                       transaction={tx}
                       currency={currency}
-                      onClick={() => actions.openDetail(tx.id)}
+                      selecting={selection.selecting}
+                      selected={selection.selected.has(tx.id)}
+                      onClick={() =>
+                        selection.selecting
+                          ? selection.toggle(tx.id)
+                          : actions.openDetail(tx.id)
+                      }
                       layout="list"
                       showCategoryPill
                       dividerTop

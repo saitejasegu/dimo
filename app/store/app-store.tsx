@@ -62,6 +62,7 @@ export interface AppActions {
   toggleMerchants: () => void; openMerchant: (name: string) => void;
   openOverlay: (overlay: Exclude<OverlayKey, null>) => void; closeOverlay: () => void;
   openDetail: (id: ID) => void; closeDetail: () => void; deleteDetail: () => void;
+  deleteTransactions: (ids: ID[]) => void;
   toggleRecurring: (id: ID) => void;
   openEditRecurring: (id: ID) => void;
   setExpenseAmount: (amount: string) => void; pressAmountKey: (key: string) => void;
@@ -134,6 +135,23 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     deleteDetail: () => {
       const id = getState().detailId; if (!id) return;
       persist(removeEntity("transaction", id), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction deleted" }); });
+    },
+    deleteTransactions: (ids) => {
+      const unique = [...new Set(ids)];
+      if (unique.length === 0) return;
+      persist(
+        Promise.all(unique.map((id) => removeEntity("transaction", id))),
+        () => {
+          dispatch({ type: "CLOSE_DETAIL" });
+          dispatch({
+            type: "SHOW_TOAST",
+            message:
+              unique.length === 1
+                ? "Transaction deleted"
+                : `${unique.length} transactions deleted`,
+          });
+        },
+      );
     },
     toggleRecurring: (id) => {
       const row = getState().recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;

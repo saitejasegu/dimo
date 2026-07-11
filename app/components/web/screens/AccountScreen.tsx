@@ -10,14 +10,12 @@ import {
 } from "@/features/account/constants";
 import { Card } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
-import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { SyncStatusCard } from "@/components/common/SyncStatusCard";
+import { AccountSessionActions } from "@/components/common/AccountSessionActions";
 import { WebScreen } from "@/components/web/WebScreen";
-import { useAuth } from "@workos-inc/authkit-react";
-import { signOutAndClearLocal } from "@/auth/signOut";
 
 const VIEW_OPTIONS = DEFAULT_VIEW_OPTIONS.map((v) => ({
   value: v as string,
@@ -48,7 +46,6 @@ export function AccountScreen() {
   const { profile, currency, weekStart, theme, defaultView } =
     useAppState();
   const actions = useAppActions();
-  const { signOut } = useAuth();
 
   return (
     <WebScreen>
@@ -83,16 +80,6 @@ export function AccountScreen() {
             value={profile.email}
             readOnly
           />
-          <div />
-          <div className="flex items-end justify-end">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => void signOutAndClearLocal(signOut)}
-            >
-              Sign out
-            </Button>
-          </div>
         </div>
       </Card>
 
@@ -155,13 +142,15 @@ export function AccountScreen() {
             />
           </div>
         </Card>
-
       </div>
 
       <Card className="mb-[18px] p-[22px]">
         <PaymentMethodsManager />
       </Card>
       <Card className="mb-[18px] p-[22px]"><SyncStatusCard /></Card>
+      <Card className="mb-[18px] p-[22px]">
+        <AccountSessionActions />
+      </Card>
     </WebScreen>
   );
 }

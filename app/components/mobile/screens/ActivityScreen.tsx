@@ -3,6 +3,8 @@
 import { spent } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
+import { useActivitySelection } from "@/features/transactions/useActivitySelection";
+import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TransactionRow } from "@/components/common/TransactionRow";
@@ -11,16 +13,37 @@ import { MobileScreen } from "@/components/mobile/MobileScreen";
 export function ActivityScreen() {
   const { query, currency, categories } = useAppState();
   const actions = useAppActions();
-  const { options, filter, groups } = useActivity();
+  const { options, filter, groups, filtered } = useActivity();
   const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
+  const selection = useActivitySelection(filtered.map((tx) => tx.id));
 
   return (
     <MobileScreen
       header={
         <>
-          <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
-            Transactions
-          </h1>
+          <div
+            className={
+              selection.selecting
+                ? "mb-3.5 flex flex-col gap-3"
+                : "mb-3.5 flex items-center justify-between gap-3"
+            }
+          >
+            <h1 className="font-display text-2xl font-semibold text-ink">
+              Transactions
+            </h1>
+            <ActivitySelectionBar
+              selecting={selection.selecting}
+              selectedCount={selection.selectedCount}
+              allSelected={selection.allSelected}
+              visibleCount={filtered.length}
+              selectedIds={selection.selectedIds}
+              onEnter={selection.enter}
+              onExit={selection.exit}
+              onSelectAll={selection.selectAll}
+              onDeselectAll={selection.deselectAll}
+              className={selection.selecting ? undefined : "shrink-0"}
+            />
+          </div>
           <SearchInput
             value={query}
             onChange={actions.setQuery}
@@ -76,7 +99,13 @@ export function ActivityScreen() {
                   key={tx.id}
                   transaction={tx}
                   currency={currency}
-                  onClick={() => actions.openDetail(tx.id)}
+                  selecting={selection.selecting}
+                  selected={selection.selected.has(tx.id)}
+                  onClick={() =>
+                    selection.selecting
+                      ? selection.toggle(tx.id)
+                      : actions.openDetail(tx.id)
+                  }
                 />
               ))}
             </div>
