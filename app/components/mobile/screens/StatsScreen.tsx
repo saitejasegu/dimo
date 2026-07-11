@@ -23,18 +23,20 @@ export function StatsScreen() {
     useStats();
 
   return (
-    <MobileScreen>
-      <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
-        Stats
-      </h1>
-
-      <SegmentedControl
-        options={RANGE_OPTIONS}
-        value={range}
-        onChange={actions.setStatsRange}
-        className="mb-4"
-      />
-
+    <MobileScreen
+      header={
+        <>
+          <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
+            Stats
+          </h1>
+          <SegmentedControl
+            options={RANGE_OPTIONS}
+            value={range}
+            onChange={actions.setStatsRange}
+          />
+        </>
+      }
+    >
       <HeroCard className="mb-4 p-5">
         <div className="mb-2 text-[13px] text-side-muted">{scope.spentLabel}</div>
         <div className="mb-1.5 font-display text-3xl font-semibold">

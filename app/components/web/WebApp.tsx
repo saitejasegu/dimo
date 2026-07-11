@@ -38,7 +38,7 @@ export function WebApp() {
   const { overlay, detailId } = useAppState();
 
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-canvas font-body">
+    <div className="fixed inset-0 flex overflow-hidden bg-canvas font-body">
       <Sidebar />
       <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas">
         <CurrentScreen />

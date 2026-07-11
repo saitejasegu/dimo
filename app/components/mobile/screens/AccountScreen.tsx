@@ -28,19 +28,22 @@ export function AccountScreen() {
   const actions = useAppActions();
 
   return (
-    <div className="absolute inset-0 z-[18] animate-fade-up overflow-auto bg-canvas px-[22px] pb-10 pt-[max(1.25rem,env(safe-area-inset-top))]">
-      <div className="mb-5 flex items-center gap-3.5">
-        <button
-          type="button"
-          onClick={actions.closeAccount}
-          aria-label="Back"
-          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl border border-line bg-surface text-ink"
-        >
-          <ChevronIcon direction="left" />
-        </button>
-        <h1 className="font-display text-2xl font-semibold text-ink">Account</h1>
+    <div className="fixed inset-0 z-[18] flex flex-col overflow-hidden bg-canvas">
+      <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-3.5">
+          <button
+            type="button"
+            onClick={actions.closeAccount}
+            aria-label="Back"
+            className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl border border-line bg-surface text-ink"
+          >
+            <ChevronIcon direction="left" />
+          </button>
+          <h1 className="font-display text-2xl font-semibold text-ink">Account</h1>
+        </div>
       </div>
 
+      <div className="min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
       <Card className="mb-3.5 p-5">
         <div className="mb-4 flex items-center gap-4">
           <Avatar
@@ -131,6 +134,7 @@ export function AccountScreen() {
       </Card>
 
       <Card className="mb-3.5 p-5"><SyncStatusCard /></Card>
+      </div>
     </div>
   );
 }

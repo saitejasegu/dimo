@@ -1,22 +1,33 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-/** Standard scrollable screen body for the mobile app. */
+/** Fixed header + independently scrollable body for the mobile app. */
 export function MobileScreen({
+  header,
   children,
   className,
 }: {
+  header?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "h-full animate-fade-up overflow-auto px-[22px] pb-[110px] pt-[max(1.25rem,env(safe-area-inset-top))]",
-        className,
+    <div className="flex h-full flex-col overflow-hidden">
+      {header ? (
+        <div className="shrink-0 bg-canvas px-[22px] pb-3.5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+          {header}
+        </div>
+      ) : (
+        <div className="shrink-0 pt-[max(1.25rem,env(safe-area-inset-top))]" />
       )}
-    >
-      {children}
+      <div
+        className={cn(
+          "min-h-0 flex-1 animate-fade-up overflow-y-auto overscroll-none px-[22px] pb-[110px] pt-4",
+          className,
+        )}
+      >
+        {children}
+      </div>
     </div>
   );
 }

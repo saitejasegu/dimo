@@ -24,42 +24,46 @@ export function HomeScreen() {
   const monthSub = `${transactionCount} transactions · ${money(totals.left, currency)} of budget left`;
 
   return (
-    <MobileScreen>
-      <div className="mb-[18px] flex items-center justify-between">
-        <div>
-          <div className="text-[13px] text-muted">Good morning</div>
-          <div className="font-display text-[22px] font-semibold text-ink">
-            {profile.name}
+    <MobileScreen
+      header={
+        <>
+          <div className="mb-[18px] flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-muted">Good morning</div>
+              <div className="font-display text-[22px] font-semibold text-ink">
+                {profile.name}
+              </div>
+            </div>
+            <Avatar initial={initial} onClick={actions.openAccount} />
           </div>
-        </div>
-        <Avatar initial={initial} onClick={actions.openAccount} />
-      </div>
 
-      <HeroCard className="mb-3.5 p-[22px]">
-        <div className="mb-2 text-[13px] text-side-muted">
-          Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
-        </div>
-        <div className="mb-2 font-display text-[34px] font-semibold">
-          {money(totals.totalSpent, currency)}
-        </div>
-        <div className="text-xs text-side-sub">{monthSub}</div>
-      </HeroCard>
+          <HeroCard className="mb-3.5 p-[22px]">
+            <div className="mb-2 text-[13px] text-side-muted">
+              Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
+            </div>
+            <div className="mb-2 font-display text-[34px] font-semibold">
+              {money(totals.totalSpent, currency)}
+            </div>
+            <div className="text-xs text-side-sub">{monthSub}</div>
+          </HeroCard>
 
-      <div className="mb-[22px] grid grid-cols-2 gap-3">
-        <Card onClick={() => actions.setView("recurring")} className="p-4">
-          <div className="mb-1.5 text-xs text-muted">Recurring / mo</div>
-          <div className="font-display text-xl font-semibold text-ink">
-            {money(recurringTotal, currency)}
+          <div className="grid grid-cols-2 gap-3">
+            <Card onClick={() => actions.setView("recurring")} className="p-4">
+              <div className="mb-1.5 text-xs text-muted">Recurring / mo</div>
+              <div className="font-display text-xl font-semibold text-ink">
+                {money(recurringTotal, currency)}
+              </div>
+            </Card>
+            <Card onClick={() => actions.setView("budgets")} className="p-4">
+              <div className="mb-1.5 text-xs text-muted">Budget left</div>
+              <div className="font-display text-xl font-semibold text-green">
+                {money(totals.left, currency)}
+              </div>
+            </Card>
           </div>
-        </Card>
-        <Card onClick={() => actions.setView("budgets")} className="p-4">
-          <div className="mb-1.5 text-xs text-muted">Budget left</div>
-          <div className="font-display text-xl font-semibold text-green">
-            {money(totals.left, currency)}
-          </div>
-        </Card>
-      </div>
-
+        </>
+      }
+    >
       {upcoming.length > 0 && (
         <>
           <SectionHeader

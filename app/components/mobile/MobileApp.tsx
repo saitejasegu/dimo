@@ -36,12 +36,11 @@ function CurrentScreen() {
 
 export function MobileApp() {
   const { view, overlay, detailId } = useAppState();
-  const showFab = view === "home" || view === "tx";
 
   return (
-    <div className="relative h-dvh overflow-hidden bg-canvas font-body">
+    <div className="fixed inset-0 overflow-hidden bg-canvas font-body">
       <CurrentScreen />
-      {showFab ? <Fab /> : null}
+      <Fab />
       <TabBar />
 
       {view === "account" ? <AccountScreen /> : null}

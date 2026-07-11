@@ -76,12 +76,21 @@
   html,
   body {
     margin: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-body);
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+  }
+
+  body {
+    position: fixed;
+    inset: 0;
   }
 
   button {

@@ -14,28 +14,30 @@ export function ActivityScreen() {
   const { options, filter, groups } = useActivity();
 
   return (
-    <MobileScreen>
-      <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
-        Transactions
-      </h1>
-
-      <SearchInput
-        value={query}
-        onChange={actions.setQuery}
-        className="mb-3"
-      />
-
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-0.5">
-        {options.map((option) => (
-          <Chip
-            key={option}
-            label={option}
-            selected={filter === option}
-            onClick={() => actions.setFilter(option)}
+    <MobileScreen
+      header={
+        <>
+          <h1 className="mb-3.5 font-display text-2xl font-semibold text-ink">
+            Transactions
+          </h1>
+          <SearchInput
+            value={query}
+            onChange={actions.setQuery}
+            className="mb-3"
           />
-        ))}
-      </div>
-
+          <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-0.5">
+            {options.map((option) => (
+              <Chip
+                key={option}
+                label={option}
+                selected={filter === option}
+                onClick={() => actions.setFilter(option)}
+              />
+            ))}
+          </div>
+        </>
+      }
+    >
       {groups.length === 0 ? (
         <div className="px-5 py-12 text-center text-sm text-faint">
           No transactions match.
