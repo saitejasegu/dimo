@@ -399,24 +399,14 @@ export function AppStoreProvider({
       document.documentElement.dataset.theme = state.theme;
       const resolved = state.theme === "system" ? (media.matches ? "dark" : "light") : state.theme;
       document.documentElement.style.colorScheme = resolved;
-      const dimmed = Boolean(state.overlay || state.detailId);
-      // Match sheet scrim (ink-deep/60 over canvas) so iOS status bar / Dynamic Island
-      // chrome doesn't leave a light strip above the overlay.
-      const color = dimmed
-        ? resolved === "dark"
-          ? "#0a100e"
-          : "#6a706d"
-        : resolved === "dark"
-          ? "#0c1210"
-          : "#f5f8f6";
       document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-        ?.setAttribute("content", color);
+        ?.setAttribute("content", resolved === "dark" ? "#0c1210" : "#f5f8f6");
     };
     apply();
     if (state.theme !== "system") return;
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [state.theme, state.overlay, state.detailId]);
+  }, [state.theme]);
   const actions = useMemo(() => createActions(dispatch, () => state), [state]);
   const sync: SyncState = useMemo(() => ({ workspaceId: WORKSPACE_ID, lastPulledRevision: meta?.lastPulledRevision ?? 0, lastSyncedAt: meta?.lastSyncedAt ?? null, error: meta?.error ?? null, syncing: meta?.syncing ?? false, pending, blocked, configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL) }), [meta, pending, blocked]);
   const value = useMemo(() => ({

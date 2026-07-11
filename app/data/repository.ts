@@ -134,7 +134,7 @@ export function sanitizePayload<T extends EntityType>(
         profileEmail: value.profileEmail ?? "",
         currency: currency === "USD" || currency === "EUR" ? currency : "INR",
         weekStart: weekStart === "Sun" ? "Sun" : "Mon",
-        theme: theme === "light" || theme === "dark" ? theme : "system",
+        theme: theme === "light" || theme === "dark" || theme === "system" ? theme : "light",
         defaultView: views.includes(defaultView as (typeof views)[number])
           ? defaultView
           : "home",

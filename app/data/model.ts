@@ -151,7 +151,7 @@ export const DEFAULT_PREFERENCES: PreferencesEntity = {
   profileEmail: "",
   currency: "INR",
   weekStart: "Mon",
-  theme: "system",
+  theme: "light",
   defaultView: "home",
   notifications: { bills: true, budget: true, weekly: false, large: true },
   defaultPaymentMethodId: CASH_PAYMENT_METHOD.id,

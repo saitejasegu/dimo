@@ -79,7 +79,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         currency: action.data.preferences.currency,
         weekStart: action.data.preferences.weekStart,
-        theme: action.data.preferences.theme ?? "system",
+        theme: action.data.preferences.theme ?? "light",
         defaultView: action.data.preferences.defaultView,
         notifications: action.data.preferences.notifications,
       };
