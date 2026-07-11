@@ -11,7 +11,7 @@ export default function Page() {
   return (
     <AppStoreProvider>
       {isMobile === null ? (
-        <div className="min-h-screen bg-[#dbe4de]" />
+        <div className="min-h-dvh bg-canvas" />
       ) : isMobile ? (
         <MobileApp />
       ) : (

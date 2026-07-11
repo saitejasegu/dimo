@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-/** Standard scrollable screen body inside the phone frame. */
+/** Standard scrollable screen body for the mobile app. */
 export function MobileScreen({
   children,
   className,
@@ -12,7 +12,7 @@ export function MobileScreen({
   return (
     <div
       className={cn(
-        "h-full animate-fade-up overflow-auto px-[22px] pb-[110px] pt-[66px]",
+        "h-full animate-fade-up overflow-auto px-[22px] pb-[110px] pt-[max(1.25rem,env(safe-area-inset-top))]",
         className,
       )}
     >

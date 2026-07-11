@@ -16,7 +16,7 @@ const plexSans = IBM_Plex_Sans({
 
 export const metadata: Metadata = {
   title: "Dimo — Expenses",
-  description: "Personal spending tracker",
+  description: "Track spending, budgets, and recurring bills with Dimo.",
 };
 
 export default function RootLayout({

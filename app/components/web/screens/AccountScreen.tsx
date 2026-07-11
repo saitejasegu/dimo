@@ -67,7 +67,7 @@ export function AccountScreen() {
           />
           <button
             type="button"
-            onClick={() => actions.showToast("Photo upload — demo")}
+            onClick={() => actions.showToast("Photo upload coming soon")}
             className="text-xs font-medium text-green"
           >
             Change photo
@@ -174,14 +174,14 @@ export function AccountScreen() {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => actions.showToast("Signed out — demo")}
+          onClick={() => actions.showToast("Signed out")}
         >
           Sign out
         </Button>
         <Button
           variant="danger"
           size="sm"
-          onClick={() => actions.showToast("Account deletion — demo")}
+          onClick={() => actions.showToast("Account deletion coming soon")}
         >
           Delete account
         </Button>

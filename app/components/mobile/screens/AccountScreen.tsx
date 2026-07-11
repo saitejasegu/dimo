@@ -26,7 +26,7 @@ export function AccountScreen() {
   const actions = useAppActions();
 
   return (
-    <div className="absolute inset-0 z-[18] animate-fade-up overflow-auto bg-canvas px-[22px] pb-10 pt-[60px]">
+    <div className="absolute inset-0 z-[18] animate-fade-up overflow-auto bg-canvas px-[22px] pb-10 pt-[max(1.25rem,env(safe-area-inset-top))]">
       <div className="mb-5 flex items-center gap-3.5">
         <button
           type="button"
@@ -53,7 +53,7 @@ export function AccountScreen() {
             </div>
             <button
               type="button"
-              onClick={() => actions.showToast("Photo upload — demo")}
+              onClick={() => actions.showToast("Photo upload coming soon")}
               className="mt-0.5 text-xs font-medium text-green"
             >
               Change photo
@@ -128,14 +128,14 @@ export function AccountScreen() {
         <Button
           variant="secondary"
           fullWidth
-          onClick={() => actions.showToast("Signed out — demo")}
+          onClick={() => actions.showToast("Signed out")}
         >
           Sign out
         </Button>
         <Button
           variant="danger"
           fullWidth
-          onClick={() => actions.showToast("Account deletion — demo")}
+          onClick={() => actions.showToast("Account deletion coming soon")}
         >
           Delete account
         </Button>
