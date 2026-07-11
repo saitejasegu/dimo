@@ -2,11 +2,12 @@
 
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { MOBILE_TABS } from "@/components/mobile/tabs";
+import { setTabSwipeProgress } from "@/components/mobile/tabSwipeProgress";
 
 const AXIS_LOCK_PX = 8;
 const COMMIT_RATIO = 0.28;
 const COMMIT_VELOCITY = 0.45;
-const SETTLE_MS = 280;
+export const TAB_SETTLE_MS = 280;
 const EDGE_RESISTANCE = 0.35;
 const EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
@@ -21,6 +22,11 @@ function isSwipeBlocked(target: EventTarget | null) {
       "[data-no-tab-swipe], .overflow-x-auto, .overflow-x-scroll, input, textarea, select",
     ),
   );
+}
+
+function progressFromOffset(index: number, dragOffset: number, width: number) {
+  if (width <= 0) return index;
+  return index - dragOffset / width;
 }
 
 /**
@@ -60,7 +66,7 @@ export function useTabPagerSwipe({
   };
 
   const snapToIndex = (forIndex: number, animated: boolean) => {
-    const duration = animated && !prefersReducedMotion() ? SETTLE_MS : 0;
+    const duration = animated && !prefersReducedMotion() ? TAB_SETTLE_MS : 0;
     apply(
       -forIndex * widthOf(),
       duration > 0 ? `transform ${duration}ms ${EASING}` : "none",
@@ -71,6 +77,7 @@ export function useTabPagerSwipe({
   // Keep the track aligned when the active tab changes (tab bar or swipe commit).
   useLayoutEffect(() => {
     indexRef.current = index;
+    setTabSwipeProgress(index, false);
     if (draggingRef.current || settlingRef.current) return;
     const animated = !skipAnimateRef.current;
     skipAnimateRef.current = false;
@@ -161,12 +168,18 @@ export function useTabPagerSwipe({
       lastX = touch.clientX;
       lastTime = now;
 
+      const width = widthOf();
       dragOffset = rubberBand(deltaX);
-      apply(-indexRef.current * widthOf() + dragOffset, "none");
+      apply(-indexRef.current * width + dragOffset, "none");
+      setTabSwipeProgress(
+        progressFromOffset(indexRef.current, dragOffset, width),
+        true,
+      );
     };
 
     const settleTo = (nextIndex: number) => {
       settlingRef.current = true;
+      setTabSwipeProgress(nextIndex, false);
       const duration = snapToIndex(nextIndex, true);
 
       window.setTimeout(() => {
