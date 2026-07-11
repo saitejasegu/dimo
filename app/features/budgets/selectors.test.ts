@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { categoryLookbackSpend } from "@/features/budgets/selectors";
+import {
+  categoryLookbackSpend,
+  suggestedCategoryBudgetUpdates,
+} from "@/features/budgets/selectors";
 import type { Transaction } from "@/lib/types";
 
 function transaction(
@@ -7,11 +10,12 @@ function transaction(
   categoryId: string,
   amount: number,
   occurredAt: number,
+  category: Transaction["category"] = "Dining",
 ): Transaction {
   return {
     id,
     name: "Item",
-    category: "Dining",
+    category,
     categoryId,
     time: "",
     day: "",
@@ -35,5 +39,32 @@ describe("categoryLookbackSpend", () => {
       monthlyAverage: 200,
       monthCount: 6,
     });
+  });
+});
+
+describe("suggestedCategoryBudgetUpdates", () => {
+  it("returns categories whose suggested average differs from the current budget", () => {
+    const now = new Date(2026, 6, 11);
+    const rows = [
+      transaction("a", "dining", 300, new Date(2026, 6, 2).getTime()),
+      transaction("b", "dining", 900, new Date(2026, 1, 10).getTime()),
+      transaction("c", "bills", 600, new Date(2026, 6, 2).getTime(), "Bills"),
+    ];
+
+    expect(
+      suggestedCategoryBudgetUpdates(
+        rows,
+        [
+          { id: "dining", name: "Dining", monthlyBudgetMinor: null },
+          { id: "bills", name: "Bills", monthlyBudgetMinor: 50_000 },
+          { id: "empty", name: "Groceries", monthlyBudgetMinor: null },
+        ],
+        6,
+        now,
+      ),
+    ).toEqual([
+      { id: "dining", name: "Dining", suggestedLimit: 200, currentLimit: null },
+      { id: "bills", name: "Bills", suggestedLimit: 100, currentLimit: 500 },
+    ]);
   });
 });

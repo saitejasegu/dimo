@@ -58,6 +58,7 @@ import {
   defaultPaymentMethodIdForImport,
   type TransactionCsvRow,
 } from "@/features/transactions/csv";
+import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
 
 const TOAST_DURATION_MS = 1800;
 
@@ -96,7 +97,9 @@ export interface AppActions {
   setCategoryName: (name: string) => void; setCategoryEmoji: (emoji: string) => void;
   setCategoryLimit: (limit: string) => void;
   openEditCategory: (id: ID) => void;
-  saveCategory: () => void; deleteCategory: () => void;
+  saveCategory: () => void;
+  applySuggestedBudgets: (categoryIds: string[]) => void;
+  deleteCategory: () => void;
   setProfileName: (name: string) => void;
   setProfileEmail: (email: string) => void; saveProfile: () => void;
   setCurrency: (currency: Currency) => void; setWeekStart: (weekStart: WeekStart) => void;
@@ -409,6 +412,40 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         dispatch({ type: "SET_VIEW", view: "budgets" });
         dispatch({ type: "SHOW_TOAST", message: `${name} category added` });
       });
+    },
+    applySuggestedBudgets: (categoryIds) => {
+      const state = getState();
+      const selected = new Set(categoryIds);
+      const updates = suggestedCategoryBudgetUpdates(state.transactions, state.categories)
+        .filter((update) => selected.has(update.id));
+      if (updates.length === 0) {
+        dispatch({ type: "SHOW_TOAST", message: "No budgets selected" });
+        return;
+      }
+      const byId = new Map(state.categories.map((category) => [category.id, category]));
+      persist(
+        saveEntities(
+          updates.map((update) => {
+            const current = byId.get(update.id);
+            if (!current) throw new Error(`Missing category ${update.id}`);
+            return {
+              entityType: "category" as const,
+              payload: {
+                ...current,
+                monthlyBudgetMinor: Math.round(update.suggestedLimit * 100),
+              },
+            };
+          }),
+        ),
+        () => {
+          dispatch({
+            type: "SHOW_TOAST",
+            message: updates.length === 1
+              ? "Updated 1 budget from suggestions"
+              : `Updated ${updates.length} budgets from suggestions`,
+          });
+        },
+      );
     },
     deleteCategory: () => {
       const state = getState();

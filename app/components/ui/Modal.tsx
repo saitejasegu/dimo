@@ -24,7 +24,7 @@ export function Modal({
     <div
       role="presentation"
       onClick={onClose}
-      className="absolute inset-0 z-30 flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
+      className="fixed inset-0 z-40 flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
     >
       <div
         role="dialog"

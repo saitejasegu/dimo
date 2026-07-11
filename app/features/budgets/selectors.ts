@@ -34,20 +34,22 @@ export function categoryBudgets(
   transactions: Transaction[],
   limits: CategoryLimits,
 ): CategoryBudget[] {
-  return Object.keys(limits).map((category) => {
-    const limit = limits[category];
-    const hasLimit = typeof limit === "number" && limit > 0;
-    const spent = spentByCategory(transactions, category);
-    const pct = hasLimit ? percent(spent, limit as number) : 0;
-    return {
-      category,
-      spent,
-      limit: limit ?? null,
-      hasLimit,
-      pct,
-      over: pct >= 90,
-    };
-  });
+  return Object.keys(limits)
+    .map((category) => {
+      const limit = limits[category];
+      const hasLimit = typeof limit === "number" && limit > 0;
+      const spent = spentByCategory(transactions, category);
+      const pct = hasLimit ? percent(spent, limit as number) : 0;
+      return {
+        category,
+        spent,
+        limit: limit ?? null,
+        hasLimit,
+        pct,
+        over: pct >= 90,
+      };
+    })
+    .sort((a, b) => b.spent - a.spent);
 }
 
 export function budgetTotals(
@@ -93,6 +95,31 @@ export function categoryLookbackSpend(
     monthlyAverage: total / monthCount,
     monthCount,
   };
+}
+
+export interface SuggestedCategoryBudgetUpdate {
+  id: string;
+  name: CategoryName;
+  suggestedLimit: number;
+  currentLimit: number | null;
+}
+
+/** Suggested monthly budgets from the last N months of spend. */
+export function suggestedCategoryBudgetUpdates(
+  transactions: Transaction[],
+  categories: Array<{ id: string; name: CategoryName; monthlyBudgetMinor: number | null }>,
+  monthCount = 6,
+  now = new Date(),
+): SuggestedCategoryBudgetUpdate[] {
+  return categories.flatMap((category) => {
+    const lookback = categoryLookbackSpend(transactions, category.id, monthCount, now);
+    if (lookback.total <= 0) return [];
+    const suggestedLimit = Math.round(lookback.monthlyAverage);
+    const currentLimit =
+      category.monthlyBudgetMinor == null ? null : category.monthlyBudgetMinor / 100;
+    if (currentLimit === suggestedLimit) return [];
+    return [{ id: category.id, name: category.name, suggestedLimit, currentLimit }];
+  });
 }
 
 export interface TopCategory {

@@ -112,6 +112,27 @@ export function ChevronIcon({
 /**
  * Outline nav icons — same stroke language as Plus/Search (round caps, currentColor).
  */
+export function SparklesIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <path
+        d="M11 3.5 12.2 8.3 17 9.5l-4.8 1.2L11 15.5l-1.2-4.8L5 9.5l4.8-1.2L11 3.5Z"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M16.5 14.2 17.1 16.4 19.3 17l-2.2.6-.6 2.2-.6-2.2-2.2-.6 2.2-.6.6-2.2ZM5.8 13.5l.4 1.5 1.5.4-1.5.4-.4 1.5-.4-1.5-1.5-.4 1.5-.4.4-1.5Z"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function HomeIcon({ className, size = 22 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
