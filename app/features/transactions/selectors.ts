@@ -1,4 +1,4 @@
-import type { CategoryLimits, CategoryName, Transaction } from "@/lib/types";
+import type { CategoryLimits, CategoryName, PaymentMethod, Transaction } from "@/lib/types";
 
 export interface TransactionFilter {
   /** Selected category name, or "All". */
@@ -96,3 +96,70 @@ export function summarize(transactions: Transaction[]): TransactionsSummary {
 export function totalSpent(transactions: Transaction[]): number {
   return transactions.reduce((sum, t) => sum + t.amount, 0);
 }
+
+export interface MerchantSuggestion {
+  name: string;
+  category: CategoryName;
+  paymentMethod?: PaymentMethod;
+  count: number;
+}
+
+/** Unique merchants from history matching the typed query, most-used first. */
+export function merchantSuggestions(
+  transactions: Transaction[],
+  query: string,
+  limit = 6,
+): MerchantSuggestion[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const byKey = new Map<
+    string,
+    MerchantSuggestion & { occurredAt: number }
+  >();
+
+  for (const t of transactions) {
+    const name = t.name.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (!key.includes(q)) continue;
+
+    const existing = byKey.get(key);
+    const occurredAt = t.occurredAt ?? 0;
+    if (!existing) {
+      byKey.set(key, {
+        name,
+        category: t.category,
+        paymentMethod: t.paymentMethod,
+        count: 1,
+        occurredAt,
+      });
+      continue;
+    }
+
+    existing.count += 1;
+    if (occurredAt >= existing.occurredAt) {
+      existing.name = name;
+      existing.category = t.category;
+      existing.paymentMethod = t.paymentMethod;
+      existing.occurredAt = occurredAt;
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => {
+      const aPrefix = a.name.toLowerCase().startsWith(q) ? 1 : 0;
+      const bPrefix = b.name.toLowerCase().startsWith(q) ? 1 : 0;
+      if (bPrefix !== aPrefix) return bPrefix - aPrefix;
+      if (b.count !== a.count) return b.count - a.count;
+      return b.occurredAt - a.occurredAt;
+    })
+    .slice(0, limit)
+    .map(({ name, category, paymentMethod, count }) => ({
+      name,
+      category,
+      paymentMethod,
+      count,
+    }));
+}
+

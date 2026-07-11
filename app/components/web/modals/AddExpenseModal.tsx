@@ -1,19 +1,22 @@
 "use client";
 
 import { currencySymbol } from "@/lib/format";
+import { paymentMethodLabel } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { categoryNames } from "@/features/transactions/selectors";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { TextField } from "@/components/ui/TextField";
 import { CategoryChips } from "@/components/forms/CategoryChips";
+import { MerchantField } from "@/components/forms/MerchantField";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 
 export function AddExpenseModal() {
-  const { expenseDraft, limits, currency, paymentMethods } = useAppState();
+  const { expenseDraft, limits, currency, paymentMethods, transactions } =
+    useAppState();
   const actions = useAppActions();
 
   const amountOk = parseFloat(expenseDraft.amount) > 0;
+  const availableMethods = paymentMethods.filter((method) => !method.archived);
 
   return (
     <Modal onClose={actions.closeOverlay} width={440} title="Add expense">
@@ -32,12 +35,24 @@ export function AddExpenseModal() {
         />
       </div>
 
-      <TextField
+      <MerchantField
         value={expenseDraft.name}
         onChange={actions.setExpenseName}
-        placeholder="Merchant (e.g. Chai Point)"
-        autoComplete="off"
+        transactions={transactions}
         className="mb-4"
+        onSelectSuggestion={(suggestion) => {
+          actions.setExpenseName(suggestion.name);
+          actions.setExpenseCategory(suggestion.category);
+          if (
+            suggestion.paymentMethod &&
+            availableMethods.some(
+              (method) =>
+                paymentMethodLabel(method) === suggestion.paymentMethod,
+            )
+          ) {
+            actions.setExpensePaymentMethod(suggestion.paymentMethod);
+          }
+        }}
       />
 
       <p className="mb-2 text-xs text-muted">Category</p>
@@ -51,7 +66,7 @@ export function AddExpenseModal() {
       <PaymentMethodSelect
         value={expenseDraft.paymentMethod}
         onChange={actions.setExpensePaymentMethod}
-        methods={paymentMethods.filter((method) => !method.archived)}
+        methods={availableMethods}
         onManage={actions.managePaymentMethods}
         className="mb-[22px]"
       />
