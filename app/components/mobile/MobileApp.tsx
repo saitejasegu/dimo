@@ -9,14 +9,6 @@ import { TabPager } from "@/components/mobile/TabPager";
 import { Fab } from "@/components/mobile/Fab";
 import { Toaster } from "@/components/common/Toaster";
 
-const loadSettingsScreen = () =>
-  import("@/components/mobile/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
-const loadStatsScreen = () =>
-  import("@/components/mobile/screens/StatsScreen").then((m) => ({ default: m.StatsScreen }));
-const loadRecurringScreen = () =>
-  import("@/components/mobile/screens/RecurringScreen").then((m) => ({ default: m.RecurringScreen }));
-const loadBudgetsScreen = () =>
-  import("@/components/mobile/screens/BudgetsScreen").then((m) => ({ default: m.BudgetsScreen }));
 const loadAccountScreen = () =>
   import("@/components/mobile/screens/AccountScreen").then((m) => ({ default: m.AccountScreen }));
 const loadTxDetailSheet = () =>
@@ -35,10 +27,6 @@ const AddRecurringSheet = lazy(loadAddRecurringSheet);
 const NewCategorySheet = lazy(loadNewCategorySheet);
 
 const PREFETCH = [
-  loadSettingsScreen,
-  loadStatsScreen,
-  loadRecurringScreen,
-  loadBudgetsScreen,
   loadAccountScreen,
   loadTxDetailSheet,
   loadAddExpenseSheet,

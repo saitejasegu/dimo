@@ -1,36 +1,15 @@
 "use client";
 
-import { lazy, Suspense, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { useAppActions } from "@/store/app-store";
 import { useTabPagerSwipe } from "@/hooks/useTabPagerSwipe";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
+import { StatsScreen } from "@/components/mobile/screens/StatsScreen";
+import { RecurringScreen } from "@/components/mobile/screens/RecurringScreen";
+import { BudgetsScreen } from "@/components/mobile/screens/BudgetsScreen";
+import { SettingsScreen } from "@/components/mobile/screens/SettingsScreen";
 import { MOBILE_TABS, mobileTabIndex, type MobileTabKey } from "@/components/mobile/tabs";
 import type { ViewKey } from "@/lib/types";
-
-const StatsScreen = lazy(() =>
-  import("@/components/mobile/screens/StatsScreen").then((m) => ({
-    default: m.StatsScreen,
-  })),
-);
-const RecurringScreen = lazy(() =>
-  import("@/components/mobile/screens/RecurringScreen").then((m) => ({
-    default: m.RecurringScreen,
-  })),
-);
-const BudgetsScreen = lazy(() =>
-  import("@/components/mobile/screens/BudgetsScreen").then((m) => ({
-    default: m.BudgetsScreen,
-  })),
-);
-const SettingsScreen = lazy(() =>
-  import("@/components/mobile/screens/SettingsScreen").then((m) => ({
-    default: m.SettingsScreen,
-  })),
-);
-
-function ScreenFallback() {
-  return <div className="h-full bg-canvas" />;
-}
 
 function TabScreen({ tab }: { tab: MobileTabKey }) {
   switch (tab) {
@@ -61,7 +40,7 @@ function Panel({
       aria-hidden={!active}
       inert={!active}
     >
-      <Suspense fallback={<ScreenFallback />}>{children}</Suspense>
+      {children}
     </div>
   );
 }
