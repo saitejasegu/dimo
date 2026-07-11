@@ -6,20 +6,19 @@ import { cn } from "@/lib/cn";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useBudgets } from "@/features/budgets/hooks";
 import { Button } from "@/components/ui/Button";
-import { NavGlyph, PlusIcon, ChevronIcon } from "@/components/ui/icons";
+import { NavIcon, PlusIcon, ChevronIcon, type NavIconName } from "@/components/ui/icons";
 import { Avatar } from "@/components/ui/Avatar";
 
 interface NavDef {
-  key: ViewKey;
+  key: Extract<ViewKey, NavIconName>;
   label: string;
-  round?: boolean;
 }
 
 const NAV: NavDef[] = [
   { key: "home", label: "Home" },
   { key: "stats", label: "Stats" },
   { key: "recurring", label: "Recurring" },
-  { key: "budgets", label: "Budgets", round: true },
+  { key: "budgets", label: "Budgets" },
   { key: "settings", label: "Settings" },
 ];
 
@@ -58,8 +57,8 @@ export function Sidebar() {
                 active ? "bg-green/15" : "hover:bg-green/10",
               )}
             >
-              <NavGlyph
-                round={item.round}
+              <NavIcon
+                name={item.key}
                 size={20}
                 className={active ? "text-green" : "text-side-dim"}
               />

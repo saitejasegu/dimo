@@ -110,26 +110,106 @@ export function ChevronIcon({
 }
 
 /**
- * The abstract nav/tab glyph from the design — a bordered square or circle
- * whose colour communicates the active state.
+ * Outline nav icons — same stroke language as Plus/Search (round caps, currentColor).
  */
-export function NavGlyph({
-  round = false,
+export function HomeIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <path
+        d="M3.5 9.5 11 3.5l7.5 6M5.5 8.8v8.2a1 1 0 0 0 1 1h2.7v-4.2h3.6v4.2h2.7a1 1 0 0 0 1-1V8.8"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function StatsIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <path
+        d="M5 16.5V10M11 16.5V5.5M17 16.5v-8"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function RecurringIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <path
+        d="M16.8 8.2A6.2 6.2 0 0 0 5.5 9.2M5.2 13.8a6.2 6.2 0 0 0 11.3-1"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+      <path
+        d="M16.8 4.8v3.6h-3.6M5.2 17.2v-3.6h3.6"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function BudgetsIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth={1.8} />
+      <path
+        d="M11 11V5.5A5.5 5.5 0 0 1 16 9.8"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function SettingsIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <circle cx="11" cy="11" r="2.6" stroke="currentColor" strokeWidth={1.8} />
+      <path
+        d="M9.6 3.8h2.8l.4 1.6 1.5.6 1.5-1 2 2-1 1.5.6 1.5 1.6.4v2.8l-1.6.4-.6 1.5 1 1.5-2 2-1.5-1-1.5.6-.4 1.6H9.6l-.4-1.6-1.5-.6-1.5 1-2-2 1-1.5-.6-1.5L3.8 12.4V9.6l1.6-.4.6-1.5-1-1.5 2-2 1.5 1 1.5-.6.4-1.6Z"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export type NavIconName = "home" | "stats" | "recurring" | "budgets" | "settings";
+
+export function NavIcon({
+  name,
   size = 22,
   className,
 }: {
-  round?: boolean;
+  name: NavIconName;
   size?: number;
   className?: string;
 }) {
-  return (
-    <span
-      className={cn(
-        "box-border border-2",
-        round ? "rounded-full" : "rounded-md",
-        className,
-      )}
-      style={{ width: size, height: size }}
-    />
-  );
+  switch (name) {
+    case "home":
+      return <HomeIcon size={size} className={className} />;
+    case "stats":
+      return <StatsIcon size={size} className={className} />;
+    case "recurring":
+      return <RecurringIcon size={size} className={className} />;
+    case "budgets":
+      return <BudgetsIcon size={size} className={className} />;
+    case "settings":
+      return <SettingsIcon size={size} className={className} />;
+  }
 }

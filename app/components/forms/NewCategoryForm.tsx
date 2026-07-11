@@ -3,15 +3,15 @@
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useAppActions, useAppState } from "@/store/app-store";
+import { categoryLookbackSpend } from "@/features/budgets/selectors";
 import { TextField } from "@/components/ui/TextField";
 import { EmojiField } from "@/components/ui/EmojiField";
-import { Chip } from "@/components/ui/Chip";
 import { Button } from "@/components/ui/Button";
 
 const PRESETS = [1000, 2500, 5000, 10000];
 
 export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
-  const { categoryDraft, categories } = useAppState();
+  const { categoryDraft, categories, transactions, currency } = useAppState();
   const actions = useAppActions();
 
   const editing = Boolean(categoryDraft.id);
@@ -41,6 +41,12 @@ export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
   const selectedLimit =
     parseInt(categoryDraft.limit.replace(/[^0-9]/g, ""), 10) || 0;
 
+  const lookback = categoryDraft.id
+    ? categoryLookbackSpend(transactions, categoryDraft.id)
+    : null;
+  const suggestedAverage =
+    lookback && lookback.total > 0 ? Math.round(lookback.monthlyAverage) : null;
+
   return (
     <div>
       <div className="mb-4">
@@ -60,28 +66,63 @@ export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
         </div>
       </div>
 
-      <TextField
-        label={
-          <>
-            Monthly budget <span className="text-faint">(optional)</span>
-          </>
-        }
-        value={categoryDraft.limit}
-        onChange={actions.setCategoryLimit}
-        placeholder="₹ amount"
-        inputMode="numeric"
-        className="mb-3"
-      />
+      <div className="mb-3">
+        <span className="mb-1.5 block text-xs text-muted">
+          Monthly budget <span className="text-faint">(optional)</span>
+        </span>
+        {lookback ? (
+          <p className="mb-2 text-[11px] leading-snug text-faint">
+            {lookback.total > 0
+              ? `${money(lookback.total, currency)} spent over the last ${lookback.monthCount} months`
+              : `No spend in the last ${lookback.monthCount} months`}
+          </p>
+        ) : null}
+        <TextField
+          value={categoryDraft.limit}
+          onChange={actions.setCategoryLimit}
+          placeholder="₹ amount"
+          inputMode="numeric"
+        />
+      </div>
 
       <div className="mb-5 flex flex-wrap gap-2">
-        {PRESETS.map((preset) => (
-          <Chip
-            key={preset}
-            label={money(preset)}
-            surface="canvas"
-            selected={selectedLimit === preset}
-            onClick={() => actions.setCategoryLimit(String(preset))}
-          />
+        {(suggestedAverage != null
+          ? [
+              { amount: suggestedAverage, suggested: true as const },
+              ...PRESETS.filter((preset) => preset !== suggestedAverage).map((amount) => ({
+                amount,
+                suggested: false as const,
+              })),
+            ]
+          : PRESETS.map((amount) => ({ amount, suggested: false as const }))
+        ).map(({ amount, suggested }) => (
+          <button
+            type="button"
+            key={suggested ? `suggested-${amount}` : amount}
+            onClick={() => actions.setCategoryLimit(String(amount))}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-[7px] text-[13px] transition-colors",
+              selectedLimit === amount
+                ? "bg-ink font-medium text-canvas"
+                : suggested
+                  ? "border border-green/30 bg-green-soft font-medium text-green-deep"
+                  : "border border-line bg-canvas text-body",
+            )}
+          >
+            <span>{money(amount, currency)}</span>
+            {suggested ? (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]",
+                  selectedLimit === amount
+                    ? "bg-canvas/20 text-canvas"
+                    : "bg-green/15 text-green-deep",
+                )}
+              >
+                Suggested
+              </span>
+            ) : null}
+          </button>
         ))}
       </div>
 

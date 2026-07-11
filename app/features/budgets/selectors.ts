@@ -71,6 +71,30 @@ export function budgetTotals(
   };
 }
 
+export interface CategoryLookbackSpend {
+  total: number;
+  monthlyAverage: number;
+  monthCount: number;
+}
+
+/** Rolling calendar-month spend for a category — useful when setting a monthly budget. */
+export function categoryLookbackSpend(
+  transactions: Transaction[],
+  categoryId: string,
+  monthCount = 6,
+  now = new Date(),
+): CategoryLookbackSpend {
+  const start = new Date(now.getFullYear(), now.getMonth() - (monthCount - 1), 1).getTime();
+  const total = transactions
+    .filter((t) => t.categoryId === categoryId && (t.occurredAt ?? 0) >= start && (t.occurredAt ?? 0) <= now.getTime())
+    .reduce((sum, t) => sum + t.amount, 0);
+  return {
+    total,
+    monthlyAverage: total / monthCount,
+    monthCount,
+  };
+}
+
 export interface TopCategory {
   category: CategoryName;
   amount: number;
