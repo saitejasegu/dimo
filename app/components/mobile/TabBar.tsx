@@ -26,7 +26,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Primary navigation"
-      className="fixed inset-x-0 bottom-0 z-[15] flex items-start justify-between border-t border-line bg-canvas/90 px-[22px] pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur-md"
+      className="relative z-[15] flex shrink-0 items-start justify-between border-t border-line bg-canvas/90 px-[22px] pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pt-2.5 backdrop-blur-md"
     >
       {TABS.map((tab) => {
         const active = view === tab.key;

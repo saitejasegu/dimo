@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
+import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
@@ -52,12 +53,20 @@ export const viewport: Viewport = {
   themeColor: "#f5f8f6",
 };
 
+/** iOS standalone under-reports 100dvh on cold start; 100vh fills the screen. */
+const STANDALONE_VH_BOOTSTRAP = `(function(){try{var n=window.navigator;var standalone=!!n.standalone||window.matchMedia("(display-mode: standalone)").matches||window.matchMedia("(display-mode: fullscreen)").matches;if(standalone){document.documentElement.style.setProperty("--app-height","100vh");}}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${plexSans.variable}`}>
       <body>
+        <Script
+          id="ios-standalone-app-height"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: STANDALONE_VH_BOOTSTRAP }}
+        />
         {children}
         <Analytics />
         <SpeedInsights />

@@ -144,27 +144,33 @@
 @layer base {
   :root {
     color-scheme: light;
+    /*
+      Browser Safari: 100dvh tracks the visible viewport (URL bar).
+      iOS standalone PWA: JS overrides this to 100vh — dvh/svh under-report
+      by the top safe-area on cold start and leave a gap above the home indicator.
+    */
+    --app-height: 100dvh;
   }
 
   html,
   body {
     margin: 0;
-    height: 100%;
     width: 100%;
+    height: var(--app-height, 100dvh);
+    min-height: var(--app-height, 100dvh);
     overflow: hidden;
     overscroll-behavior: none;
     background: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-body);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
   }
 
-  body {
-    position: fixed;
-    inset: 0;
-  }
+  /* Keep body in normal flow — position:fixed clips to the lying iOS PWA viewport. */
 
   button {
     font: inherit;

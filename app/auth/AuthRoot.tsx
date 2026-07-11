@@ -17,7 +17,7 @@ import { UpdateBanner } from "@/components/common/UpdateBanner";
 import { Button } from "@/components/ui/Button";
 
 function LoadingScreen() {
-  return <div className="min-h-dvh bg-canvas" />;
+  return <div className="h-[var(--app-height,100dvh)] bg-canvas" />;
 }
 
 function ResponsiveApp() {
@@ -27,10 +27,10 @@ function ResponsiveApp() {
   if (!dataReady || isMobile === null) return <LoadingScreen />;
 
   return (
-    <>
+    <div className="relative h-[var(--app-height,100dvh)] overflow-hidden">
       {isMobile ? <MobileApp /> : <WebApp />}
       <UpdateBanner />
-    </>
+    </div>
   );
 }
 

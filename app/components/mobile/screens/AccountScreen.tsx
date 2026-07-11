@@ -30,7 +30,7 @@ export function AccountScreen() {
   const { signOut } = useAuth();
 
   return (
-    <div className="fixed inset-0 z-[18] flex animate-screen-in flex-col overflow-hidden bg-canvas">
+    <div className="absolute inset-0 z-[18] flex animate-screen-in flex-col overflow-hidden bg-canvas">
       <div className="shrink-0 bg-canvas px-[22px] pb-3 pt-[max(1.25rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-3.5">
           <button

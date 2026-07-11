@@ -38,7 +38,7 @@ export function WebApp() {
   const { view, overlay, detailId } = useAppState();
 
   return (
-    <div className="fixed inset-0 flex overflow-hidden bg-canvas font-body">
+    <div className="flex h-full overflow-hidden bg-canvas font-body">
       <Sidebar />
       <main className="bubble-scrollbar min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-canvas">
         <div key={view} className="min-h-full animate-screen-in">

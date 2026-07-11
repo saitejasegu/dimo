@@ -38,19 +38,21 @@ export function MobileApp() {
   const { view, overlay, detailId } = useAppState();
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-canvas font-body">
+    <div className="relative flex h-full flex-col overflow-hidden bg-canvas font-body">
       {/*
         iOS home-screen PWA with black-translucent status bar: paint the
         Dynamic Island / status-bar band so it matches the app canvas.
       */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 z-[40] h-[env(safe-area-inset-top,0px)] min-h-[env(safe-area-inset-top,0px)] bg-canvas"
+        className="pointer-events-none absolute inset-x-0 top-0 z-[40] h-[env(safe-area-inset-top,0px)] min-h-[env(safe-area-inset-top,0px)] bg-canvas"
       />
-      <div key={view} className="h-full animate-screen-in">
-        <CurrentScreen />
+      <div className="relative min-h-0 flex-1">
+        <div key={view} className="h-full animate-screen-in">
+          <CurrentScreen />
+        </div>
+        <Fab />
       </div>
-      <Fab />
       <TabBar />
 
       {view === "account" ? <AccountScreen /> : null}
