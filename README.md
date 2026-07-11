@@ -25,8 +25,22 @@ npm run dev      # http://localhost:3000
 ## Scripts
 
 - `npm run dev` — start the dev server (Turbopack).
-- `npm run build` — production build (also what `npm test` runs).
+- `npm run build` — static production export to `out/` (also what `npm test` runs).
+- `npm run start` — serve the `out/` folder locally.
 - `npm run lint` — ESLint (the reference `design/` mockups are ignored).
+- `npm run ios` — build, sync Capacitor, open the Xcode iOS project.
+- `npm run cap:sync` — build + sync web assets into `ios/` without opening Xcode.
+
+## iOS / App Store
+
+The mobile UI ships inside a Capacitor iOS shell (`ios/`, bundle ID `app.dimo.expenses`).
+
+1. Install full **Xcode** (not only Command Line Tools) and join the Apple Developer Program.
+2. Run `npm run ios`, set your signing team, then Run / Archive.
+3. Follow `store/SUBMIT.md` for TestFlight, listing copy, screenshots, and review submission.
+4. Host the static `out/` site so App Store Connect can use `https://YOUR_DOMAIN/privacy`.
+
+Store listing draft: `store/listing.json`. App icon: `store/AppIcon-1024.png`.
 
 ## Architecture
 

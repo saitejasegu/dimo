@@ -40,3 +40,10 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# capacitor / xcode
+ios/App/Pods
+ios/App/App/public
+ios/DerivedData
+*.xcuserstate
+xcuserdata/

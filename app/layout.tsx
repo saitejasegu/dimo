@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,18 @@ const plexSans = IBM_Plex_Sans({
 export const metadata: Metadata = {
   title: "Dimo — Expenses",
   description: "Track spending, budgets, and recurring bills with Dimo.",
+  appleWebApp: {
+    capable: true,
+    title: "Dimo",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f5f8f6",
 };
 
 export default function RootLayout({

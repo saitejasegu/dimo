@@ -1,0 +1,36 @@
+{
+  "name": "Dimo",
+  "subtitle": "Spend, budgets & bills",
+  "bundleId": "app.dimo.expenses",
+  "sku": "dimo-expenses-ios",
+  "primaryCategory": "Finance",
+  "secondaryCategory": "Lifestyle",
+  "ageRating": "4+",
+  "price": "Free",
+  "privacyPolicyUrl": "https://YOUR_DOMAIN/privacy",
+  "supportUrl": "https://YOUR_DOMAIN/privacy",
+  "marketingUrl": "",
+  "copyright": "2026 Saiteja Segu",
+  "promotionalText": "A calm way to track spending, budgets, and recurring bills.",
+  "description": "Dimo helps you track everyday spending without the clutter.\n\n• Log expenses quickly with categories and payment methods\n• See budgets and where money goes\n• Keep recurring bills in view\n• Review activity and stats over time\n\nBuilt for personal use — your entries stay on your device in this version.",
+  "keywords": "expenses,budget,spending,bills,money,finance,tracker",
+  "whatsNew": "Initial release.",
+  "appPrivacy": {
+    "dataNotCollected": true,
+    "notes": "Declare “Data Not Collected” in App Store Connect unless you add analytics, accounts, or cloud sync."
+  },
+  "screenshots": {
+    "required": [
+      "iPhone 6.9\" (iPhone 16 Pro Max) — 1320×2868 or 1290×2796",
+      "Also capture 6.7\" / 6.5\" if App Store Connect prompts for them"
+    ],
+    "suggestedShots": [
+      "Home overview with spend summary",
+      "Add expense sheet with keypad",
+      "Activity / transaction list",
+      "Budgets screen",
+      "Stats screen"
+    ],
+    "outputFolder": "store/screenshots/"
+  }
+}

@@ -1,15 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { isNativeApp } from "@/lib/native";
 
 /**
  * Tracks whether the viewport is below the given breakpoint.
  * Returns `null` until mounted to avoid a hydration mismatch.
+ * Native Capacitor builds always use the mobile shell.
  */
 export function useIsMobile(breakpoint = 900): boolean | null {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   useEffect(() => {
+    if (isNativeApp()) {
+      setIsMobile(true);
+      return;
+    }
+
     const query = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
     const update = () => setIsMobile(query.matches);
     update();
