@@ -401,6 +401,11 @@ export function AppStoreProvider({
       document.documentElement.style.colorScheme = resolved;
       document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
         ?.setAttribute("content", resolved === "dark" ? "#0c1210" : "#f5f8f6");
+      // Keep the native WebView chrome on canvas too (Capacitor reads --background on html).
+      document.documentElement.style.backgroundColor =
+        resolved === "dark" ? "#0c1210" : "#f5f8f6";
+      document.body.style.backgroundColor =
+        resolved === "dark" ? "#0c1210" : "#f5f8f6";
     };
     apply();
     if (state.theme !== "system") return;

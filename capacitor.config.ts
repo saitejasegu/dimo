@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: "app.dimo.expenses",
   appName: "Dimo",
   webDir: "out",
+  backgroundColor: "#f5f8f6",
   server: {
     androidScheme: "https",
     iosScheme: "https",
@@ -11,6 +12,7 @@ const config: CapacitorConfig = {
   ios: {
     contentInset: "never",
     preferredContentMode: "mobile",
+    backgroundColor: "#f5f8f6",
   },
 };
 

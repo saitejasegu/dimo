@@ -132,7 +132,7 @@ export function Sheet({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="fixed inset-x-0 bottom-0 top-[env(safe-area-inset-top)] z-30 animate-dim-in bg-ink-deep/60"
+        className="fixed inset-0 z-30 animate-dim-in bg-ink-deep/60"
       />
       <div
         ref={panelRef}

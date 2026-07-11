@@ -39,6 +39,11 @@ export function MobileApp() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-canvas font-body">
+      {/* Keep the Dynamic Island / status-bar band on canvas so iOS never shows the native black gap. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 z-[32] h-[env(safe-area-inset-top)] bg-canvas"
+      />
       <div key={view} className="h-full animate-screen-in">
         <CurrentScreen />
       </div>
