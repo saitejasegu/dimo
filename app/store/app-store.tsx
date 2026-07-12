@@ -65,7 +65,9 @@ import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
 const TOAST_DURATION_MS = 1800;
 
 export interface AppActions {
-  setView: (view: ViewKey) => void; openAccount: () => void; closeAccount: () => void;
+  setView: (view: ViewKey) => void;
+  openSettings: () => void; closeSettings: () => void;
+  openAccount: () => void; closeAccount: () => void;
   setFilter: (category: CategoryName | "All") => void;
   setPaymentFilter: (paymentMethod: PaymentMethod | "All") => void;
   setQuery: (query: string) => void;
@@ -140,8 +142,23 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
 function createActions(dispatch: Dispatch<Action>, getState: () => AppState): AppActions {
   const fail = (error: unknown) => dispatch({ type: "SHOW_TOAST", message: `Could not save locally: ${error instanceof Error ? error.message : String(error)}` });
   const persist = (work: Promise<unknown>, onSaved?: () => void) => void work.then(onSaved).catch(fail);
+  const scrollToSettingsSection = (id: string) => {
+    let attempts = 0;
+    const scroll = () => {
+      const element = document.getElementById(id);
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else if (attempts < 12) {
+        attempts += 1;
+        requestAnimationFrame(scroll);
+      }
+    };
+    requestAnimationFrame(scroll);
+  };
   return {
     setView: (view) => dispatch({ type: "SET_VIEW", view }),
+    openSettings: () => dispatch({ type: "OPEN_SETTINGS" }),
+    closeSettings: () => dispatch({ type: "CLOSE_SETTINGS" }),
     openAccount: () => dispatch({ type: "OPEN_ACCOUNT" }),
     closeAccount: () => dispatch({ type: "CLOSE_ACCOUNT" }),
     setFilter: (category) => dispatch({ type: "SET_FILTER", category }),
@@ -250,16 +267,13 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const entity: TransactionEntity = { id: crypto.randomUUID(), name: state.expenseDraft.name.trim() || "New expense", amountMinor: Math.round(amount * 100), occurredAt: Date.now(), categoryId: category.id, paymentMethodId: method?.id ?? null };
       persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
     },
-    managePaymentMethods: () => { dispatch({ type: "MANAGE_PAYMENT_METHODS" }); requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById("payment-methods")?.scrollIntoView({ behavior: "smooth", block: "center" }))); },
+    managePaymentMethods: () => {
+      dispatch({ type: "MANAGE_PAYMENT_METHODS" });
+      scrollToSettingsSection("payment-methods");
+    },
     manageStatsDefaults: () => {
-      dispatch({ type: "SET_VIEW", view: "settings" });
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          document
-            .getElementById("stats-defaults")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-        ),
-      );
+      dispatch({ type: "OPEN_SETTINGS" });
+      scrollToSettingsSection("stats-defaults");
     },
     addPaymentMethod: (input) => {
       const name = input.name.trim(); if (!name || getState().paymentMethods.some((m) => m.name.toLowerCase() === name.toLowerCase())) return;

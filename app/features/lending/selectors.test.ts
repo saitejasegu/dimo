@@ -7,7 +7,6 @@ import {
 } from "@/features/lending/selectors";
 
 const lend = (patch: Partial<Lend> & Pick<Lend, "id">): Lend => ({
-  id: patch.id,
   contactName: "Ari",
   contactId: "contact-ari",
   amount: 100,

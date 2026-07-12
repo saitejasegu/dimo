@@ -111,8 +111,52 @@ export function reducer(state: AppState, action: Action): AppState {
         const from = state.view === "tx" ? "home" : state.view;
         return { ...state, view: "account", accountReturnView: from };
       }
-      return { ...state, view: next, accountReturnView: null };
+      if (next === "settings") {
+        if (state.view === "settings") return state;
+        const current =
+          state.view === "account"
+            ? (state.accountReturnView ?? "home")
+            : state.view === "tx"
+              ? "home"
+              : state.view;
+        const from = current === "settings" ? "home" : current;
+        return {
+          ...state,
+          view: "settings",
+          accountReturnView: null,
+          settingsReturnView: from,
+        };
+      }
+      return {
+        ...state,
+        view: next,
+        accountReturnView: null,
+        settingsReturnView: null,
+      };
     }
+    case "OPEN_SETTINGS": {
+      if (state.view === "settings") return state;
+      const current =
+        state.view === "account"
+          ? (state.accountReturnView ?? "home")
+          : state.view === "tx"
+            ? "home"
+            : state.view;
+      const from = current === "settings" ? "home" : current;
+      return {
+        ...state,
+        view: "settings",
+        accountReturnView: null,
+        settingsReturnView: from,
+      };
+    }
+    case "CLOSE_SETTINGS":
+      return {
+        ...state,
+        view: state.settingsReturnView ?? "home",
+        accountReturnView: null,
+        settingsReturnView: null,
+      };
     case "OPEN_ACCOUNT": {
       if (state.view === "account") return state;
       const from = state.view === "tx" ? "home" : state.view;
@@ -182,6 +226,9 @@ export function reducer(state: AppState, action: Action): AppState {
         case "category":
           return {
             ...state,
+            view: "budgets",
+            accountReturnView: null,
+            settingsReturnView: null,
             overlay: "category",
             categoryDraft: EMPTY_CATEGORY_DRAFT,
           };
@@ -190,7 +237,19 @@ export function reducer(state: AppState, action: Action): AppState {
     }
 
     case "MANAGE_PAYMENT_METHODS":
-      return { ...state, overlay: null, detailId: null, view: "settings" };
+      return {
+        ...state,
+        overlay: null,
+        detailId: null,
+        view: "settings",
+        accountReturnView: null,
+        settingsReturnView:
+          state.view === "settings"
+            ? state.settingsReturnView
+            : state.view === "account" || state.view === "tx"
+              ? "home"
+              : state.view,
+      };
 
     case "CLOSE_OVERLAY":
       return { ...state, overlay: null };
@@ -570,6 +629,9 @@ export function reducer(state: AppState, action: Action): AppState {
           : String(category.monthlyBudgetMinor / 100);
       return {
         ...state,
+        view: "budgets",
+        accountReturnView: null,
+        settingsReturnView: null,
         overlay: "category",
         categoryDraft: {
           id: category.id,

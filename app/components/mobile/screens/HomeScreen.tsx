@@ -55,7 +55,7 @@ export function HomeScreen() {
             subtitle={greetingFor()}
             title={profile.name}
             trailing={
-              <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openAccount} />
+              <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openSettings} />
             }
           />
           <HeroCard className="mt-4 p-[22px]">

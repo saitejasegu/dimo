@@ -12,7 +12,7 @@ export const MOBILE_TABS: MobileTabDef[] = [
   { key: "stats", label: "Stats" },
   { key: "recurring", label: "Recurring" },
   { key: "budgets", label: "Budgets" },
-  { key: "settings", label: "Settings" },
+  { key: "lending", label: "Lending" },
 ];
 
 export type MobileTabKey = (typeof MOBILE_TABS)[number]["key"];

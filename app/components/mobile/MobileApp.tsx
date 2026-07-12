@@ -11,6 +11,8 @@ import { Toaster } from "@/components/common/Toaster";
 
 const loadAccountScreen = () =>
   import("@/components/mobile/screens/AccountScreen").then((m) => ({ default: m.AccountScreen }));
+const loadSettingsScreen = () =>
+  import("@/components/mobile/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
 const loadTxDetailSheet = () =>
   import("@/components/mobile/sheets/TxDetailSheet").then((m) => ({ default: m.TxDetailSheet }));
 const loadAddExpenseSheet = () =>
@@ -21,6 +23,7 @@ const loadNewCategorySheet = () =>
   import("@/components/mobile/sheets/NewCategorySheet").then((m) => ({ default: m.NewCategorySheet }));
 
 const AccountScreen = lazy(loadAccountScreen);
+const SettingsScreen = lazy(loadSettingsScreen);
 const TxDetailSheet = lazy(loadTxDetailSheet);
 const AddExpenseSheet = lazy(loadAddExpenseSheet);
 const AddRecurringSheet = lazy(loadAddRecurringSheet);
@@ -28,6 +31,7 @@ const NewCategorySheet = lazy(loadNewCategorySheet);
 
 const PREFETCH = [
   loadAccountScreen,
+  loadSettingsScreen,
   loadTxDetailSheet,
   loadAddExpenseSheet,
   loadAddRecurringSheet,
@@ -35,11 +39,19 @@ const PREFETCH = [
 ];
 
 export function MobileApp() {
-  const { view, accountReturnView, overlay, detailId } = useAppState();
+  const { view, accountReturnView, settingsReturnView, overlay, detailId } = useAppState();
   usePrefetchOnMount(PREFETCH);
   useBrowserSwipeGuard();
 
-  const underlayView = view === "account" ? (accountReturnView ?? "home") : view;
+  const underlayView =
+    view === "settings"
+      ? (settingsReturnView ?? "home")
+      : view === "account"
+        ? accountReturnView === "settings"
+          ? (settingsReturnView ?? "home")
+          : (accountReturnView ?? "home")
+        : view;
+  const settingsVisible = view === "settings";
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-canvas font-body">
@@ -58,6 +70,7 @@ export function MobileApp() {
       <TabBar />
 
       <Suspense fallback={null}>
+        {settingsVisible ? <SettingsScreen /> : null}
         {view === "account" ? <AccountScreen /> : null}
         {detailId ? <TxDetailSheet /> : null}
         {overlay === "add" ? <AddExpenseSheet /> : null}

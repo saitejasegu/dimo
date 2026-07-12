@@ -57,6 +57,8 @@ export interface AppState {
   view: ViewKey;
   /** Screen to restore when leaving Account (keeps underlay mounted on mobile). */
   accountReturnView: Exclude<ViewKey, "account" | "tx"> | null;
+  /** Primary tab to restore when leaving the pushed mobile Settings screen. */
+  settingsReturnView: Exclude<ViewKey, "account" | "settings" | "tx"> | null;
 
   // ----- Data (backend-owned in the future) -----
   transactions: Transaction[];
@@ -142,6 +144,7 @@ export function createInitialState(
     dataReady: false,
     view: "home",
     accountReturnView: null,
+    settingsReturnView: null,
     transactions: [],
     recurring: [],
     lends: [],

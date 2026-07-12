@@ -7,7 +7,7 @@ import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
 import { StatsScreen } from "@/components/mobile/screens/StatsScreen";
 import { RecurringScreen } from "@/components/mobile/screens/RecurringScreen";
 import { BudgetsScreen } from "@/components/mobile/screens/BudgetsScreen";
-import { SettingsScreen } from "@/components/mobile/screens/SettingsScreen";
+import { LendingScreen } from "@/components/mobile/screens/LendingScreen";
 import { MOBILE_TABS, mobileTabIndex, type MobileTabKey } from "@/components/mobile/tabs";
 import type { ViewKey } from "@/lib/types";
 
@@ -21,8 +21,8 @@ function TabScreen({ tab }: { tab: MobileTabKey }) {
       return <RecurringScreen />;
     case "budgets":
       return <BudgetsScreen />;
-    case "settings":
-      return <SettingsScreen />;
+    case "lending":
+      return <LendingScreen />;
   }
 }
 

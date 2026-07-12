@@ -19,6 +19,8 @@ export type Action =
   | { type: "HYDRATE_DATA"; data: HydratedData }
   // navigation
   | { type: "SET_VIEW"; view: ViewKey }
+  | { type: "OPEN_SETTINGS" }
+  | { type: "CLOSE_SETTINGS" }
   | { type: "OPEN_ACCOUNT" }
   | { type: "CLOSE_ACCOUNT" }
   // activity
