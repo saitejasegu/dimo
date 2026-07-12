@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { money, spent } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
@@ -25,7 +25,7 @@ import { MobileScreen, MobileTopBar, SectionHeader } from "@/components/mobile/M
 
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [visibleLimit, setVisibleLimit] = useState(HOME_TRANSACTION_PAGE_SIZE);
+  const [pagination, setPagination] = useState({ key: "", limit: HOME_TRANSACTION_PAGE_SIZE });
   const { profile, currency, query, categories } = useAppState();
   const actions = useAppActions();
   const {
@@ -34,14 +34,13 @@ export function HomeScreen() {
     transactionCount,
   } = useOverview();
   const { options, filter, paymentFilter, paymentOptions, filtered } = useActivity();
+  const paginationKey = JSON.stringify([query, filter, paymentFilter]);
+  const visibleLimit =
+    pagination.key === paginationKey ? pagination.limit : HOME_TRANSACTION_PAGE_SIZE;
   const { items: visible, hasMore } = paginateTransactionsByDay(filtered, visibleLimit);
   const groups = groupByDay(visible);
   const emojiByName = new Map(categories.map((category) => [category.name, category.emoji]));
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
-
-  useEffect(() => {
-    setVisibleLimit(HOME_TRANSACTION_PAGE_SIZE);
-  }, [query, filter, paymentFilter]);
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
@@ -110,7 +109,12 @@ export function HomeScreen() {
           fullWidth
           size="sm"
           className="mb-2"
-          onClick={() => setVisibleLimit((limit) => limit + HOME_TRANSACTION_PAGE_SIZE)}
+          onClick={() =>
+            setPagination({
+              key: paginationKey,
+              limit: visibleLimit + HOME_TRANSACTION_PAGE_SIZE,
+            })
+          }
         >
           Load more
         </Button>

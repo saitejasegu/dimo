@@ -23,6 +23,15 @@ enum StatsConstants {
   static func isDayStatsRange(_ range: StatsRange) -> Bool {
     range == .oneWeek || range == .month
   }
+
+  static func hydratedRange(
+    current: StatsRange,
+    previousDefault: StatsRange,
+    nextDefault: StatsRange,
+    dataReady: Bool
+  ) -> StatsRange {
+    !dataReady || current == previousDefault ? nextDefault : current
+  }
 }
 
 struct StatsScope: Equatable, Sendable {

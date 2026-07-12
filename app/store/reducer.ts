@@ -85,9 +85,10 @@ export function reducer(state: AppState, action: Action): AppState {
         ...action.data,
         dataReady: true,
         view: state.dataReady ? state.view : "home",
-        statsRange: state.dataReady
-          ? state.statsRange
-          : action.data.preferences.defaultStatsRange,
+        statsRange:
+          !state.dataReady || state.statsRange === state.defaultStatsRange
+            ? action.data.preferences.defaultStatsRange
+            : state.statsRange,
         filter,
         expenseDraft: { ...state.expenseDraft, category: expenseCategory },
         recurringDraft: { ...state.recurringDraft, category: recurringCategory },

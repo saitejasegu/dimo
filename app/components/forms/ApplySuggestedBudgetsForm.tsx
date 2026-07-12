@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useAppActions, useAppState } from "@/store/app-store";
@@ -16,19 +16,14 @@ export function ApplySuggestedBudgetsForm({
 }) {
   const { currency, categories } = useAppState();
   const { applySuggestedBudgets } = useAppActions();
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(updates.map((update) => update.id)),
-  );
-
-  useEffect(() => {
-    setSelected(new Set(updates.map((update) => update.id)));
-  }, [updates]);
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
 
   const emojiById = new Map(categories.map((category) => [category.id, category.emoji]));
-  const selectedCount = selected.size;
+  const selected = updates.filter((update) => !excluded.has(update.id));
+  const selectedCount = selected.length;
 
   const toggle = (id: string) => {
-    setSelected((current) => {
+    setExcluded((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -44,7 +39,7 @@ export function ApplySuggestedBudgetsForm({
 
       <div className="mb-5 max-h-[50vh] overflow-y-auto overscroll-contain rounded-2xl border border-line">
         {updates.map((update, index) => {
-          const checked = selected.has(update.id);
+          const checked = !excluded.has(update.id);
           const emoji = emojiById.get(update.id);
           return (
             <button
@@ -100,7 +95,7 @@ export function ApplySuggestedBudgetsForm({
           className="flex-1"
           enabled={selectedCount > 0}
           onClick={() => {
-            applySuggestedBudgets([...selected]);
+            applySuggestedBudgets(selected.map((update) => update.id));
             onDone();
           }}
         >

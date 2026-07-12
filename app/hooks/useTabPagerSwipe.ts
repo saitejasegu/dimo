@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
 import { MOBILE_TABS } from "@/components/mobile/tabs";
 import { setTabSwipeProgress } from "@/components/mobile/tabSwipeProgress";
 
@@ -47,11 +53,10 @@ export function useTabPagerSwipe({
   enabled?: boolean;
 }) {
   const indexRef = useRef(index);
-  const onIndexChangeRef = useRef(onIndexChange);
   const draggingRef = useRef(false);
   const settlingRef = useRef(false);
   const skipAnimateRef = useRef(true);
-  onIndexChangeRef.current = onIndexChange;
+  const handleIndexChange = useEffectEvent(onIndexChange);
 
   const widthOf = () =>
     containerRef.current?.getBoundingClientRect().width ||
@@ -190,7 +195,7 @@ export function useTabPagerSwipe({
         if (nextIndex !== indexRef.current) {
           // Swipe already animated to the target; don't re-animate on setView.
           skipAnimateRef.current = true;
-          onIndexChangeRef.current(nextIndex);
+          handleIndexChange(nextIndex);
         }
       }, duration);
     };

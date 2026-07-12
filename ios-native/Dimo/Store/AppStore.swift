@@ -712,14 +712,18 @@ final class AppStore {
       )
     }
 
+    let previousDefaultStatsRange = defaultStatsRange
     currency = prefs.currency
     theme = prefs.theme
     navGlassOpacity = Double(prefs.navGlassOpacity)
     defaultStatsRange = prefs.defaultStatsRange
     notifications = prefs.notifications
-    if !dataReady {
-      statsRange = prefs.defaultStatsRange
-    }
+    statsRange = StatsConstants.hydratedRange(
+      current: statsRange,
+      previousDefault: previousDefaultStatsRange,
+      nextDefault: prefs.defaultStatsRange,
+      dataReady: dataReady
+    )
     profileName = profileName.isEmpty ? prefs.profileName : profileName
     profileEmail = profileEmail.isEmpty ? prefs.profileEmail : profileEmail
     dataReady = true

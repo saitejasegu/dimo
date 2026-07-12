@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useEffectEvent, type RefObject } from "react";
 
 const EDGE_WIDTH = 32;
 const DISMISS_OFFSET = 96;
@@ -17,8 +17,7 @@ export function useAccountSwipeBack(
   panelRef: RefObject<HTMLElement | null>,
   onBack: () => void,
 ) {
-  const onBackRef = useRef(onBack);
-  onBackRef.current = onBack;
+  const handleBack = useEffectEvent(onBack);
 
   useEffect(() => {
     let startX: number | null = null;
@@ -122,7 +121,7 @@ export function useAccountSwipeBack(
             node.style.willChange = "";
             node.style.transition = "";
           }
-          onBackRef.current();
+          handleBack();
         }, DISMISS_MS);
         resetTouch();
         return;

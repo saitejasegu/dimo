@@ -529,13 +529,25 @@ export function AppStoreProvider({
     void initializeLocalDatabase()
       .then(async () => {
         if (cancelled) return;
-        // Persist AuthKit profile into preferences so later pushes also carry name/email.
-        const existing = await db.entities.get(entityKey("preferences", "preferences"));
-        const current = (
-          existing && !existing.deleted ? existing.payload : DEFAULT_PREFERENCES
-        ) as PreferencesEntity;
         const nextName = user.name.trim();
         const nextEmail = user.email.trim();
+
+        // Pull before turning any bootstrap preference into a versioned local write.
+        // Otherwise a fresh database created after sign-out can stamp the seeded 1Y
+        // stats range with a newer version and overwrite the user's cloud preference.
+        const coordinator = startSync(convex, {
+          name: nextName || user.name,
+          email: nextEmail || user.email,
+        });
+        await coordinator.request();
+        if (cancelled) return;
+
+        // Persist AuthKit profile into an established preferences row so later
+        // preference pushes also carry name/email. A zero server revision means
+        // initial sync did not complete, so leave the bootstrap row untouched.
+        const existing = await db.entities.get(entityKey("preferences", "preferences"));
+        if (!existing || existing.deleted || existing.serverRevision === 0) return;
+        const current = existing.payload as PreferencesEntity;
         if (
           nextName &&
           nextEmail &&
@@ -548,7 +560,6 @@ export function AppStoreProvider({
             profileEmail: nextEmail,
           });
         }
-        if (!cancelled) startSync(convex, { name: nextName || user.name, email: nextEmail || user.email });
       })
       .catch((error) => {
         if (!cancelled) {

@@ -35,6 +35,32 @@ final class GreetingTests: XCTestCase {
   }
 }
 
+final class StatsHydrationTests: XCTestCase {
+  func testPulledDefaultReplacesUntouchedBootstrapRange() {
+    XCTAssertEqual(
+      StatsConstants.hydratedRange(
+        current: .oneYear,
+        previousDefault: .oneYear,
+        nextDefault: .threeMonths,
+        dataReady: true
+      ),
+      .threeMonths
+    )
+  }
+
+  func testPulledDefaultPreservesUserSelectedRange() {
+    XCTAssertEqual(
+      StatsConstants.hydratedRange(
+        current: .sixMonths,
+        previousDefault: .oneYear,
+        nextDefault: .threeMonths,
+        dataReady: true
+      ),
+      .sixMonths
+    )
+  }
+}
+
 final class DateHelpersTests: XCTestCase {
   func testClampsMonthlyDayToShortMonth() {
     let cal = Calendar(identifier: .gregorian)
