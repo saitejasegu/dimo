@@ -12,10 +12,12 @@ Bundle ID: `app.dimo.expenses` · Version: `1.0` · Build: `1`
 ## 2. Build & open in Xcode
 
 ```bash
-npm run ios
+cp .env.example .env.local   # set NEXT_PUBLIC_* for auth/sync in the web bundle
+npm run ios:setup            # build + cap sync (no Xcode UI)
+npm run ios                  # sync + open Xcode (macOS)
 ```
 
-This runs `next build`, syncs into `ios/`, and opens the Xcode workspace.
+`npm run ios` runs `next build`, syncs into `ios/`, and opens the Xcode project.
 
 In Xcode:
 
@@ -66,6 +68,7 @@ Copy from `store/listing.json` into App Store Connect:
 
 ```bash
 npm run build      # static web export → out/
-npm run cap:sync   # build + sync into ios/
-npm run ios        # sync + open Xcode
+npm run ios:setup  # build + sync into ios/ (Linux/macOS)
+npm run cap:sync   # same as ios:setup via npm scripts
+npm run ios        # sync + open Xcode (macOS)
 ```

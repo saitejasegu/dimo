@@ -75,10 +75,56 @@ NEXT_PUBLIC_CONVEX_URL=https://YOUR_DEPLOYMENT.convex.cloud npm run build
 - `npm run lint` — ESLint.
 - `npm run convex:dev` — link/run the Convex development deployment and regenerate bindings.
 - `npm run convex:deploy` — deploy the Convex schema and functions.
-- `npm run ios` — build, sync, and open the Capacitor iOS project.
+- `npm run ios:setup` — build the web export and sync the Capacitor iOS project (no Xcode required).
+- `npm run ios` — same as setup, then open Xcode (macOS only).
+- `npm run ios:native` — generate and open the SwiftUI Xcode project (macOS + xcodegen).
 - `npm run electron:dev` — run Next.js and Electron together.
 - `npm run electron:preview` — open the static export in Electron.
 - `npm run electron:dist` — package desktop installers.
+
+## iOS development
+
+There are two iOS targets:
+
+| Project | Path | Bundle id | Stack |
+|---------|------|-----------|--------|
+| Capacitor shell | `ios/` | `app.dimo.expenses` | Static `out/` inside WKWebView |
+| Native SwiftUI | `ios-native/` | `app.dimo.ios` | GRDB + Convex Swift + WorkOS PKCE |
+
+### Prerequisites (Mac)
+
+- Full **Xcode** from the Mac App Store (not only Command Line Tools)
+- Node.js `>=22.13.0`
+- For native: `brew bundle --file=Brewfile` (installs [XcodeGen](https://github.com/yonaskolb/XcodeGen))
+
+### Capacitor
+
+```bash
+cp .env.example .env.local   # fill NEXT_PUBLIC_* values
+npm install
+npm run ios:setup            # build + cap sync (also works on Linux CI/agents)
+npm run ios                  # sync and open Xcode on macOS
+```
+
+In Xcode: select the **App** target → Signing & Capabilities → your Team → Run.
+
+`NEXT_PUBLIC_*` values are compiled into the web bundle. Re-run `ios:setup` after
+changing them. Store / TestFlight steps: `store/SUBMIT.md`.
+
+### Native SwiftUI
+
+```bash
+brew bundle --file=Brewfile
+npm run ios:native
+```
+
+Config lives in `ios-native/Config/Shared.xcconfig` (`ConvexURL`, `WorkOSClientID`).
+Register `dimo://callback` as an allowed WorkOS redirect. Details: `ios-native/README.md`.
+
+### Cloud agents
+
+Linux cloud VMs can edit iOS sources and run `npm run ios:setup`, but cannot open
+Xcode or simulators. See `AGENTS.md`.
 
 ## Fresh-install behavior
 
