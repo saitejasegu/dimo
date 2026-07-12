@@ -15,18 +15,13 @@
     "test:watch": "vitest",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern design --ignore-pattern ios --ignore-pattern release --ignore-pattern electron",
-    "cap:sync": "npm run build && npx cap sync ios",
-    "cap:open": "npx cap open ios",
-    "ios": "npm run cap:sync && npx cap open ios",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern design --ignore-pattern release --ignore-pattern electron --ignore-pattern ios-native",
     "electron:dev": "concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV=1 electron .\"",
     "electron:preview": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder --dir",
     "electron:dist": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@capacitor/core": "^8.4.1",
-    "@capacitor/ios": "^8.4.1",
     "@convex-dev/workos": "^0.0.3",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
@@ -40,7 +35,6 @@
     "react-dom": "19.2.6"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.1",
     "@tailwindcss/postcss": "4.2.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

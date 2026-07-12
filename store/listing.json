@@ -1,8 +1,8 @@
 {
   "name": "Dimo",
   "subtitle": "Spend, budgets & bills",
-  "bundleId": "app.dimo.expenses",
-  "sku": "dimo-expenses-ios",
+  "bundleId": "app.dimo.ios",
+  "sku": "dimo-ios",
   "primaryCategory": "Finance",
   "secondaryCategory": "Lifestyle",
   "ageRating": "4+",

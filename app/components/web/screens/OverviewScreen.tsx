@@ -59,47 +59,49 @@ export function OverviewScreen() {
         </HeroCard>
       </div>
 
-      <div className="mb-[26px]">
-        <div className="flex flex-col gap-[18px]">
-          {upcoming.length > 0 && (
-            <Card className="p-[22px]">
-              <div className="mb-3.5 flex items-baseline justify-between">
-                <span className="font-display text-[17px] font-semibold text-ink">
-                  Upcoming
-                </span>
-                <span className="text-[13px] font-medium text-muted">{money(upcomingTotal, currency)}</span>
-              </div>
-              <div className="flex flex-col gap-3.5">
-                {upcoming.map((rec) => (
-                  <UpcomingRow
-                    key={rec.id}
-                    recurring={rec}
-                    currency={currency}
-                    onClick={() => actions.setView("recurring")}
-                    size="web"
-                  />
-                ))}
-              </div>
-            </Card>
-          )}
-
-          <Card className="p-[22px]">
-            <div className="mb-4 font-display text-[17px] font-semibold text-ink">
-              Top categories
+      <div
+        className={`mb-[26px] grid gap-[18px] ${
+          upcoming.length > 0 ? "grid-cols-2" : "grid-cols-1"
+        }`}
+      >
+        {upcoming.length > 0 && (
+          <Card className="h-full p-[22px]">
+            <div className="mb-3.5 flex items-baseline justify-between">
+              <span className="font-display text-[17px] font-semibold text-ink">
+                Upcoming
+              </span>
+              <span className="text-[13px] font-medium text-muted">{money(upcomingTotal, currency)}</span>
             </div>
-            <div className="flex flex-col gap-3">
-              {topCategories.map((c) => (
-                <CategoryBar
-                  key={c.category}
-                  label={c.category}
-                  caption={`${money(c.amount, currency)} · ${c.share}%`}
-                  value={c.relative}
-                  tone={c.category === topCategories[0]?.category ? "green" : "soft"}
+            <div className="flex flex-col gap-3.5">
+              {upcoming.map((rec) => (
+                <UpcomingRow
+                  key={rec.id}
+                  recurring={rec}
+                  currency={currency}
+                  onClick={() => actions.setView("recurring")}
+                  size="web"
                 />
               ))}
             </div>
           </Card>
-        </div>
+        )}
+
+        <Card className="h-full p-[22px]">
+          <div className="mb-4 font-display text-[17px] font-semibold text-ink">
+            Top categories
+          </div>
+          <div className="flex flex-col gap-3">
+            {topCategories.map((c) => (
+              <CategoryBar
+                key={c.category}
+                label={c.category}
+                caption={`${money(c.amount, currency)} · ${c.share}%`}
+                value={c.relative}
+                tone={c.category === topCategories[0]?.category ? "green" : "soft"}
+              />
+            ))}
+          </div>
+        </Card>
       </div>
 
       <ActivityScreen embedded />

@@ -44,9 +44,7 @@ next-env.d.ts
 /outputs/
 /work/
 
-# capacitor / xcode
-ios/App/Pods
-ios/App/App/public
-ios/DerivedData
+# xcode
+ios-native/DerivedData
 *.xcuserstate
 xcuserdata/

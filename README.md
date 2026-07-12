@@ -1,103 +1,154 @@
-# Dimo — Expenses
+# Dimo
 
-Dimo is a local-first personal spending tracker built with Next.js 16 and React 19. The same application ships as a browser app, an Electron desktop app, and a Capacitor iOS app.
+Personal spending tracker — expenses, budgets, recurring bills, and stats. Local-first on every platform, with optional cloud sync through Convex and WorkOS AuthKit.
 
-## Data architecture
+| Surface | Stack | Notes |
+| --- | --- | --- |
+| Web | Next.js 16, React 19, Dexie / IndexedDB | Static export to `out/` |
+| Desktop | Electron wrapping the same export | `electron/` |
+| iOS | SwiftUI + GRDB SQLite | `app.dimo.ios` · `ios-native/` |
 
-IndexedDB is the application database on every platform. Dexie provides typed tables and reactive queries. Transactions, recurring expenses, categories, payment methods, and preferences are read locally, so the app starts quickly and remains fully usable offline.
+Web, desktop, and native iOS share the same Convex backend and WorkOS account. Lending is native-iOS-only today; other entity types sync across clients.
 
-Every local entity write and its outbox operation commit in one IndexedDB transaction. When a Convex deployment is configured, the sync coordinator:
+## Features
 
-1. Pulls cloud changes after its durable revision cursor.
-2. Merges them using hybrid logical versions.
-3. Pushes pending operations in idempotent batches.
-4. Pulls once more to confirm canonical cloud state.
+- Log expenses with categories (emoji + optional monthly budget) and payment methods
+- Budgets overview and category management
+- Recurring monthly / yearly bills
+- Activity list, stats ranges, and CSV export
+- Account sync status, sign-in (Google / Apple via WorkOS), and preferences
+- **Native iOS:** lending tracker, Liquid Glass tab UI (requires iOS 26+)
 
-Synchronization runs while the app is open after local writes, reconnects, window focus, visibility changes, and Convex revision notifications. Account contains detailed status and a manual **Sync now** action that clears that app's cloud entity types and re-uploads its full local snapshot (other apps' types, such as iOS-only lending, are left alone).
+## Architecture
 
-WorkOS AuthKit authenticates every cloud sync call. Convex derives ownership from the verified token rather than a client-provided user ID, and each WorkOS user has an isolated revision stream. Local IndexedDB databases are also separated by WorkOS user ID, preventing account switches on a shared device from exposing another user's local transactions.
+### Local-first data
 
-The empty D1/Drizzle files in this starter are not connected to application data and must not be used for dual writes.
+| Client | Store |
+| --- | --- |
+| Web / Electron | IndexedDB via Dexie (`dimo-expenses`, scoped per WorkOS user) |
+| Native iOS | SQLite via GRDB (`dimo-{userId}.sqlite`) |
+
+Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend` (native). Every local write and its outbox op commit together. The app works fully offline; sync runs when a Convex deployment and auth are configured.
+
+### Sync
+
+When Convex is linked, the sync coordinator:
+
+1. Pulls cloud changes after its durable revision cursor
+2. Merges with hybrid logical versions (last-write-wins)
+3. Pushes pending outbox ops in idempotent batches
+4. Pulls once more to confirm canonical state
+
+Triggers include local writes, reconnect, focus / visibility, and Convex revision notifications. Account → **Sync now** clears this app’s owned cloud entity types and re-uploads the local snapshot (web leaves native-only types like `lend` alone unless you wipe the full account).
+
+WorkOS AuthKit authenticates every cloud call. Convex derives ownership from the verified token; each user has an isolated revision stream and a separate local database.
+
+The empty D1 / Drizzle / worker stubs under `db/`, `drizzle/`, and `worker/` are unused starter leftovers — do not dual-write to them.
+
+### Repo layout
+
+```
+app/           Next.js UI, features, IndexedDB data layer, sync coordinator
+convex/        Schema, sync pull/push, WorkOS JWT config
+electron/      Desktop shell
+ios-native/    SwiftUI iOS app (see ios-native/README.md)
+store/         App Store listing copy and submission notes
+public/        Static assets
+```
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
-- A Convex account for cloud synchronization
-- A WorkOS AuthKit environment with Google and Apple social login enabled
+- Convex account (cloud sync)
+- WorkOS AuthKit with Google and Apple social login
+- For native iOS: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen), iOS 26 SDK
 
-## Local development
+## Local development (web)
 
 ```bash
 npm install
 npm run dev
 ```
 
-To link a Convex development project and provision a Convex-managed WorkOS environment:
+Link Convex and provision a managed WorkOS environment:
 
 ```bash
 npm run convex:dev
 ```
 
-The first run is interactive. It creates/selects the Convex project, offers to provision a managed WorkOS team, deploys the JWT configuration, and writes the ignored `.env.local` values used by the app. Keep it running beside `npm run dev` while changing backend functions.
+Keep that process running beside `npm run dev` while changing backend functions. The first run is interactive and writes ignored `.env.local` values.
 
-For an existing WorkOS team, configure the deployment first:
+### Existing WorkOS team
 
 ```bash
 npx convex env set WORKOS_CLIENT_ID client_...
 npx convex env set WORKOS_API_KEY sk_test_...
 ```
 
-Then add these browser-safe values to `.env.local`:
+Add to `.env.local`:
 
 ```bash
 NEXT_PUBLIC_WORKOS_CLIENT_ID=client_...
 NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback
 ```
 
-In the WorkOS dashboard, enable only Google and Apple under Authentication → Social Login, disable the other authentication methods, and add `http://localhost:3000/callback` as an allowed redirect. Google and Apple must both be configured there before their buttons can complete sign-in.
+In the WorkOS dashboard: enable only Google and Apple under Authentication → Social Login, and allow `http://localhost:3000/callback`.
 
-For a production deployment:
+### Production web build
 
 ```bash
 npm run convex:deploy
 NEXT_PUBLIC_CONVEX_URL=https://YOUR_DEPLOYMENT.convex.cloud npm run build
 ```
 
-`NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_WORKOS_CLIENT_ID`, and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` are embedded at build time. Set the production values before browser hosting, Electron packaging, or Capacitor synchronization.
+`NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_WORKOS_CLIENT_ID`, and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` are embedded at build time — set them before hosting or Electron packaging.
 
 ## Scripts
 
-- `npm run dev` — Next.js development server.
-- `npm run build` — static production export to `out/`.
-- `npm test` — unit/Convex protocol tests followed by the production build.
-- `npm run test:unit` — Vitest suite only.
-- `npm run test:watch` — Vitest watch mode.
-- `npm run lint` — ESLint.
-- `npm run convex:dev` — link/run the Convex development deployment and regenerate bindings.
-- `npm run convex:deploy` — deploy the Convex schema and functions.
-- `npm run ios` — build, sync, and open the Capacitor iOS project.
-- `npm run electron:dev` — run Next.js and Electron together.
-- `npm run electron:preview` — open the static export in Electron.
-- `npm run electron:dist` — package desktop installers.
+| Script | Purpose |
+| --- | --- |
+| `npm run dev` | Next.js dev server |
+| `npm run build` | Static export → `out/` |
+| `npm test` | Unit tests + production build |
+| `npm run test:unit` | Vitest only |
+| `npm run lint` | ESLint |
+| `npm run convex:dev` | Convex dev deployment + codegen |
+| `npm run convex:deploy` | Deploy Convex schema/functions |
+| `npm run electron:dev` | Next.js + Electron |
+| `npm run electron:preview` | Electron on static export |
+| `npm run electron:dist` | Package desktop installers |
 
-## Fresh-install behavior
+## Native iOS (`ios-native/`)
 
-A fresh local database contains standard Dining, Groceries, Bills, Transit, and Shopping categories, Cash as the default payment method, and default preferences. It contains no sample transactions or recurring expenses.
+SwiftUI client sharing Convex + WorkOS. Full setup: [ios-native/README.md](ios-native/README.md).
 
-For development, clear the `dimo-expenses` IndexedDB database in browser developer tools to simulate a fresh installation. Reloading normally preserves all local records and pending sync work.
+```bash
+brew install xcodegen
+cd ios-native
+xcodegen generate
+open Dimo.xcodeproj
+```
+
+Config: `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist (`ConvexURL`, `WorkOSClientID`). Register `dimo://callback` on the WorkOS client (public client + PKCE).
+
+App Store listing copy and submission steps: [store/SUBMIT.md](store/SUBMIT.md), `store/listing.json`.
+
+## Fresh install
+
+A new local database seeds Dining, Groceries, Bills, Transit, and Shopping categories, Cash as the default payment method, and default preferences — no sample transactions or recurring rows.
+
+Clear the `dimo-expenses` IndexedDB database in browser tools to simulate a fresh install. Reloading preserves local records and pending sync work.
 
 ## Sync troubleshooting
 
-- **Authentication setup required:** one of the public Convex or WorkOS build variables is missing.
-- **Offline:** local writes continue and will upload after connectivity returns.
-- **Pending:** operations are safely stored in IndexedDB but not yet acknowledged.
-- **Error:** open Account for the transport error and retry with **Sync now** (full cloud replace of this app's entity types from this device).
-- If the schema or generated bindings changed, run `npm run convex:dev` again.
+- **Authentication setup required** — a public Convex or WorkOS build variable is missing
+- **Offline** — local writes queue and upload when connectivity returns
+- **Pending** — ops are in the outbox, not yet acknowledged
+- **Error** — open Account for the transport error; retry with **Sync now**
+- After schema / binding changes, run `npm run convex:dev` again
 
-Tombstones are intentionally retained indefinitely so a device that has been offline for a long time cannot resurrect deleted data.
+Tombstones are retained indefinitely so a long-offline device cannot resurrect deleted data.
 
 ## Platform notes
 
-Electron and Capacitor both bundle the static `out/` export. Background sync means asynchronous synchronization while the app process is open; suspended iOS background execution is not included. WorkOS recommends separate application records for web, desktop, and mobile surfaces so each can use a platform-appropriate client ID, redirect URI, and session policy.
-
-The Convex folder contains strict payload validators, authenticated owner-scoped indexes, revision-indexed pull queries, and an idempotent last-write-wins push mutation.
+Electron ships the static `out/` export. Sync runs while the process is open; suspended iOS background execution is not included. Prefer separate WorkOS application records per surface (web, desktop, mobile) so each can use the right client ID, redirect URI, and session policy.

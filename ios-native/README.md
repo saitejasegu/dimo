@@ -1,6 +1,6 @@
 # Dimo native iOS
 
-Swift + SwiftUI rewrite of Dimo. Lives alongside the Capacitor `ios/` app and shares the existing Convex + WorkOS backend.
+Swift + SwiftUI iOS app for Dimo. Shares the existing Convex + WorkOS backend with the web and Electron clients.
 
 Requires **iOS 26** (native Liquid Glass `TabView`).
 
@@ -30,7 +30,7 @@ Both Debug and Release currently point at Convex **prod** (`formal-akita-237`) +
 
 After changing xcconfigs: `xcodegen generate`, then delete the app from the phone and reinstall (old builds keep the previous Info.plist URL).
 
-Bundle id: `app.dimo.ios` (does not collide with Capacitor `app.dimo.expenses`).
+Bundle id: `app.dimo.ios`.
 
 ## Architecture
 

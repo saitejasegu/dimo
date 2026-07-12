@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Static export so Capacitor (iOS) and Electron can bundle the web app.
+  // Static export so Electron can bundle the web app.
   output: "export",
   images: { unoptimized: true },
 };

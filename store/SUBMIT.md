@@ -1,6 +1,6 @@
 # App Store — Dimo
 
-Bundle ID: `app.dimo.expenses` · Version: `1.0` · Build: `1`
+Bundle ID: `app.dimo.ios` · native SwiftUI app in `ios-native/`
 
 ## 1. Prerequisites (one-time)
 
@@ -8,22 +8,25 @@ Bundle ID: `app.dimo.expenses` · Version: `1.0` · Build: `1`
 - [ ] Install **full Xcode** from the Mac App Store (Command Line Tools alone is not enough)
 - [ ] Open Xcode once → Settings → Accounts → add your Apple ID
 - [ ] Agree to Xcode license / install extra components if prompted
+- [ ] Install [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
 
 ## 2. Build & open in Xcode
 
 ```bash
-npm run ios
+cd ios-native
+xcodegen generate
+open Dimo.xcodeproj
 ```
-
-This runs `next build`, syncs into `ios/`, and opens the Xcode workspace.
 
 In Xcode:
 
-1. Select the **App** target → **Signing & Capabilities**
+1. Select the **Dimo** target → **Signing & Capabilities**
 2. Team: your Apple Developer team
-3. Confirm Bundle Identifier `app.dimo.expenses`
+3. Confirm Bundle Identifier `app.dimo.ios`
 4. Destination: a simulator or your iPhone
 5. Product → Run (⌘R) to verify
+
+Config comes from `ios-native/Config/*.xcconfig` (`ConvexURL`, `WorkOSClientID`). Register `dimo://callback` as an allowed redirect on the WorkOS client.
 
 ## 3. TestFlight
 
@@ -31,7 +34,7 @@ In Xcode:
 2. Organizer → Distribute App → App Store Connect → Upload
 3. In [App Store Connect](https://appstoreconnect.apple.com): create the app if needed (bundle ID must match)
 4. Open TestFlight → wait for processing → add internal testers
-5. Install via TestFlight and smoke-test: add expense, budgets, sheets, account
+5. Install via TestFlight and smoke-test: add expense, budgets, lending, account sync
 
 ## 4. Store listing assets
 
@@ -42,30 +45,29 @@ Copy from `store/listing.json` into App Store Connect:
 | Name / subtitle | `listing.json` |
 | Description / keywords | `listing.json` |
 | Privacy Policy URL | Host `/privacy` (see below), then paste URL |
-| App Privacy | “Data Not Collected” for v1 |
-| Icon | `store/AppIcon-1024.png` (also wired in Xcode asset catalog) |
-| Screenshots | Capture on Simulator (File → Save Screen) into `store/screenshots/` |
+| App Privacy | Reflect WorkOS auth + Convex sync as applicable |
+| Icon | `store/AppIcon-1024.png` |
+| Screenshots | Capture on Simulator into `store/screenshots/` |
 
-**Privacy URL:** deploy the static site (`npm run build` → host `out/`) so `https://YOUR_DOMAIN/privacy` is public, then put that URL in Connect. Update the contact email on the privacy page before submit.
+**Privacy URL:** deploy the static site (`npm run build` → host `out/`) so `https://YOUR_DOMAIN/privacy` is public, then put that URL in Connect.
 
 ## 5. Submit for review
 
-1. App Store Connect → your app → iOS version 1.0
+1. App Store Connect → your app → iOS version
 2. Select the TestFlight build
 3. Complete Age Rating, Pricing (Free), Review Information (contact + demo notes)
-4. Review notes tip: “Personal expense tracker. No login. Sample data included.”
-5. Add for Review → Submit
+4. Add for Review → Submit
 
 ## 6. After feedback
 
-- Fix rejection items in the web/Capacitor app
-- Bump `CURRENT_PROJECT_VERSION` (build number) in Xcode for each upload
-- `npm run ios` → Archive → Upload → submit again
+- Fix rejection items in `ios-native/`
+- Bump build number in Xcode (or project.yml) for each upload
+- Archive → Upload → submit again
 
 ## Useful commands
 
 ```bash
-npm run build      # static web export → out/
-npm run cap:sync   # build + sync into ios/
-npm run ios        # sync + open Xcode
+cd ios-native && xcodegen generate   # regenerate Xcode project
+open ios-native/Dimo.xcodeproj       # open in Xcode
+npm run build                        # static web export → out/ (privacy page, etc.)
 ```
