@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
+import type * as recurringJobs from "../recurringJobs.js";
 import type * as sync from "../sync.js";
 import type * as values from "../values.js";
 
@@ -18,6 +20,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
+  recurringJobs: typeof recurringJobs;
   sync: typeof sync;
   values: typeof values;
 }>;
