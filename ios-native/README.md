@@ -35,6 +35,6 @@ Bundle id: `app.dimo.ios`.
 ## Architecture
 
 - **GRDB** local SQLite (`dimo-{userId}.sqlite`) — entities / outbox / syncMeta / deviceMeta
-- **SyncCoordinator** — pull → push → pull, LWW via `LogicalVersion`, Double wire numerics for Convex `v.number()`
+- **SyncCoordinator** — ensure workspace profile → pull → push → pull, LWW via `LogicalVersion`, Double wire numerics for Convex `v.number()`
 - **WorkOS AuthKit PKCE** via `ASWebAuthenticationSession` + Keychain refresh token
 - **Domain/** — 1:1 ports of web selectors / CSV / dates / formatting

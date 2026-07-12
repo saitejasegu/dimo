@@ -455,7 +455,8 @@ struct RecurringScreen: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
-        .padding(.bottom, 24)
+        // Clears the floating add button overlaying the list's bottom edge.
+        .padding(.bottom, 110)
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
@@ -554,7 +555,8 @@ struct BudgetsScreen: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
-        .padding(.bottom, 24)
+        // Clears the floating add button overlaying the list's bottom edge.
+        .padding(.bottom, 110)
       }
     }
     .background(Theme.canvas.ignoresSafeArea())

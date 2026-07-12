@@ -6,6 +6,7 @@ protocol SyncTransport: Sendable {
   func currentRevision(workspaceId: String) async throws -> Double
   func pull(workspaceId: String, afterRevision: Double, limit: Double) async throws -> PullResultDTO
   func push(workspaceId: String, operations: [SyncOperation]) async throws -> PushResultDTO
+  func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws
   func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO
   func subscribeRevision(workspaceId: String, onChange: @escaping (Double) -> Void) -> AnyCancellable
 }
@@ -23,11 +24,20 @@ actor SyncCoordinator {
   private var retryTask: Task<Void, Never>?
   private var revisionSub: AnyCancellable?
   private var writeListener: UUID?
+  private var profileName: String?
+  private var profileEmail: String?
 
   init(repository: Repository, transport: SyncTransport, network: NetworkMonitor = NetworkMonitor()) {
     self.repository = repository
     self.transport = transport
     self.network = network
+  }
+
+  func setProfile(name: String?, email: String?) {
+    let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines)
+    profileName = (trimmedName?.isEmpty == false) ? trimmedName : nil
+    profileEmail = (trimmedEmail?.isEmpty == false) ? trimmedEmail : nil
   }
 
   func start() {
@@ -117,6 +127,13 @@ actor SyncCoordinator {
         $0.error = nil
       }
       do {
+        // Backfill workspace name/email for existing rows on every authenticated sync.
+        // WorkOS JWTs omit these claims, so pass the session user profile explicitly.
+        try await transport.ensureWorkspaceProfile(
+          workspaceId: workspaceID,
+          name: profileName,
+          email: profileEmail
+        )
         if replace {
           try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
           try repository.updateSyncMeta { $0.lastPulledRevision = 0 }
@@ -125,6 +142,9 @@ actor SyncCoordinator {
           try await pullAll()
         } else {
           try await pullAll()
+          // Upload bootstrap defaults only if pull left them unsynced (empty
+          // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
+          try repository.enqueueUnsyncedDefaults()
           try await pushAll()
           try await pullAll()
         }
@@ -270,6 +290,22 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     )
   }
 
+  func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws {
+    struct EnsureResult: Decodable {
+      var created: Bool
+      var updated: Bool
+      var name: String?
+      var email: String?
+    }
+    var args: [String: ConvexEncodable?] = ["workspaceId": workspaceId]
+    if let name { args["name"] = name }
+    if let email { args["email"] = email }
+    let _: EnsureResult = try await client.mutation(
+      "sync:ensureWorkspaceProfile",
+      with: args
+    )
+  }
+
   func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO {
     let encodedTypes: [ConvexEncodable?] = entityTypes.map { $0 as ConvexEncodable? }
     return try await client.mutation(
@@ -351,6 +387,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       return [
         "id": e.id,
         "contactName": e.contactName,
+        "contactId": e.contactId,
         "amountMinor": Double(e.amountMinor),
         "occurredAt": Double(e.occurredAt),
         "comment": e.comment,

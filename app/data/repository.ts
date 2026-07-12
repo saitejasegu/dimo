@@ -1,7 +1,6 @@
 import { db, type DeviceMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
-  DEFAULT_CATEGORY_ENTITIES,
   DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   OWNED_ENTITY_TYPES,
@@ -21,7 +20,7 @@ import {
   type TransactionEntity,
 } from "@/data/model";
 
-const BOOTSTRAP_VERSION = 2;
+const BOOTSTRAP_VERSION = 3;
 const listeners = new Set<() => void>();
 
 export function onLocalWrite(listener: () => void) {
@@ -160,6 +159,28 @@ export function sanitizePayload<T extends EntityType>(
   }
 }
 
+async function putLocalOnly<T extends EntityType>(
+  entityType: T,
+  payload: EntityPayloadMap[T],
+  deleted = false,
+) {
+  const device = await ensureDevice();
+  const clean = sanitizePayload(entityType, payload);
+  const key = entityKey(entityType, clean.id);
+  const entity: StoredEntity<T> = {
+    key,
+    workspaceId: WORKSPACE_ID,
+    entityType,
+    entityId: clean.id,
+    // Zero version so any cloud row wins on the first pull.
+    version: { timestamp: 0, counter: 0, deviceId: device.deviceId },
+    payload: clean,
+    deleted,
+    serverRevision: 0,
+  };
+  await db.entities.put(entity as StoredEntity);
+}
+
 async function putInCurrentTransaction<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
@@ -195,27 +216,12 @@ export async function initializeLocalDatabase() {
   await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, db.syncMeta, async () => {
     const device = await ensureDevice();
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
-      for (const category of DEFAULT_CATEGORY_ENTITIES) {
-        const key = entityKey("category", category.id);
-        const existing = await db.entities.get(key);
-        if (!existing) {
-          await putInCurrentTransaction("category", category);
-          continue;
-        }
-        if (existing.deleted) continue;
-        const payload = existing.payload as CategoryEntity & { emoji?: string };
-        if (!payload.emoji) {
-          await putInCurrentTransaction("category", {
-            ...payload,
-            emoji: category.emoji,
-          });
-        }
-      }
+      // Cash + preferences only — new accounts start with no seeded categories.
       if (!(await db.entities.get(entityKey("paymentMethod", CASH_PAYMENT_METHOD.id)))) {
-        await putInCurrentTransaction("paymentMethod", CASH_PAYMENT_METHOD);
+        await putLocalOnly("paymentMethod", CASH_PAYMENT_METHOD);
       }
       if (!(await db.entities.get(entityKey("preferences", DEFAULT_PREFERENCES.id)))) {
-        await putInCurrentTransaction("preferences", DEFAULT_PREFERENCES);
+        await putLocalOnly("preferences", DEFAULT_PREFERENCES);
       }
       await db.deviceMeta.update("device", { bootstrapVersion: BOOTSTRAP_VERSION });
     }
@@ -233,6 +239,32 @@ export async function initializeLocalDatabase() {
     void navigator.storage?.persist?.().catch(() => false);
   }
   notifyWrite();
+}
+
+/**
+ * After pull, queue cash / preferences that never landed from the server so a
+ * brand-new workspace still receives those defaults (not categories).
+ */
+export async function enqueueUnsyncedDefaults() {
+  const defaults: Array<{ entityType: EntityType; payload: EntityPayload }> = [
+    { entityType: "paymentMethod", payload: CASH_PAYMENT_METHOD },
+    { entityType: "preferences", payload: DEFAULT_PREFERENCES },
+  ];
+  let enqueued = false;
+  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+    for (const { entityType, payload } of defaults) {
+      const key = entityKey(entityType, payload.id);
+      const existing = await db.entities.get(key);
+      if (!existing || existing.deleted || existing.serverRevision > 0) continue;
+      if (await db.outbox.get(key)) continue;
+      await putInCurrentTransaction(
+        entityType,
+        existing.payload as EntityPayloadMap[typeof entityType],
+      );
+      enqueued = true;
+    }
+  });
+  if (enqueued) notifyWrite();
 }
 
 export async function saveEntity<T extends EntityType>(

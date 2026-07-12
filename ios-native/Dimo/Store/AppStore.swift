@@ -86,6 +86,7 @@ final class AppStore {
 
       let transport = ConvexSyncTransport(client: client)
       let coordinator = SyncCoordinator(repository: repo, transport: transport)
+      await coordinator.setProfile(name: profileName, email: profileEmail)
       self.coordinator = coordinator
       await coordinator.start()
 
@@ -212,6 +213,7 @@ final class AppStore {
     let contact = lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !contact.isEmpty else { return }
     let existing = lendDraft.editingId.flatMap { id in lends.first { $0.id == id } }
+    guard let contactId = lendDraft.contactId ?? existing?.contactId else { return }
     let occurredAt: Int
     if let existing,
        Calendar.current.isDate(
@@ -225,6 +227,7 @@ final class AppStore {
     let entity = LendEntity(
       id: existing?.id ?? makeId(prefix: "lend_"),
       contactName: contact,
+      contactId: contactId,
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: occurredAt,
       comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -243,6 +246,7 @@ final class AppStore {
       editingId: id,
       kind: lend.kind,
       contactName: lend.contactName,
+      contactId: lend.contactId,
       amount: lend.amount.rounded() == lend.amount
         ? String(Int(lend.amount))
         : String(format: "%.2f", lend.amount),
@@ -252,7 +256,7 @@ final class AppStore {
     overlay = .lend
   }
 
-  func openAddRepayment(contactName: String, outstanding: Double = 0) {
+  func openAddRepayment(contactName: String, contactId: String, outstanding: Double = 0) {
     let amount: String
     if outstanding > 0 {
       amount = outstanding.rounded() == outstanding
@@ -261,7 +265,7 @@ final class AppStore {
     } else {
       amount = ""
     }
-    lendDraft = LendDraft(kind: .repaid, contactName: contactName, amount: amount)
+    lendDraft = LendDraft(kind: .repaid, contactName: contactName, contactId: contactId, amount: amount)
     overlay = .lend
   }
 
@@ -674,6 +678,7 @@ final class AppStore {
         Lend(
           id: lend.id,
           contactName: lend.contactName,
+          contactId: lend.contactId,
           amount: Double(lend.amountMinor) / 100,
           comment: lend.comment,
           time: DateHelpers.formatTransactionTime(lend.occurredAt),
@@ -795,6 +800,7 @@ struct LendDraft: Equatable {
   var editingId: String?
   var kind: LendKind = .lent
   var contactName = ""
+  var contactId: String?
   var amount = ""
   var date = Date()
   var comment = ""

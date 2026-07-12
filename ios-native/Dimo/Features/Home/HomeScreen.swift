@@ -30,7 +30,8 @@ struct HomeScreen: View {
           }
           .padding(.horizontal, 22)
           .padding(.top, 16)
-          .padding(.bottom, selecting ? 120 : 24)
+          // 110 clears the floating add button; 120 clears the selection bar.
+          .padding(.bottom, selecting ? 120 : 110)
           .frame(maxWidth: .infinity, alignment: .leading)
         }
       }

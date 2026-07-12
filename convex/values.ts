@@ -70,6 +70,10 @@ export const recurringValidator = v.object({
 export const lendValidator = v.object({
   id: v.string(),
   contactName: v.string(),
+  /** Opaque device address-book identifier of the picked contact, used to
+   * tell apart contacts sharing a name. Never contains photo data.
+   * Optional so rows written before contact linking existed keep syncing. */
+  contactId: v.optional(v.string()),
   amountMinor: v.number(),
   occurredAt: v.number(),
   comment: v.string(),

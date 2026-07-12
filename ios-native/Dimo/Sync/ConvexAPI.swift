@@ -59,6 +59,8 @@ struct WireRecurring: Codable, Sendable {
 struct WireLend: Codable, Sendable {
   var id: String
   var contactName: String
+  /// Optional so older server rows written before contact linking still decode.
+  var contactId: String?
   var amountMinor: Double
   var occurredAt: Double
   var comment: String
@@ -131,6 +133,7 @@ enum WirePayload {
       return [
         "id": e.id,
         "contactName": e.contactName,
+        "contactId": e.contactId,
         "amountMinor": Double(e.amountMinor),
         "occurredAt": Double(e.occurredAt),
         "comment": e.comment,
@@ -205,9 +208,12 @@ enum WirePayload {
       ))
     case .lend:
       let wire = try JSONDecoder().decode(WireLend.self, from: data)
+      let contactId = wire.contactId?.trimmingCharacters(in: .whitespacesAndNewlines)
       return .lend(LendEntity(
         id: wire.id,
         contactName: wire.contactName,
+        // Legacy rows keyed by name only; fall back so grouping still works.
+        contactId: (contactId?.isEmpty == false) ? contactId! : wire.contactName,
         amountMinor: Int(wire.amountMinor),
         occurredAt: Int(wire.occurredAt),
         comment: wire.comment,

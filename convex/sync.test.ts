@@ -169,6 +169,7 @@ describe("Convex sync protocol", () => {
         payload: {
           id: "lend-1",
           contactName: "Sam",
+          contactId: "cn-sam",
           amountMinor: 5000,
           occurredAt: 100,
           comment: "",
@@ -193,5 +194,87 @@ describe("Convex sync protocol", () => {
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0].entityType).toBe("lend");
     expect(result.latestRevision).toBe(2);
+  });
+
+  it("stores name and email on the workspace from auth and preferences", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+      name: "Auth Name",
+      email: "auth@example.com",
+    });
+    await t.mutation(push, { workspaceId: "global", operations: [operation] });
+    const afterAuth = await t.run(async (ctx) => {
+      return await ctx.db.query("workspaces").first();
+    });
+    expect(afterAuth?.name).toBe("Auth Name");
+    expect(afterAuth?.email).toBe("auth@example.com");
+
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "prefs-1",
+        workspaceId: "global",
+        entityType: "preferences",
+        entityId: "preferences",
+        version: { timestamp: 200, counter: 0, deviceId: "device-a" },
+        payload: {
+          id: "preferences",
+          profileName: "Profile Name",
+          profileEmail: "profile@example.com",
+          currency: "INR",
+          weekStart: "Mon",
+          theme: "light",
+          navGlassOpacity: 40,
+          defaultView: "home",
+          defaultStatsRange: "1Y",
+          notifications: { bills: true, budget: true, weekly: false, large: true },
+          defaultPaymentMethodId: "payment-method-cash",
+        },
+        deleted: false,
+      }],
+    });
+    const afterPrefs = await t.run(async (ctx) => {
+      return await ctx.db.query("workspaces").first();
+    });
+    expect(afterPrefs?.name).toBe("Profile Name");
+    expect(afterPrefs?.email).toBe("profile@example.com");
+  });
+
+  it("backfills workspace name and email on login for existing rows", async () => {
+    const ensureWorkspaceProfile = makeFunctionReference<"mutation">(
+      "sync:ensureWorkspaceProfile",
+    );
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+
+    // Pre-create a workspace row without name/email (legacy shape).
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaces", {
+        ownerId: "https://api.workos.com/|user-a",
+        workspaceId: "global",
+        revision: 5,
+      });
+    });
+
+    // WorkOS access tokens omit name/email claims; clients pass the user profile.
+    const result = await t.mutation(ensureWorkspaceProfile, {
+      workspaceId: "global",
+      name: "Login Name",
+      email: "login@example.com",
+    });
+    expect(result).toEqual({
+      created: false,
+      updated: true,
+      name: "Login Name",
+      email: "login@example.com",
+    });
+
+    const workspace = await t.run(async (ctx) => {
+      return await ctx.db.query("workspaces").first();
+    });
+    expect(workspace?.revision).toBe(5);
+    expect(workspace?.name).toBe("Login Name");
+    expect(workspace?.email).toBe("login@example.com");
   });
 });

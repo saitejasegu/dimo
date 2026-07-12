@@ -13,6 +13,7 @@ import {
 import {
   acknowledgeOperations,
   enqueueFullUpload,
+  enqueueUnsyncedDefaults,
   mergeRemotePage,
   onLocalWrite,
 } from "@/data/repository";
@@ -50,6 +51,11 @@ const pushRef = makeFunctionReference<"mutation", {
 const revisionRef = makeFunctionReference<"query", { workspaceId: string }, number>(
   "sync:currentRevision",
 );
+const ensureProfileRef = makeFunctionReference<
+  "mutation",
+  { workspaceId: string; name?: string; email?: string },
+  { created: boolean; updated: boolean; name: string | null; email: string | null }
+>("sync:ensureWorkspaceProfile");
 const clearRef = makeFunctionReference<"mutation", {
   workspaceId: string;
   entityTypes: CloudEntityType[];
@@ -83,31 +89,53 @@ export class SyncCoordinator {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
   private disposers: Array<() => void> = [];
+  private profile: { name?: string; email?: string } = {};
+  private started = false;
 
   constructor(private client: ConvexReactClient) {}
 
-  start() {
-    this.disposers.push(onLocalWrite(() => this.schedule()));
-    const online = () => this.request();
-    const focus = () => this.request();
-    const visible = () => {
-      if (document.visibilityState === "visible") this.request();
+  setProfile(profile: { name?: string; email?: string }) {
+    this.profile = {
+      name: profile.name?.trim() || undefined,
+      email: profile.email?.trim() || undefined,
     };
-    window.addEventListener("online", online);
-    window.addEventListener("focus", focus);
-    document.addEventListener("visibilitychange", visible);
-    this.disposers.push(
-      () => window.removeEventListener("online", online),
-      () => window.removeEventListener("focus", focus),
-      () => document.removeEventListener("visibilitychange", visible),
-    );
-    const watch = this.client.watchQuery(revisionRef, { workspaceId: WORKSPACE_ID });
-    const unsubscribe = watch.onUpdate(() => this.request());
-    this.disposers.push(unsubscribe);
+  }
+
+  /** Push AuthKit name/email onto the workspace row immediately (and on later syncs). */
+  async ensureProfile() {
+    await this.client.mutation(ensureProfileRef, {
+      workspaceId: WORKSPACE_ID,
+      name: this.profile.name,
+      email: this.profile.email,
+    });
+  }
+
+  start() {
+    if (!this.started) {
+      this.started = true;
+      this.disposers.push(onLocalWrite(() => this.schedule()));
+      const online = () => this.request();
+      const focus = () => this.request();
+      const visible = () => {
+        if (document.visibilityState === "visible") this.request();
+      };
+      window.addEventListener("online", online);
+      window.addEventListener("focus", focus);
+      document.addEventListener("visibilitychange", visible);
+      this.disposers.push(
+        () => window.removeEventListener("online", online),
+        () => window.removeEventListener("focus", focus),
+        () => document.removeEventListener("visibilitychange", visible),
+      );
+      const watch = this.client.watchQuery(revisionRef, { workspaceId: WORKSPACE_ID });
+      const unsubscribe = watch.onUpdate(() => this.request());
+      this.disposers.push(unsubscribe);
+    }
     this.request();
   }
 
   stop() {
+    this.started = false;
     for (const dispose of this.disposers.splice(0)) dispose();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -145,6 +173,9 @@ export class SyncCoordinator {
       }
       await db.syncMeta.update(WORKSPACE_ID, { syncing: true, error: null });
       try {
+        // Backfill workspace name/email for existing rows on every authenticated sync.
+        // WorkOS JWTs omit these claims, so pass the AuthKit user profile explicitly.
+        await this.ensureProfile();
         if (replace) {
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
           await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
@@ -153,6 +184,9 @@ export class SyncCoordinator {
           await this.pullAll();
         } else {
           await this.pullAll();
+          // Upload bootstrap defaults only if pull left them unsynced (empty
+          // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
+          await enqueueUnsyncedDefaults();
           await this.pushAll();
           await this.pullAll();
         }
@@ -267,8 +301,16 @@ export class SyncCoordinator {
 
 let sharedCoordinator: SyncCoordinator | null = null;
 
-export function startSync(client: ConvexReactClient) {
+export function startSync(
+  client: ConvexReactClient,
+  profile?: { name?: string; email?: string },
+) {
   sharedCoordinator ??= new SyncCoordinator(client);
+  if (profile) sharedCoordinator.setProfile(profile);
+  // Kick the workspace profile write immediately on login, then start normal sync.
+  void sharedCoordinator.ensureProfile().catch(() => {
+    // Auth token may still be attaching; the sync loop retries ensureProfile.
+  });
   sharedCoordinator.start();
   return sharedCoordinator;
 }

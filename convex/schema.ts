@@ -30,5 +30,9 @@ export default defineSchema({
     ownerId: v.optional(v.string()),
     workspaceId: v.string(),
     revision: v.number(),
+    /** Display name for the account owner. Optional so existing rows keep validating. */
+    name: v.optional(v.string()),
+    /** Email for the account owner. Optional so existing rows keep validating. */
+    email: v.optional(v.string()),
   }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
 });

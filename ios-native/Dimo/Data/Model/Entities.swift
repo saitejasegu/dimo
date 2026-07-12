@@ -29,7 +29,7 @@ func compareVersions(_ a: LogicalVersion, _ b: LogicalVersion) -> Int {
 
 let workspaceID = "global"
 let defaultCategoryEmoji = "🙂"
-let bootstrapVersion = 2
+let bootstrapVersion = 3
 
 func entityKey(type: EntityType, id: String) -> String {
   "\(workspaceID):\(type.rawValue):\(id)"
@@ -126,11 +126,49 @@ enum LendKind: String, Codable, Sendable {
 struct LendEntity: Codable, Hashable, Sendable, Identifiable {
   var id: String
   var contactName: String
+  /// Address-book identifier of the picked contact, so same-named contacts
+  /// stay distinct. Legacy rows may omit this; decoding falls back to name.
+  var contactId: String
   var amountMinor: Int
   var occurredAt: Int
   var comment: String
   /// Optional so rows saved before repayments existed still decode; nil means lent.
   var kind: LendKind?
+
+  enum CodingKeys: String, CodingKey {
+    case id, contactName, contactId, amountMinor, occurredAt, comment, kind
+  }
+
+  init(
+    id: String,
+    contactName: String,
+    contactId: String,
+    amountMinor: Int,
+    occurredAt: Int,
+    comment: String,
+    kind: LendKind?
+  ) {
+    self.id = id
+    self.contactName = contactName
+    self.contactId = contactId
+    self.amountMinor = amountMinor
+    self.occurredAt = occurredAt
+    self.comment = comment
+    self.kind = kind
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    contactName = try container.decode(String.self, forKey: .contactName)
+    let decodedId = try container.decodeIfPresent(String.self, forKey: .contactId)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    contactId = (decodedId?.isEmpty == false) ? decodedId! : contactName
+    amountMinor = try container.decode(Int.self, forKey: .amountMinor)
+    occurredAt = try container.decode(Int.self, forKey: .occurredAt)
+    comment = try container.decode(String.self, forKey: .comment)
+    kind = try container.decodeIfPresent(LendKind.self, forKey: .kind)
+  }
 }
 
 struct PreferencesEntity: Codable, Hashable, Sendable, Identifiable {
@@ -282,6 +320,7 @@ struct Recurring: Hashable, Sendable, Identifiable {
 struct Lend: Hashable, Sendable, Identifiable {
   var id: String
   var contactName: String
+  var contactId: String
   var amount: Double
   var comment: String
   var time: String

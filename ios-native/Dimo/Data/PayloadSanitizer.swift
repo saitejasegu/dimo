@@ -62,9 +62,11 @@ enum PayloadSanitizer {
       if occurredAt == 0 {
         occurredAt = Int(Date().timeIntervalSince1970 * 1000)
       }
+      let contactId = value.contactId.trimmingCharacters(in: .whitespacesAndNewlines)
       return .lend(LendEntity(
         id: value.id,
         contactName: value.contactName,
+        contactId: contactId.isEmpty ? value.contactName : contactId,
         amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
         occurredAt: occurredAt,
         comment: value.comment,

@@ -23,6 +23,8 @@ struct FabButton: View {
 struct AvatarView: View {
   var name: String
   var photoUrl: String?
+  /// Locally sourced image (e.g. a phone contact thumbnail); never synced.
+  var photoData: Data?
   var size: CGFloat = 40
   var radius: CGFloat = 13
   var fontSize: CGFloat = 16
@@ -31,7 +33,9 @@ struct AvatarView: View {
     ZStack {
       Theme.greenSoft
       initialView
-      if let photoUrl, let url = URL(string: photoUrl) {
+      if let photoData, let image = UIImage(data: photoData) {
+        Image(uiImage: image).resizable().scaledToFill()
+      } else if let photoUrl, let url = URL(string: photoUrl) {
         AsyncImage(url: url) { phase in
           if let image = phase.image {
             image.resizable().scaledToFill()

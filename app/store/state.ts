@@ -20,7 +20,6 @@ import type { CategoryEntity, PreferencesEntity } from "@/data/model";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
-  DEFAULT_CATEGORY_ENTITIES,
   DEFAULT_PREFERENCES,
 } from "@/data/model";
 
@@ -142,8 +141,8 @@ export function createInitialState(
     accountReturnView: null,
     transactions: [],
     recurring: [],
-    categories: DEFAULT_CATEGORY_ENTITIES,
-    limits: Object.fromEntries(DEFAULT_CATEGORY_ENTITIES.map((c) => [c.name, null])),
+    categories: [],
+    limits: {},
     paymentMethods: DEFAULT_PAYMENT_METHODS,
     lastPaymentMethod: null,
     filter: [],

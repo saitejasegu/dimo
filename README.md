@@ -17,7 +17,7 @@ Web, desktop, and native iOS share the same Convex backend and WorkOS account. L
 - Recurring monthly / yearly bills
 - Activity list, stats ranges, and CSV export
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
-- **Native iOS:** lending tracker, Liquid Glass tab UI (requires iOS 26+)
+- **Native iOS:** lending tracker (contacts from the device address book; `contactId` + name sync, photos stay on-device), Liquid Glass tab UI (requires iOS 26+)
 
 ## Architecture
 
@@ -34,14 +34,15 @@ Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferen
 
 When Convex is linked, the sync coordinator:
 
-1. Pulls cloud changes after its durable revision cursor
-2. Merges with hybrid logical versions (last-write-wins)
-3. Pushes pending outbox ops in idempotent batches
-4. Pulls once more to confirm canonical state
+1. Upserts workspace `name` / `email` from the signed-in WorkOS user (JWT claims omit these, so clients pass them explicitly)
+2. Pulls cloud changes after its durable revision cursor
+3. Merges with hybrid logical versions (last-write-wins)
+4. Pushes pending outbox ops in idempotent batches
+5. Pulls once more to confirm canonical state
 
 Triggers include local writes, reconnect, focus / visibility, and Convex revision notifications. Account → **Sync now** clears this app’s owned cloud entity types and re-uploads the local snapshot (web leaves native-only types like `lend` alone unless you wipe the full account).
 
-WorkOS AuthKit authenticates every cloud call. Convex derives ownership from the verified token; each user has an isolated revision stream and a separate local database.
+WorkOS AuthKit authenticates every cloud call. Convex derives ownership from the verified token; each user has an isolated revision stream, a `workspaces` row (revision + profile name/email), and a separate local database.
 
 The empty D1 / Drizzle / worker stubs under `db/`, `drizzle/`, and `worker/` are unused starter leftovers — do not dual-write to them.
 
@@ -135,7 +136,9 @@ App Store listing copy and submission steps: [store/SUBMIT.md](store/SUBMIT.md),
 
 ## Fresh install
 
-A new local database seeds Dining, Groceries, Bills, Transit, and Shopping categories, Cash as the default payment method, and default preferences — no sample transactions or recurring rows.
+A new local database seeds Cash as the default payment method and default preferences only — no starter categories, transactions, or recurring rows. Users add categories themselves (budgets are optional on each category).
+
+Bootstrap defaults are written locally first and only uploaded after the first pull, so a fresh device cannot overwrite existing cloud category budgets with empty seeds.
 
 Clear the `dimo-expenses` IndexedDB database in browser tools to simulate a fresh install. Reloading preserves local records and pending sync work.
 

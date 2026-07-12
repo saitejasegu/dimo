@@ -18,6 +18,7 @@ import {
   DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   WORKSPACE_ID,
+  entityKey,
   type CategoryEntity,
   type PaymentMethodEntity,
   type PreferencesEntity,
@@ -511,8 +512,28 @@ export function AppStoreProvider({
   useEffect(() => {
     let cancelled = false;
     void initializeLocalDatabase()
-      .then(() => {
-        if (!cancelled) startSync(convex);
+      .then(async () => {
+        if (cancelled) return;
+        // Persist AuthKit profile into preferences so later pushes also carry name/email.
+        const existing = await db.entities.get(entityKey("preferences", "preferences"));
+        const current = (
+          existing && !existing.deleted ? existing.payload : DEFAULT_PREFERENCES
+        ) as PreferencesEntity;
+        const nextName = user.name.trim();
+        const nextEmail = user.email.trim();
+        if (
+          nextName &&
+          nextEmail &&
+          (current.profileName !== nextName || current.profileEmail !== nextEmail)
+        ) {
+          await saveEntity("preferences", {
+            ...current,
+            id: "preferences",
+            profileName: nextName,
+            profileEmail: nextEmail,
+          });
+        }
+        if (!cancelled) startSync(convex, { name: nextName || user.name, email: nextEmail || user.email });
       })
       .catch((error) => {
         if (!cancelled) {
@@ -523,7 +544,7 @@ export function AppStoreProvider({
       cancelled = true;
       stopSync();
     };
-  }, [convex]);
+  }, [convex, user.name, user.email]);
 
   useEffect(() => {
     if (!entities?.length) return;

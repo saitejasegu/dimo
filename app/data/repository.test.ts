@@ -6,6 +6,7 @@ import {
   initializeLocalDatabase,
   saveEntity,
   enqueueFullUpload,
+  enqueueUnsyncedDefaults,
   sanitizePayload,
 } from "@/data/repository";
 
@@ -16,14 +17,15 @@ describe("local repository", () => {
   });
   afterAll(() => db.close());
 
-  it("bootstraps deterministic defaults exactly once", async () => {
+  it("bootstraps cash and preferences exactly once without seed categories", async () => {
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBe(7);
-    expect(await db.outbox.count()).toBe(7);
+    expect(await db.entities.count()).toBe(2);
+    expect(await db.outbox.count()).toBe(0);
     expect(await db.entities.get(entityKey("paymentMethod", "payment-method-cash"))).toBeTruthy();
+    expect(await db.entities.get(entityKey("preferences", "preferences"))).toBeTruthy();
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBe(7);
-    expect(await db.outbox.count()).toBe(7);
+    expect(await db.entities.count()).toBe(2);
+    expect(await db.outbox.count()).toBe(0);
   });
 
   it("normalizes older preferences to the one-year stats default", () => {
@@ -37,6 +39,22 @@ describe("local repository", () => {
     ).toBe("1Y");
   });
 
+  it("enqueues bootstrap defaults only when they were never pulled from the server", async () => {
+    await initializeLocalDatabase();
+    expect(await db.outbox.count()).toBe(0);
+    await enqueueUnsyncedDefaults();
+    expect(await db.outbox.count()).toBe(2);
+
+    const cash = await db.entities.get(entityKey("paymentMethod", "payment-method-cash"));
+    expect(cash).toBeTruthy();
+    await db.entities.put({ ...cash!, serverRevision: 10 });
+    await db.outbox.clear();
+    await enqueueUnsyncedDefaults();
+    const pending = await db.outbox.toArray();
+    expect(pending.some((op) => op.entityId === "payment-method-cash")).toBe(false);
+    expect(pending).toHaveLength(1);
+  });
+
   it("atomically replaces the outbox operation for a newer entity edit", async () => {
     await initializeLocalDatabase();
     const payload = { id: "category-test", name: "Test", emoji: "🧪", monthlyBudgetMinor: null, tint: "neutral" as const, sortOrder: 10, system: false };
@@ -46,7 +64,7 @@ describe("local repository", () => {
     const second = await db.outbox.get(entityKey("category", payload.id));
     expect(second?.operationId).not.toBe(first?.operationId);
     expect((second?.payload as typeof payload).name).toBe("Updated");
-    expect(await db.entities.count()).toBe(8);
+    expect(await db.entities.count()).toBe(3);
   });
 
   it("enqueues every local entity for a full cloud re-upload", async () => {

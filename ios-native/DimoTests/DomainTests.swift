@@ -161,13 +161,41 @@ final class RepositoryBootstrapTests: XCTestCase {
     let repo = Repository(db: queue)
     try repo.initializeLocalDatabase()
     let first = try repo.allEntities()
-    XCTAssertEqual(first.filter { !$0.deleted }.count, 7)
+    XCTAssertEqual(first.filter { !$0.deleted }.count, 2)
+    XCTAssertEqual(try repo.pendingOutbox(limit: 100).count, 0)
+    XCTAssertEqual(try repo.activeEntities(type: .category).count, 0)
     try repo.initializeLocalDatabase()
     let second = try repo.allEntities()
-    XCTAssertEqual(second.filter { !$0.deleted }.count, 7)
+    XCTAssertEqual(second.filter { !$0.deleted }.count, 2)
     let cash = try repo.activeEntities(type: .paymentMethod)
       .contains { $0.entityId == SeedData.cashPaymentMethod.id }
     XCTAssertTrue(cash)
+  }
+
+  func testEnqueueUnsyncedDefaultsOnlyWhenNeverPulled() throws {
+    let userId = "test-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repo = Repository(db: queue)
+    try repo.initializeLocalDatabase()
+    XCTAssertEqual(try repo.pendingOutbox(limit: 100).count, 0)
+
+    try repo.enqueueUnsyncedDefaults()
+    XCTAssertEqual(try repo.pendingOutbox(limit: 100).count, 2)
+
+    let cashKey = entityKey(type: .paymentMethod, id: SeedData.cashPaymentMethod.id)
+    try queue.write { db in
+      guard var record = try EntityRecord.fetchOne(db, key: cashKey) else {
+        return XCTFail("missing cash seed")
+      }
+      record.serverRevision = 10
+      try record.update(db)
+      try OutboxRecord.deleteAll(db)
+    }
+    try repo.enqueueUnsyncedDefaults()
+    let pending = try repo.pendingOutbox(limit: 100)
+    XCTAssertFalse(pending.contains { $0.entityId == SeedData.cashPaymentMethod.id })
+    XCTAssertEqual(pending.count, 1)
   }
 
   func testOutboxReplaceOnResave() throws {
@@ -375,5 +403,90 @@ final class BudgetSelectorTests: XCTestCase {
         SuggestedCategoryBudgetUpdate(id: "bills", name: "Bills", suggestedLimit: 100, currentLimit: 500),
       ]
     )
+  }
+}
+
+final class LendSelectorsTests: XCTestCase {
+  private func lend(
+    _ id: String,
+    name: String,
+    contactId: String,
+    amount: Double,
+    kind: LendKind = .lent,
+    occurredAt: Int = 1_000
+  ) -> Lend {
+    Lend(
+      id: id,
+      contactName: name,
+      contactId: contactId,
+      amount: amount,
+      comment: "",
+      time: "",
+      day: "",
+      amountMinor: Int(amount * 100),
+      occurredAt: occurredAt,
+      kind: kind
+    )
+  }
+
+  func testSummariesSplitSameNameByContactId() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Aakash", contactId: "cn-a", amount: 100),
+      lend("2", name: "Aakash", contactId: "cn-b", amount: 50),
+    ])
+    XCTAssertEqual(summaries.count, 2)
+    XCTAssertEqual(summaries[0].total, 100)
+    XCTAssertEqual(summaries[0].contactId, "cn-a")
+    XCTAssertEqual(summaries[1].total, 50)
+    XCTAssertEqual(summaries[1].contactId, "cn-b")
+  }
+
+  func testSameContactMergesAcrossNameCasing() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "aakash", contactId: "cn-a", amount: 100, occurredAt: 1_000),
+      lend("2", name: "Aakash", contactId: "cn-a", amount: 50, occurredAt: 2_000),
+      lend("3", name: "Aakash", contactId: "cn-a", amount: 30, kind: .repaid, occurredAt: 3_000),
+    ])
+    XCTAssertEqual(summaries.count, 1)
+    XCTAssertEqual(summaries[0].contactId, "cn-a")
+    XCTAssertEqual(summaries[0].contactName, "Aakash")
+    XCTAssertEqual(summaries[0].total, 120)
+    XCTAssertEqual(summaries[0].count, 3)
+  }
+
+  func testRecentContactsDedupesPerPersonNewestFirst() {
+    let suggestions = LendSelectors.recentContacts([
+      lend("1", name: "Ravi", contactId: "cn-r", amount: 10, occurredAt: 1_000),
+      lend("2", name: "Aakash", contactId: "cn-a", amount: 10, occurredAt: 4_000),
+      lend("3", name: "aakash", contactId: "cn-a", amount: 10, kind: .repaid, occurredAt: 2_000),
+      lend("4", name: "Aakash", contactId: "cn-b", amount: 10, occurredAt: 3_000),
+    ])
+    XCTAssertEqual(
+      suggestions,
+      [
+        LendContactSuggestion(contactName: "Aakash", contactId: "cn-a"),
+        LendContactSuggestion(contactName: "Aakash", contactId: "cn-b"),
+        LendContactSuggestion(contactName: "Ravi", contactId: "cn-r"),
+      ]
+    )
+  }
+
+  func testRecentContactsHonorsLimit() {
+    let lends = (1...8).map { i in
+      lend("\(i)", name: "Person \(i)", contactId: "cn-\(i)", amount: 10, occurredAt: i * 1_000)
+    }
+    XCTAssertEqual(LendSelectors.recentContacts(lends).count, 6)
+    XCTAssertEqual(LendSelectors.recentContacts(lends).first?.contactName, "Person 8")
+  }
+
+  func testRepaymentsWithIdOnlyReduceThatContact() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Aakash", contactId: "cn-a", amount: 100),
+      lend("2", name: "Aakash", contactId: "cn-b", amount: 100),
+      lend("3", name: "Aakash", contactId: "cn-a", amount: 100, kind: .repaid),
+    ])
+    XCTAssertEqual(summaries.count, 1)
+    XCTAssertEqual(summaries[0].contactId, "cn-b")
+    XCTAssertEqual(summaries[0].total, 100)
   }
 }

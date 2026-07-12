@@ -149,22 +149,6 @@ export function compareVersions(a: LogicalVersion, b: LogicalVersion): number {
   return a.deviceId.localeCompare(b.deviceId);
 }
 
-export const DEFAULT_CATEGORY_ENTITIES: CategoryEntity[] = [
-  ["category-dining", "Dining", "🍽️", "green"],
-  ["category-groceries", "Groceries", "🛒", "neutral"],
-  ["category-bills", "Bills", "📄", "green"],
-  ["category-transit", "Transit", "🚌", "neutral"],
-  ["category-shopping", "Shopping", "🛍️", "neutral"],
-].map(([id, name, emoji, tint], sortOrder) => ({
-  id,
-  name,
-  emoji,
-  tint: tint as CategoryEntity["tint"],
-  sortOrder,
-  system: true,
-  monthlyBudgetMinor: null,
-}));
-
 export const CASH_PAYMENT_METHOD: PaymentMethodEntity = {
   id: "payment-method-cash",
   name: "Cash",

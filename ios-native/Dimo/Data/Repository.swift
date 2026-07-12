@@ -31,29 +31,22 @@ final class Repository: @unchecked Sendable {
       _ = try ensureDevice(db)
       let device = try DeviceMetaRecord.fetchOne(db, key: "device")!
       if device.bootstrapVersion < bootstrapVersion {
-        for category in SeedData.defaultCategories {
-          let key = entityKey(type: .category, id: category.id)
-          if let existing = try EntityRecord.fetchOne(db, key: key) {
-            if existing.deleted { continue }
-            let payload = try existing.toStoredEntity().payload
-            if case .category(let cat) = payload, cat.emoji.isEmpty {
-              try putInTransaction(db, entityType: .category, payload: .category({
-                var updated = cat
-                updated.emoji = category.emoji
-                return updated
-              }()))
-            }
-          } else {
-            try putInTransaction(db, entityType: .category, payload: .category(category))
-          }
-        }
+        // Cash + preferences only — new accounts start with no seeded categories.
         let cashKey = entityKey(type: .paymentMethod, id: SeedData.cashPaymentMethod.id)
         if try EntityRecord.fetchOne(db, key: cashKey) == nil {
-          try putInTransaction(db, entityType: .paymentMethod, payload: .paymentMethod(SeedData.cashPaymentMethod))
+          try putLocalOnly(
+            db,
+            entityType: .paymentMethod,
+            payload: .paymentMethod(SeedData.cashPaymentMethod)
+          )
         }
         let prefsKey = entityKey(type: .preferences, id: SeedData.defaultPreferences.id)
         if try EntityRecord.fetchOne(db, key: prefsKey) == nil {
-          try putInTransaction(db, entityType: .preferences, payload: .preferences(SeedData.defaultPreferences))
+          try putLocalOnly(
+            db,
+            entityType: .preferences,
+            payload: .preferences(SeedData.defaultPreferences)
+          )
         }
         var updated = device
         updated.bootstrapVersion = bootstrapVersion
@@ -72,6 +65,29 @@ final class Repository: @unchecked Sendable {
       }
     }
     notifyWrite()
+  }
+
+  /// After pull, queue cash / preferences that still have no server revision so
+  /// empty workspaces get those defaults without inventing categories.
+  func enqueueUnsyncedDefaults() throws {
+    var enqueued = false
+    try db.write { db in
+      let defaults: [(EntityType, EntityPayload)] = [
+        (.paymentMethod, .paymentMethod(SeedData.cashPaymentMethod)),
+        (.preferences, .preferences(SeedData.defaultPreferences)),
+      ]
+      for (type, seedPayload) in defaults {
+        let id = seedPayload.id
+        let key = entityKey(type: type, id: id)
+        guard let record = try EntityRecord.fetchOne(db, key: key) else { continue }
+        let stored = try record.toStoredEntity()
+        guard !stored.deleted, stored.serverRevision == 0 else { continue }
+        if try OutboxRecord.fetchOne(db, key: key) != nil { continue }
+        try putInTransaction(db, entityType: type, payload: stored.payload)
+        enqueued = true
+      }
+    }
+    if enqueued { notifyWrite() }
   }
 
   func saveEntity(entityType: EntityType, payload: EntityPayload) throws {
@@ -310,6 +326,32 @@ final class Repository: @unchecked Sendable {
   }
 
   // MARK: - Private
+
+  /// Writes an entity for offline UI without enqueueing sync. Uses a zero
+  /// logical version so any cloud row wins on the first pull.
+  private func putLocalOnly(
+    _ db: Database,
+    entityType: EntityType,
+    payload: EntityPayload,
+    deleted: Bool = false
+  ) throws {
+    _ = try ensureDevice(db)
+    let device = try DeviceMetaRecord.fetchOne(db, key: "device")!
+    let clean = PayloadSanitizer.sanitize(entityType: entityType, payload: payload)
+    let id = clean.id
+    let key = entityKey(type: entityType, id: id)
+    let entity = StoredEntity(
+      key: key,
+      workspaceId: workspaceID,
+      entityType: entityType,
+      entityId: id,
+      version: LogicalVersion(timestamp: 0, counter: 0, deviceId: device.deviceId),
+      payload: clean,
+      deleted: deleted,
+      serverRevision: 0
+    )
+    try EntityRecord.from(entity).save(db)
+  }
 
   private func putInTransaction(
     _ db: Database,

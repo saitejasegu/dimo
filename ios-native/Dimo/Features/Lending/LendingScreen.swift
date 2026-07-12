@@ -17,6 +17,7 @@ enum LendingSection: String, CaseIterable, Identifiable {
 struct LendingScreen: View {
   @Bindable var store: AppStore
   @State private var section: LendingSection = .summary
+  private let contactPhotos = ContactsLoader.shared
 
   var body: some View {
     let summaries = LendSelectors.contactSummaries(store.lends)
@@ -63,10 +64,12 @@ struct LendingScreen: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
-        .padding(.bottom, 24)
+        // Clears the floating add button overlaying the list's bottom edge.
+        .padding(.bottom, 110)
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
+    .onAppear { contactPhotos.loadIfAuthorized() }
   }
 
   private func hero(total: Double, contacts: Int) -> some View {
@@ -97,16 +100,19 @@ struct LendingScreen: View {
     HStack(spacing: 8) {
       ForEach(LendingSection.allCases) { candidate in
         let selected = section == candidate
-        Button(candidate.title) {
+        Button {
           withAnimation(.easeOut(duration: 0.15)) { section = candidate }
+        } label: {
+          Text(candidate.title)
+            .font(DimoFont.body(15, weight: .semibold))
+            .foregroundStyle(selected ? Theme.canvas : Theme.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(selected ? Theme.ink : Theme.surface)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
+            .contentShape(Capsule())
         }
-        .font(DimoFont.body(15, weight: .semibold))
-        .foregroundStyle(selected ? Theme.canvas : Theme.muted)
-        .frame(maxWidth: .infinity)
-        .frame(height: 46)
-        .background(selected ? Theme.ink : Theme.surface)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
         .buttonStyle(.plain)
       }
     }
@@ -140,10 +146,20 @@ struct LendingScreen: View {
 
   private func summaryRow(_ summary: LendContactSummary) -> some View {
     Button {
-      store.openAddRepayment(contactName: summary.contactName, outstanding: summary.total)
+      store.openAddRepayment(
+        contactName: summary.contactName,
+        contactId: summary.contactId,
+        outstanding: summary.total
+      )
     } label: {
       HStack(spacing: 12) {
-        AvatarView(name: summary.contactName, size: 38, radius: 11, fontSize: 15)
+        AvatarView(
+          name: summary.contactName,
+          photoData: contactPhotos.thumbnail(contactId: summary.contactId),
+          size: 38,
+          radius: 11,
+          fontSize: 15
+        )
         VStack(alignment: .leading, spacing: 2) {
           Text(summary.contactName)
             .font(DimoFont.body(14, weight: .medium))
@@ -208,7 +224,13 @@ struct LendingScreen: View {
       store.openEditLend(lend.id)
     } label: {
       HStack(spacing: 12) {
-        AvatarView(name: lend.contactName, size: 38, radius: 11, fontSize: 15)
+        AvatarView(
+          name: lend.contactName,
+          photoData: contactPhotos.thumbnail(contactId: lend.contactId),
+          size: 38,
+          radius: 11,
+          fontSize: 15
+        )
         VStack(alignment: .leading, spacing: 2) {
           Text(lend.contactName)
             .font(DimoFont.body(14, weight: .medium))

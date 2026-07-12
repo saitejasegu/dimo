@@ -35,6 +35,8 @@
 	<string>$(CONVEX_URL)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSContactsUsageDescription</key>
+	<string>Dimo shows your contacts so you can pick who you lent money to.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>SpaceGrotesk-Bold.ttf</string>
