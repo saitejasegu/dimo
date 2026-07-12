@@ -17,6 +17,30 @@ export type EntityType =
   | "recurring"
   | "preferences";
 
+/** Entity types this web app owns and replaces on Sync now. */
+export const OWNED_ENTITY_TYPES: readonly EntityType[] = [
+  "category",
+  "paymentMethod",
+  "transaction",
+  "recurring",
+  "preferences",
+] as const;
+
+/**
+ * Every entity type the sync server accepts. Used for account wipe so cloud
+ * rows from other clients (e.g. iOS lending) are not left behind.
+ */
+export const ALL_CLOUD_ENTITY_TYPES = [
+  "category",
+  "paymentMethod",
+  "transaction",
+  "recurring",
+  "lend",
+  "preferences",
+] as const;
+
+export type CloudEntityType = (typeof ALL_CLOUD_ENTITY_TYPES)[number];
+
 export interface LogicalVersion {
   timestamp: number;
   counter: number;

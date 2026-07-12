@@ -40,7 +40,7 @@ describe("Convex sync protocol", () => {
       t.query(currentRevision, { workspaceId: "global" }),
     ).rejects.toThrow("Not authenticated");
     await expect(
-      t.mutation(clearWorkspace, { workspaceId: "global" }),
+      t.mutation(clearWorkspace, { workspaceId: "global", entityTypes: ["transaction"] }),
     ).rejects.toThrow("Not authenticated");
   });
 
@@ -129,7 +129,10 @@ describe("Convex sync protocol", () => {
       }],
     });
 
-    const cleared = await alice.mutation(clearWorkspace, { workspaceId: "global" });
+    const cleared = await alice.mutation(clearWorkspace, {
+      workspaceId: "global",
+      entityTypes: ["transaction"],
+    });
     expect(cleared.deleted).toBe(1);
     expect(cleared.hasMore).toBe(false);
 
@@ -148,5 +151,47 @@ describe("Convex sync protocol", () => {
     });
     expect(bobAfter.entities).toHaveLength(1);
     expect(bobAfter.latestRevision).toBe(1);
+  });
+
+  it("clears only the requested entity types and preserves others", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    await t.mutation(push, { workspaceId: "global", operations: [operation] });
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "lend-1",
+        workspaceId: "global",
+        entityType: "lend",
+        entityId: "lend-1",
+        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+        payload: {
+          id: "lend-1",
+          contactName: "Sam",
+          amountMinor: 5000,
+          occurredAt: 100,
+          comment: "",
+          kind: "lent",
+        },
+        deleted: false,
+      }],
+    });
+
+    const cleared = await t.mutation(clearWorkspace, {
+      workspaceId: "global",
+      entityTypes: ["transaction", "category", "paymentMethod", "recurring", "preferences"],
+    });
+    expect(cleared.deleted).toBe(1);
+    expect(cleared.hasMore).toBe(false);
+
+    const result = await t.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].entityType).toBe("lend");
+    expect(result.latestRevision).toBe(2);
   });
 });

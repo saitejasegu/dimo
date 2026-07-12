@@ -170,11 +170,13 @@ final class Repository: @unchecked Sendable {
     }
   }
 
-  func enqueueFullUpload() throws {
+  func enqueueFullUpload(entityTypes: [EntityType] = Array(EntityType.allCases)) throws {
+    let allowed = Set(entityTypes.map(\.rawValue))
     try db.write { db in
       let entities = try EntityRecord
         .filter(Column("workspaceId") == workspaceID)
         .fetchAll(db)
+        .filter { allowed.contains($0.entityType) }
       let now = Int(Date().timeIntervalSince1970 * 1000)
       for record in entities {
         let entity = try record.toStoredEntity()

@@ -3,7 +3,10 @@ import { makeFunctionReference } from "convex/server";
 import { db } from "@/data/db";
 import {
   WORKSPACE_ID,
+  ALL_CLOUD_ENTITY_TYPES,
+  OWNED_ENTITY_TYPES,
   entityKey,
+  type CloudEntityType,
   type StoredEntity,
   type SyncOperation,
 } from "@/data/model";
@@ -49,6 +52,7 @@ const revisionRef = makeFunctionReference<"query", { workspaceId: string }, numb
 );
 const clearRef = makeFunctionReference<"mutation", {
   workspaceId: string;
+  entityTypes: CloudEntityType[];
   limit?: number;
 }, ClearResult>("sync:clearWorkspace");
 
@@ -124,7 +128,7 @@ export class SyncCoordinator {
     return this.running;
   }
 
-  /** Manual Sync now: wipe cloud workspace data, then upload the full local snapshot. */
+  /** Manual Sync now: wipe this app's cloud entity types, then upload the local snapshot. */
   requestFullSync() {
     this.fullReplace = true;
     return this.request();
@@ -142,9 +146,9 @@ export class SyncCoordinator {
       await db.syncMeta.update(WORKSPACE_ID, { syncing: true, error: null });
       try {
         if (replace) {
-          await this.clearRemote();
+          await this.clearRemote([...OWNED_ENTITY_TYPES]);
           await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
-          await enqueueFullUpload();
+          await enqueueFullUpload([...OWNED_ENTITY_TYPES]);
           await this.pushAll();
           await this.pullAll();
         } else {
@@ -169,10 +173,11 @@ export class SyncCoordinator {
     }
   }
 
-  private async clearRemote() {
+  private async clearRemote(entityTypes: CloudEntityType[]) {
     while (true) {
       const result = await this.client.mutation(clearRef, {
         workspaceId: WORKSPACE_ID,
+        entityTypes,
         limit: 100,
       });
       if (!result.hasMore) return;
@@ -281,11 +286,12 @@ export function requestFullSync() {
   return sharedCoordinator?.requestFullSync() ?? Promise.resolve();
 }
 
-/** Delete every cloud entity for the signed-in owner (paged). */
+/** Delete every cloud entity for the signed-in owner (paged), including other apps' types. */
 export async function clearCloudWorkspace(client: ConvexReactClient) {
   while (true) {
     const result = await client.mutation(clearRef, {
       workspaceId: WORKSPACE_ID,
+      entityTypes: [...ALL_CLOUD_ENTITY_TYPES],
       limit: 100,
     });
     if (!result.hasMore) return;

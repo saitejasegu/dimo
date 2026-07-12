@@ -4,6 +4,7 @@ import {
   DEFAULT_CATEGORY_ENTITIES,
   DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
+  OWNED_ENTITY_TYPES,
   WORKSPACE_ID,
   compareVersions,
   entityKey,
@@ -341,11 +342,14 @@ export async function acknowledgeOperations(
   });
 }
 
-/** Queue every local entity (including tombstones) so Sync now can replace cloud state. */
-export async function enqueueFullUpload() {
+/** Queue owned local entities (including tombstones) so Sync now can replace cloud state. */
+export async function enqueueFullUpload(
+  entityTypes: readonly EntityType[] = OWNED_ENTITY_TYPES,
+) {
+  const allowed = new Set<string>(entityTypes);
   await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
     const entities = (await db.entities.toArray()).filter(
-      (row) => row.workspaceId === WORKSPACE_ID,
+      (row) => row.workspaceId === WORKSPACE_ID && allowed.has(row.entityType),
     );
     const now = Date.now();
     for (const entity of entities) {

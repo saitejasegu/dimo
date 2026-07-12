@@ -1,6 +1,6 @@
 import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
-import { operationValidator } from "./values";
+import { entityTypeValidator, operationValidator } from "./values";
 
 /* Generic Convex functions intentionally use untyped index builders until a
    deployment is linked and Convex generates its schema-specific bindings. */
@@ -187,37 +187,69 @@ export const currentRevision = queryGeneric({
   },
 });
 
-/** Deletes owner-scoped workspace entities in pages so Sync now can re-upload local data. */
+/**
+ * Hard-deletes owner-scoped entities for the given types (paged) so Sync now can
+ * re-upload that app's local snapshot without wiping other apps' entity types.
+ */
 export const clearWorkspace = mutationGeneric({
   args: {
     workspaceId: v.string(),
+    entityTypes: v.array(entityTypeValidator),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { workspaceId, limit }) => {
+  handler: async (ctx, { workspaceId, entityTypes, limit }) => {
     const ownerId = await requireOwnerId(ctx);
     if (workspaceId !== "global") throw new Error("Unsupported workspace");
+    const types = [...new Set(entityTypes)];
+    if (types.length === 0) throw new Error("entityTypes must not be empty");
     const take = Math.max(1, Math.min(200, Math.floor(limit ?? 100)));
-    const rows = await ctx.db
-      .query("entities")
-      .withIndex("by_owner_and_workspace_and_revision", (q: any) =>
-        q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
-      )
-      .take(take);
-    for (const row of rows) {
-      await ctx.db.delete(row._id);
-    }
-    const hasMore = rows.length === take;
-    if (!hasMore) {
-      const workspace = await ctx.db
-        .query("workspaces")
-        .withIndex("by_owner_and_workspace", (q: any) =>
-          q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+
+    let deleted = 0;
+    let hasMore = false;
+    for (const entityType of types) {
+      const remaining = take - deleted;
+      if (remaining <= 0) {
+        hasMore = true;
+        break;
+      }
+      const rows = await ctx.db
+        .query("entities")
+        .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
+          q
+            .eq("ownerId", ownerId)
+            .eq("workspaceId", workspaceId)
+            .eq("entityType", entityType),
         )
-        .unique();
-      if (workspace && workspace.revision !== 0) {
-        await ctx.db.patch(workspace._id, { revision: 0 });
+        .take(remaining);
+      for (const row of rows) {
+        await ctx.db.delete(row._id);
+      }
+      deleted += rows.length;
+      if (rows.length === remaining) {
+        hasMore = true;
+        break;
       }
     }
-    return { deleted: rows.length, hasMore };
+
+    if (!hasMore) {
+      const leftover = await ctx.db
+        .query("entities")
+        .withIndex("by_owner_and_workspace_and_revision", (q: any) =>
+          q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+        )
+        .first();
+      if (!leftover) {
+        const workspace = await ctx.db
+          .query("workspaces")
+          .withIndex("by_owner_and_workspace", (q: any) =>
+            q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
+          )
+          .unique();
+        if (workspace && workspace.revision !== 0) {
+          await ctx.db.patch(workspace._id, { revision: 0 });
+        }
+      }
+    }
+    return { deleted, hasMore };
   },
 });

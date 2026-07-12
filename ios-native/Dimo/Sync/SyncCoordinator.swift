@@ -6,7 +6,7 @@ protocol SyncTransport: Sendable {
   func currentRevision(workspaceId: String) async throws -> Double
   func pull(workspaceId: String, afterRevision: Double, limit: Double) async throws -> PullResultDTO
   func push(workspaceId: String, operations: [SyncOperation]) async throws -> PushResultDTO
-  func clearWorkspace(workspaceId: String, limit: Double) async throws -> ClearResultDTO
+  func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO
   func subscribeRevision(workspaceId: String, onChange: @escaping (Double) -> Void) -> AnyCancellable
 }
 
@@ -89,8 +89,13 @@ actor SyncCoordinator {
   }
 
   func clearCloudWorkspace() async throws {
+    let types = EntityType.allCases.map(\.rawValue)
     while true {
-      let result = try await transport.clearWorkspace(workspaceId: workspaceID, limit: 100)
+      let result = try await transport.clearWorkspace(
+        workspaceId: workspaceID,
+        entityTypes: types,
+        limit: 100
+      )
       if !result.hasMore { return }
     }
   }
@@ -113,9 +118,9 @@ actor SyncCoordinator {
       }
       do {
         if replace {
-          try await clearRemote()
+          try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
           try repository.updateSyncMeta { $0.lastPulledRevision = 0 }
-          try repository.enqueueFullUpload()
+          try repository.enqueueFullUpload(entityTypes: Array(EntityType.allCases))
           try await pushAll()
           try await pullAll()
         } else {
@@ -145,9 +150,13 @@ actor SyncCoordinator {
     }
   }
 
-  private func clearRemote() async throws {
+  private func clearRemote(entityTypes: [String]) async throws {
     while true {
-      let result = try await transport.clearWorkspace(workspaceId: workspaceID, limit: 100)
+      let result = try await transport.clearWorkspace(
+        workspaceId: workspaceID,
+        entityTypes: entityTypes,
+        limit: 100
+      )
       if !result.hasMore { return }
     }
   }
@@ -261,11 +270,13 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     )
   }
 
-  func clearWorkspace(workspaceId: String, limit: Double) async throws -> ClearResultDTO {
-    try await client.mutation(
+  func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO {
+    let encodedTypes: [ConvexEncodable?] = entityTypes.map { $0 as ConvexEncodable? }
+    return try await client.mutation(
       "sync:clearWorkspace",
       with: [
         "workspaceId": workspaceId,
+        "entityTypes": encodedTypes,
         "limit": limit,
       ]
     )

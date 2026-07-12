@@ -13,7 +13,7 @@ Every local entity write and its outbox operation commit in one IndexedDB transa
 3. Pushes pending operations in idempotent batches.
 4. Pulls once more to confirm canonical cloud state.
 
-Synchronization runs while the app is open after local writes, reconnects, window focus, visibility changes, and Convex revision notifications. Account contains detailed status and a manual **Sync now** action that clears the cloud workspace and re-uploads the full local snapshot.
+Synchronization runs while the app is open after local writes, reconnects, window focus, visibility changes, and Convex revision notifications. Account contains detailed status and a manual **Sync now** action that clears that app's cloud entity types and re-uploads its full local snapshot (other apps' types, such as iOS-only lending, are left alone).
 
 WorkOS AuthKit authenticates every cloud sync call. Convex derives ownership from the verified token rather than a client-provided user ID, and each WorkOS user has an isolated revision stream. Local IndexedDB databases are also separated by WorkOS user ID, preventing account switches on a shared device from exposing another user's local transactions.
 
@@ -91,7 +91,7 @@ For development, clear the `dimo-expenses` IndexedDB database in browser develop
 - **Authentication setup required:** one of the public Convex or WorkOS build variables is missing.
 - **Offline:** local writes continue and will upload after connectivity returns.
 - **Pending:** operations are safely stored in IndexedDB but not yet acknowledged.
-- **Error:** open Account for the transport error and retry with **Sync now** (full cloud replace from this device).
+- **Error:** open Account for the transport error and retry with **Sync now** (full cloud replace of this app's entity types from this device).
 - If the schema or generated bindings changed, run `npm run convex:dev` again.
 
 Tombstones are intentionally retained indefinitely so a device that has been offline for a long time cannot resurrect deleted data.
