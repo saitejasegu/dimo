@@ -91,10 +91,9 @@ Add to `.env.local`:
 
 ```bash
 NEXT_PUBLIC_WORKOS_CLIENT_ID=client_...
-NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback
 ```
 
-In the WorkOS dashboard: enable only Google and Apple under Authentication → Social Login, and allow `http://localhost:3000/callback`.
+In the WorkOS dashboard: enable only Google and Apple under Authentication → Social Login, and allow the callback for every host used to access Dimo (for example, `http://localhost:3000/callback` and `https://saitejas-macbook-pro.tail54df4a.ts.net/callback`).
 
 ### Production web build
 
@@ -103,7 +102,7 @@ npm run convex:deploy
 NEXT_PUBLIC_CONVEX_URL=https://YOUR_DEPLOYMENT.convex.cloud npm run build
 ```
 
-`NEXT_PUBLIC_CONVEX_URL`, `NEXT_PUBLIC_WORKOS_CLIENT_ID`, and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` are embedded at build time — set them before hosting or Electron packaging.
+`NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_WORKOS_CLIENT_ID` are embedded at build time — set them before hosting or Electron packaging. The authentication callback derives from the browser's current origin.
 
 ## Scripts
 

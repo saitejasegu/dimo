@@ -6,14 +6,21 @@
       "configure": {
         "redirectUris": [
           "http://localhost:3000/callback",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net/callback",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net:3001/callback",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net:3002/callback",
           "dimo://callback"
         ],
         "appHomepageUrl": "http://localhost:3000",
-        "corsOrigins": ["http://localhost:3000"]
+        "corsOrigins": [
+          "http://localhost:3000",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net:3001",
+          "https://saitejas-macbook-pro.tail54df4a.ts.net:3002"
+        ]
       },
       "localEnvVars": {
-        "NEXT_PUBLIC_WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}",
-        "NEXT_PUBLIC_WORKOS_REDIRECT_URI": "http://localhost:3000/callback"
+        "NEXT_PUBLIC_WORKOS_CLIENT_ID": "${authEnv.WORKOS_CLIENT_ID}"
       }
     },
     "preview": {

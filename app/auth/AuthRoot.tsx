@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuthKit } from "@convex-dev/workos";
 import {
@@ -55,10 +55,20 @@ function SignedInApp() {
 
 function SignInScreen() {
   const { getSignInUrl } = useAuth();
+  const [signInError, setSignInError] = useState<string | null>(null);
   const signInWithGoogle = async () => {
-    const url = new URL(await getSignInUrl());
-    url.searchParams.set("provider", "GoogleOAuth");
-    window.location.assign(url);
+    if (!window.isSecureContext || !window.crypto?.subtle) {
+      setSignInError("Sign-in requires HTTPS. Open Dimo through its HTTPS Tailscale URL.");
+      return;
+    }
+
+    try {
+      const url = new URL(await getSignInUrl());
+      url.searchParams.set("provider", "GoogleOAuth");
+      window.location.assign(url);
+    } catch {
+      setSignInError("Unable to start sign-in. Check the network connection and try again.");
+    }
   };
   return (
     <main className="flex min-h-dvh items-center justify-center bg-canvas p-6">
@@ -74,6 +84,7 @@ function SignInScreen() {
           <Button fullWidth onClick={() => void signInWithGoogle()}>
             Continue with Google
           </Button>
+          {signInError ? <p className="text-center text-sm text-red-600">{signInError}</p> : null}
         </div>
         <p className="mt-6 text-center text-xs leading-5 text-muted">
           Your name, email, and profile photo come from your sign-in provider and are read-only in Dimo.
@@ -89,8 +100,7 @@ function ConfigurationRequired({ children }: { children?: ReactNode }) {
       <section className="max-w-lg rounded-2xl border border-line bg-surface p-6 text-sm text-body">
         <h1 className="font-display text-xl font-semibold text-ink">Authentication setup required</h1>
         <p className="mt-2">
-          Add NEXT_PUBLIC_WORKOS_CLIENT_ID, NEXT_PUBLIC_WORKOS_REDIRECT_URI, and
-          NEXT_PUBLIC_CONVEX_URL, then restart Dimo.
+          Add NEXT_PUBLIC_WORKOS_CLIENT_ID and NEXT_PUBLIC_CONVEX_URL, then restart Dimo.
         </p>
         {children}
       </section>
@@ -100,11 +110,20 @@ function ConfigurationRequired({ children }: { children?: ReactNode }) {
 
 export function AuthRoot() {
   const clientId = process.env.NEXT_PUBLIC_WORKOS_CLIENT_ID;
-  const redirectUri = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI;
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   const [convex] = useState(() => (convexUrl ? new ConvexReactClient(convexUrl) : null));
+  // Use the server snapshot during hydration, then switch to the active browser
+  // origin. This keeps static export hydration deterministic while supporting
+  // local, LAN, and Tailscale HTTPS hosts.
+  const origin = useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => null,
+  );
+  const redirectUri = origin ? new URL("/callback", origin).toString() : null;
 
-  if (!clientId || !redirectUri || !convex) return <ConfigurationRequired />;
+  if (!clientId || !convex) return <ConfigurationRequired />;
+  if (!redirectUri) return <LoadingScreen />;
 
   return (
     <AuthKitProvider

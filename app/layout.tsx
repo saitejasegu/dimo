@@ -60,7 +60,11 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${spaceGrotesk.variable} ${plexSans.variable}`}>
+    <html
+      lang="en"
+      className={`${spaceGrotesk.variable} ${plexSans.variable}`}
+      suppressHydrationWarning
+    >
       <body>
         <Script
           id="ios-standalone-app-height"
