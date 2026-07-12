@@ -151,7 +151,7 @@ struct HomeScreen: View {
 
   @ViewBuilder
   private var upcomingSection: some View {
-    let upcoming = RecurringSelectors.upcomingBills(store.recurring, limit: 3)
+    let upcoming = RecurringSelectors.upcomingBills(store.recurring)
     if !upcoming.isEmpty {
       let upcomingTotal = upcoming.reduce(0) { $0 + $1.amount }
       HStack(alignment: .firstTextBaseline) {

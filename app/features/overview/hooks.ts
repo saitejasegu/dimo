@@ -26,7 +26,7 @@ export function useOverview() {
       recurringTotal: monthlyRecurringTotal(recurring),
       activeCount: active.length,
       recent: transactions,
-      upcoming: upcomingBills(recurring, 4),
+      upcoming: upcomingBills(recurring),
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,
     };

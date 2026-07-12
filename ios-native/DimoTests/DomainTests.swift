@@ -133,6 +133,23 @@ final class RecurringSelectorsTests: XCTestCase {
     XCTAssertEqual(upcoming.map(\.id), ["early", "mid", "late"])
   }
 
+  func testUpcomingBillsReturnsEntireCurrentMonthWithoutLimit() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 12))!
+    let recs = [
+      recurring(id: "fifth", name: "Fifth", anchorDate: "2026-07-28"),
+      recurring(id: "first", name: "First", anchorDate: "2026-07-13"),
+      recurring(id: "fourth", name: "Fourth", anchorDate: "2026-07-24"),
+      recurring(id: "second", name: "Second", anchorDate: "2026-07-15"),
+      recurring(id: "third", name: "Third", anchorDate: "2026-07-20"),
+      recurring(id: "paused", name: "Paused", anchorDate: "2026-07-14", paused: true),
+      recurring(id: "next-month", name: "Later", anchorDate: "2026-08-01"),
+    ]
+
+    let upcoming = RecurringSelectors.upcomingBills(recs, now: now, calendar: cal)
+    XCTAssertEqual(upcoming.map(\.id), ["first", "second", "third", "fourth", "fifth"])
+  }
+
   private func recurring(
     id: String,
     name: String,

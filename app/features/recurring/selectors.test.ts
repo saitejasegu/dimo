@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import type { Recurring } from "@/lib/types";
+import { upcomingBills } from "@/features/recurring/selectors";
+
+function recurring(id: string, anchorDate: string, paused = false): Recurring {
+  return {
+    id,
+    name: id,
+    category: "Subscriptions",
+    due: "",
+    amount: 10,
+    paused,
+    anchorDate,
+    frequency: "monthly",
+  };
+}
+
+describe("upcomingBills", () => {
+  it("returns every active bill due in the current month when uncapped", () => {
+    const now = new Date(2026, 6, 12);
+    const result = upcomingBills(
+      [
+        recurring("fifth", "2026-07-28"),
+        recurring("first", "2026-07-13"),
+        recurring("fourth", "2026-07-24"),
+        recurring("second", "2026-07-15"),
+        recurring("third", "2026-07-20"),
+        recurring("paused", "2026-07-14", true),
+        recurring("next-month", "2026-08-01"),
+      ],
+      undefined,
+      now,
+    );
+
+    expect(result.map((item) => item.id)).toEqual([
+      "first",
+      "second",
+      "third",
+      "fourth",
+      "fifth",
+    ]);
+  });
+
+  it("still supports a display limit", () => {
+    const now = new Date(2026, 6, 12);
+    const result = upcomingBills(
+      [
+        recurring("third", "2026-07-20"),
+        recurring("first", "2026-07-13"),
+        recurring("second", "2026-07-15"),
+      ],
+      2,
+      now,
+    );
+    expect(result.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+});

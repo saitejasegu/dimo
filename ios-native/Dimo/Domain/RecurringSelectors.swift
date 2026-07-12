@@ -13,7 +13,7 @@ enum RecurringSelectors {
 
   static func upcomingBills(
     _ recs: [Recurring],
-    limit: Int,
+    limit: Int? = nil,
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
@@ -33,7 +33,9 @@ enum RecurringSelectors {
       }
       .sorted { $0.1 < $1.1 }
 
-    return Array(dueThisMonth.prefix(limit).map(\.0))
+    let upcoming = dueThisMonth.map(\.0)
+    guard let limit else { return upcoming }
+    return Array(upcoming.prefix(limit))
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

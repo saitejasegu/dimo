@@ -83,7 +83,7 @@ export function HomeScreen() {
             onAction={() => actions.setView("recurring")}
           />
           <div className="mb-[22px] flex flex-col gap-2">
-            {upcoming.slice(0, 3).map((rec) => (
+            {upcoming.map((rec) => (
               <UpcomingRow
                 key={rec.id}
                 recurring={rec}
