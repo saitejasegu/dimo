@@ -195,6 +195,20 @@ export function BudgetsIcon({ className, size = 22 }: IconProps) {
   );
 }
 
+export function LendingIcon({ className, size = 22 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
+      <circle cx="8" cy="7.5" r="3" stroke="currentColor" strokeWidth={1.8} />
+      <path
+        d="M2.8 17.5c.5-3.1 2.2-4.7 5.2-4.7s4.7 1.6 5.2 4.7M14.2 7.1a2.6 2.6 0 0 1 0 5.1M15.4 13.4c2.2.5 3.4 1.9 3.8 4.1"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function SettingsIcon({ className, size = 22 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" className={className} aria-hidden>
@@ -210,7 +224,13 @@ export function SettingsIcon({ className, size = 22 }: IconProps) {
   );
 }
 
-export type NavIconName = "home" | "stats" | "recurring" | "budgets" | "settings";
+export type NavIconName =
+  | "home"
+  | "stats"
+  | "recurring"
+  | "budgets"
+  | "lending"
+  | "settings";
 
 export function NavIcon({
   name,
@@ -230,6 +250,8 @@ export function NavIcon({
       return <RecurringIcon size={size} className={className} />;
     case "budgets":
       return <BudgetsIcon size={size} className={className} />;
+    case "lending":
+      return <LendingIcon size={size} className={className} />;
     case "settings":
       return <SettingsIcon size={size} className={className} />;
   }

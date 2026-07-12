@@ -85,6 +85,22 @@ export interface Recurring {
   frequency?: "monthly" | "yearly";
 }
 
+export type LendKind = "lent" | "repaid";
+
+export interface Lend {
+  id: ID;
+  contactName: string;
+  contactId: string;
+  amount: number;
+  amountMinor: number;
+  occurredAt: number;
+  comment: string;
+  kind: LendKind;
+  /** Human-readable time and day labels derived from occurredAt. */
+  time: string;
+  day: string;
+}
+
 /** Category -> monthly limit. `null` means the category has no budget. */
 export type CategoryLimits = Record<CategoryName, number | null>;
 
@@ -118,6 +134,7 @@ export type ViewKey =
   | "stats"
   | "recurring"
   | "budgets"
+  | "lending"
   | "settings"
   | "account";
 

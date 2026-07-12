@@ -4,6 +4,7 @@ import type {
   Currency,
   Frequency,
   ID,
+  Lend,
   NotificationSettings,
   OverlayKey,
   PaymentMethod,
@@ -60,6 +61,8 @@ export interface AppState {
   // ----- Data (backend-owned in the future) -----
   transactions: Transaction[];
   recurring: Recurring[];
+  /** Lending records synced from iOS; read-only in the web app. */
+  lends: Lend[];
   categories: CategoryEntity[];
   limits: CategoryLimits;
   paymentMethods: PaymentMethodOption[];
@@ -141,6 +144,7 @@ export function createInitialState(
     accountReturnView: null,
     transactions: [],
     recurring: [],
+    lends: [],
     categories: [],
     limits: {},
     paymentMethods: DEFAULT_PAYMENT_METHODS,
@@ -176,6 +180,7 @@ export function createInitialState(
 export interface HydratedData {
   transactions: Transaction[];
   recurring: Recurring[];
+  lends: Lend[];
   categories: CategoryEntity[];
   limits: CategoryLimits;
   paymentMethods: PaymentMethodOption[];

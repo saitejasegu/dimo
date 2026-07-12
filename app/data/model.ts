@@ -15,10 +15,13 @@ export type EntityType =
   | "paymentMethod"
   | "transaction"
   | "recurring"
+  | "lend"
   | "preferences";
 
-/** Entity types this web app owns and replaces on Sync now. */
-export const OWNED_ENTITY_TYPES: readonly EntityType[] = [
+export type WebOwnedEntityType = Exclude<EntityType, "lend">;
+
+/** Entity types this web app owns and replaces on Sync now. Lending is read-only. */
+export const OWNED_ENTITY_TYPES: readonly WebOwnedEntityType[] = [
   "category",
   "paymentMethod",
   "transaction",
@@ -89,6 +92,18 @@ export interface RecurringEntity {
   paused: boolean;
 }
 
+export interface LendEntity {
+  id: string;
+  contactName: string;
+  /** Optional on legacy rows; the contact name is used as a stable fallback. */
+  contactId?: string;
+  amountMinor: number;
+  occurredAt: number;
+  comment: string;
+  /** Missing on legacy rows and treated as money lent. */
+  kind?: "lent" | "repaid";
+}
+
 export interface PreferencesEntity {
   id: "preferences";
   profileName: string;
@@ -109,6 +124,7 @@ export interface EntityPayloadMap {
   paymentMethod: PaymentMethodEntity;
   transaction: TransactionEntity;
   recurring: RecurringEntity;
+  lend: LendEntity;
   preferences: PreferencesEntity;
 }
 

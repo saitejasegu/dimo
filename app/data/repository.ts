@@ -11,6 +11,7 @@ import {
   type EntityPayload,
   type EntityPayloadMap,
   type EntityType,
+  type LendEntity,
   type LogicalVersion,
   type PaymentMethodEntity,
   type PreferencesEntity,
@@ -119,6 +120,20 @@ export function sanitizePayload<T extends EntityType>(
           ? anchor
           : new Date().toISOString().slice(0, 10),
         paused: Boolean(value.paused),
+      } as EntityPayloadMap[T];
+    }
+    case "lend": {
+      const value = payload as LendEntity;
+      const contactName = String(value.contactName ?? "").trim();
+      const contactId = String(value.contactId ?? "").trim();
+      return {
+        id: value.id,
+        contactName,
+        contactId: contactId || contactName,
+        amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
+        occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
+        comment: String(value.comment ?? ""),
+        kind: value.kind === "repaid" ? "repaid" : "lent",
       } as EntityPayloadMap[T];
     }
     case "preferences": {
