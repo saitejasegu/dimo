@@ -14,13 +14,11 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   private var onIdToken: (@Sendable (String?) -> Void)?
 
   var currentAccessToken: String? {
-    lock.lock(); defer { lock.unlock() }
-    return cached?.accessToken
+    lock.withLock { cached?.accessToken }
   }
 
   var currentSession: WorkOSSession? {
-    lock.lock(); defer { lock.unlock() }
-    return cached
+    lock.withLock { cached }
   }
 
   func restoreSession() async -> WorkOSSession? {
@@ -40,10 +38,7 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   }
 
   func refreshIfNeeded(force: Bool = false) async throws -> WorkOSSession {
-    lock.lock()
-    let current = cached
-    lock.unlock()
-    guard let current else { throw AuthError.notAuthenticated }
+    guard let current = lock.withLock({ cached }) else { throw AuthError.notAuthenticated }
     if !force, current.expiresAt.timeIntervalSinceNow > 60 {
       return current
     }
@@ -122,17 +117,13 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
     try KeychainStore.set(session.refreshToken, account: refreshAccount)
     let userData = try JSONEncoder().encode(session.user)
     try KeychainStore.set(String(data: userData, encoding: .utf8) ?? "", account: userAccount)
-    lock.lock()
-    cached = session
-    lock.unlock()
+    lock.withLock { cached = session }
   }
 
   private func clearPersisted() {
     KeychainStore.delete(account: refreshAccount)
     KeychainStore.delete(account: userAccount)
-    lock.lock()
-    cached = nil
-    lock.unlock()
+    lock.withLock { cached = nil }
   }
 
   @MainActor
@@ -169,9 +160,14 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
 
 extension WorkOSAuthProvider: ASWebAuthenticationPresentationContextProviding {
   func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-      .flatMap(\.windows)
-      .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let windows = scenes.flatMap(\.windows)
+    if let window = windows.first(where: \.isKeyWindow) ?? windows.first {
+      return window
+    }
+    guard let scene = scenes.first else {
+      preconditionFailure("Web authentication requires an active window scene")
+    }
+    return UIWindow(windowScene: scene)
   }
 }

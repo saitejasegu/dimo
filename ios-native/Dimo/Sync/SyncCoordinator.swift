@@ -40,7 +40,7 @@ actor SyncCoordinator {
     revisionSub = transport.subscribeRevision(workspaceId: workspaceID) { [weak self] revision in
       Task { await self?.remoteRevisionChanged(revision) }
     }
-    Task { await request() }
+    Task { request() }
   }
 
   func stop() {
@@ -58,7 +58,7 @@ actor SyncCoordinator {
     debounceTask?.cancel()
     debounceTask = Task {
       try? await Task.sleep(nanoseconds: 250_000_000)
-      await request()
+      request()
     }
   }
 
@@ -69,7 +69,7 @@ actor SyncCoordinator {
       await runLoop()
       running = nil
       if requested {
-        await request()
+        request()
       }
     }
   }
@@ -214,7 +214,7 @@ actor SyncCoordinator {
     let delay = base * (0.75 + Double.random(in: 0...0.5))
     retryTask = Task {
       try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000))
-      await request()
+      request()
     }
   }
 }

@@ -495,7 +495,7 @@ final class AppStore {
   }
 
   func setPaymentMethodArchived(_ id: String, archived: Bool) {
-    guard var method = paymentMethods.first(where: { $0.id == id }) else { return }
+    guard let method = paymentMethods.first(where: { $0.id == id }) else { return }
     let activeCount = paymentMethods.filter { !$0.archived }.count
     if archived && activeCount <= 1 {
       showToast("Keep at least one payment method")

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatsScreen: View {
   @Bindable var store: AppStore
+  @State private var txSheet: StatsTxSelection?
 
   var body: some View {
     let scope = StatsSelectors.statsScope(range: store.statsRange, transactions: store.transactions)
@@ -29,6 +30,19 @@ struct StatsScreen: View {
     .background(Theme.canvas.ignoresSafeArea())
     .onChange(of: store.statsRange) { _, _ in
       store.selectedMonth = nil
+    }
+    .sheet(item: $txSheet) { selection in
+      let scoped = StatsSelectors.statsScope(
+        range: store.statsRange,
+        transactions: store.transactions
+      ).transactions
+      let matching = scoped.filter { tx in
+        switch selection.kind {
+        case .category: tx.category == selection.name
+        case .merchant: tx.name == selection.name
+        }
+      }
+      StatsTransactionListSheet(store: store, title: selection.name, transactions: matching)
     }
   }
 
@@ -113,12 +127,7 @@ struct StatsScreen: View {
       VStack(alignment: .leading, spacing: 12) {
         ForEach(cats.categories) { cat in
           Button {
-            store.filter = TransactionFilter(
-              categories: [cat.category],
-              startDate: StatsSelectors.rangeStart(store.statsRange),
-              endDate: Date()
-            )
-            store.setView(.home)
+            txSheet = StatsTxSelection(kind: .category, name: cat.category)
           } label: {
             VStack(alignment: .leading, spacing: 6) {
               HStack(alignment: .firstTextBaseline) {
@@ -161,12 +170,7 @@ struct StatsScreen: View {
       VStack(spacing: 6) {
         ForEach(merchants.merchants) { merchant in
           Button {
-            store.filter = TransactionFilter(
-              query: merchant.name,
-              startDate: StatsSelectors.rangeStart(store.statsRange),
-              endDate: Date()
-            )
-            store.setView(.home)
+            txSheet = StatsTxSelection(kind: .merchant, name: merchant.name)
           } label: {
             HStack(spacing: 12) {
               CategoryTintView(green: merchant.green, emoji: merchant.emoji ?? "🙂", size: 34, radius: 10)
@@ -204,6 +208,96 @@ struct StatsScreen: View {
       .font(DimoFont.body(12, weight: .medium))
       .kerning(0.96)
       .foregroundStyle(Theme.muted)
+  }
+}
+
+private struct StatsTxSelection: Identifiable {
+  enum Kind: String { case category, merchant }
+  var kind: Kind
+  var name: String
+  var id: String { "\(kind.rawValue):\(name)" }
+}
+
+/// Read-only list of the scoped transactions behind a stats row, styled like home rows.
+private struct StatsTransactionListSheet: View {
+  var store: AppStore
+  var title: String
+  var transactions: [Transaction]
+
+  var body: some View {
+    let groups = TransactionSelectors.groupByDay(transactions)
+    VStack(spacing: 16) {
+      Text(title)
+        .font(DimoFont.display(18, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+        .frame(maxWidth: .infinity, alignment: .center)
+
+      ScrollView {
+        LazyVStack(alignment: .leading, spacing: 14) {
+          ForEach(groups, id: \.label) { group in
+            VStack(alignment: .leading, spacing: 8) {
+              HStack(alignment: .firstTextBaseline) {
+                Text(group.label.uppercased())
+                  .font(DimoFont.body(12, weight: .medium))
+                  .kerning(0.96)
+                  .foregroundStyle(Theme.muted)
+                Spacer()
+                Text(Formatting.spent(group.total, currency: store.currency))
+                  .font(DimoFont.body(12))
+                  .foregroundStyle(Theme.faint)
+              }
+              ForEach(group.items) { tx in
+                transactionRow(tx)
+              }
+            }
+          }
+        }
+      }
+      .frame(height: listHeight(groups))
+    }
+    .padding(.horizontal, 22)
+    .padding(.top, 28)
+    .padding(.bottom, 22)
+    .contentHeightSheet()
+    .presentationDragIndicator(.visible)
+    .presentationBackground(Theme.canvas)
+  }
+
+  private func listHeight(_ groups: [DayGroup]) -> CGFloat {
+    let rows = CGFloat(transactions.count) * 68
+    let headers = CGFloat(groups.count) * 34
+    return min(max(rows + headers, 120), 460)
+  }
+
+  private func transactionRow(_ tx: Transaction) -> some View {
+    HStack(spacing: 12) {
+      CategoryTintView(
+        green: tx.green,
+        emoji: store.categoryEmoji(explicit: tx.emoji, categoryId: tx.categoryId, category: tx.category)
+      )
+      VStack(alignment: .leading, spacing: 2) {
+        Text(tx.name)
+          .font(DimoFont.body(14, weight: .medium))
+          .foregroundStyle(Theme.ink)
+          .lineLimit(1)
+        Text("\(tx.category) · \(tx.time)")
+          .font(DimoFont.body(12))
+          .foregroundStyle(Theme.muted)
+          .lineLimit(1)
+      }
+      Spacer()
+      Text(Formatting.spent(tx.amount, currency: store.currency))
+        .font(DimoFont.display(15, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 11)
+    .background(Theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Theme.line, lineWidth: 1)
+    )
   }
 }
 
