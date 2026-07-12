@@ -1,0 +1,97 @@
+name: Dimo
+options:
+  bundleIdPrefix: app.dimo
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    TARGETED_DEVICE_FAMILY: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: false
+  configs:
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+
+packages:
+  ConvexMobile:
+    url: https://github.com/get-convex/convex-swift
+    from: "0.2.0"
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "7.0.0"
+
+targets:
+  Dimo:
+    type: application
+    platform: iOS
+    sources:
+      - path: Dimo
+        excludes:
+          - Resources/Info.plist
+          - Resources/**
+      - path: Dimo/Resources
+        buildPhase: resources
+        excludes:
+          - "**/*.swift"
+          - Info.plist
+      - path: Dimo/Resources/Info.plist
+        buildPhase: none
+        type: file
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dimo.ios
+        PRODUCT_NAME: Dimo
+        INFOPLIST_FILE: Dimo/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0.0
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: false
+        SWIFT_EMIT_LOC_STRINGS: YES
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+    configFiles:
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
+    dependencies:
+      - package: ConvexMobile
+      - package: GRDB
+        product: GRDB
+    scheme:
+      testTargets:
+        - DimoTests
+
+  DimoTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: DimoTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.dimo.ios.tests
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dimo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dimo"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: Dimo
+      - package: GRDB
+        product: GRDB
+    scheme: {}

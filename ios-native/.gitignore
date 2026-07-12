@@ -1,0 +1,24 @@
+# XcodeGen output
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+build/
+
+# SPM
+.swiftpm/
+.Package.resolved
+Packages/
+Package.resolved
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Local secrets override (optional)
+Config/Secrets.xcconfig
+
+# OS junk
+.DS_Store
+*.swp
+*~
