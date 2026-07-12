@@ -214,6 +214,15 @@ final class AppStore {
     guard !contact.isEmpty else { return }
     let existing = lendDraft.editingId.flatMap { id in lends.first { $0.id == id } }
     guard let contactId = lendDraft.contactId ?? existing?.contactId else { return }
+    let kind = existing?.kind ?? lendDraft.kind
+    if kind == .repaid {
+      let outstanding = LendSelectors.outstandingAmount(
+        for: contactId,
+        in: lends,
+        excludingLendId: existing?.id
+      )
+      guard amount <= outstanding + 0.000_001 else { return }
+    }
     let occurredAt: Int
     if let existing,
        Calendar.current.isDate(
@@ -235,7 +244,6 @@ final class AppStore {
     )
     try? repository?.saveEntity(entityType: .lend, payload: .lend(entity))
     closeOverlay()
-    let kind = existing?.kind ?? lendDraft.kind
     let noun = kind == .repaid ? "Repayment" : "Lend"
     showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
   }
@@ -256,16 +264,8 @@ final class AppStore {
     overlay = .lend
   }
 
-  func openAddRepayment(contactName: String, contactId: String, outstanding: Double = 0) {
-    let amount: String
-    if outstanding > 0 {
-      amount = outstanding.rounded() == outstanding
-        ? String(Int(outstanding))
-        : String(format: "%.2f", outstanding)
-    } else {
-      amount = ""
-    }
-    lendDraft = LendDraft(kind: .repaid, contactName: contactName, contactId: contactId, amount: amount)
+  func openAddRepayment(contactName: String, contactId: String) {
+    lendDraft = LendDraft(kind: .repaid, contactName: contactName, contactId: contactId)
     overlay = .lend
   }
 

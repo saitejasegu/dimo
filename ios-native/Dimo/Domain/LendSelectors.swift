@@ -32,6 +32,19 @@ enum LendSelectors {
     lends.reduce(0) { $0 + $1.signedAmount }
   }
 
+  /// Amount that can still be recorded as repaid for a contact. When editing a
+  /// repayment, exclude it so its current amount remains eligible.
+  static func outstandingAmount(
+    for contactId: String,
+    in lends: [Lend],
+    excludingLendId: String? = nil
+  ) -> Double {
+    max(0, lends.reduce(0) { total, lend in
+      guard lend.contactId == contactId, lend.id != excludingLendId else { return total }
+      return total + lend.signedAmount
+    })
+  }
+
   /// Groups lends per person by address-book identifier, keeping the name
   /// casing of the most recent entry, sorted by highest outstanding total;
   /// settled contacts are omitted.

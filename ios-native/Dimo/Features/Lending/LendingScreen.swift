@@ -148,8 +148,7 @@ struct LendingScreen: View {
     Button {
       store.openAddRepayment(
         contactName: summary.contactName,
-        contactId: summary.contactId,
-        outstanding: summary.total
+        contactId: summary.contactId
       )
     } label: {
       HStack(spacing: 12) {

@@ -97,6 +97,9 @@ struct AddLendSheet: View {
               TextField("0", text: $store.lendDraft.amount)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.plain)
+                .onChange(of: store.lendDraft.amount) { _, amount in
+                  limitRepaymentAmount(amount)
+                }
             }
           }
 
@@ -161,6 +164,23 @@ struct AddLendSheet: View {
     store.lendDraft.contactId != nil
       && !store.lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && (Double(store.lendDraft.amount) ?? 0) > 0
+      && (!isRepayment || (Double(store.lendDraft.amount) ?? 0) <= repaymentLimit + 0.000_001)
+  }
+
+  private var repaymentLimit: Double {
+    guard let contactId = store.lendDraft.contactId else { return 0 }
+    return LendSelectors.outstandingAmount(
+      for: contactId,
+      in: store.lends,
+      excludingLendId: store.lendDraft.editingId
+    )
+  }
+
+  private func limitRepaymentAmount(_ amountText: String) {
+    guard isRepayment, let amount = Double(amountText), amount > repaymentLimit else { return }
+    store.lendDraft.amount = repaymentLimit.rounded() == repaymentLimit
+      ? String(Int(repaymentLimit))
+      : String(format: "%.2f", repaymentLimit)
   }
 
   /// Recent contacts from lend history, offered as one-tap picks until a

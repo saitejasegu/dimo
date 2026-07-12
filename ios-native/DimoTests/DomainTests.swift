@@ -489,4 +489,17 @@ final class LendSelectorsTests: XCTestCase {
     XCTAssertEqual(summaries[0].contactId, "cn-b")
     XCTAssertEqual(summaries[0].total, 100)
   }
+
+  func testOutstandingAmountExcludesRepaymentBeingEdited() {
+    let lends = [
+      lend("lend", name: "Aakash", contactId: "cn-a", amount: 100),
+      lend("repaid", name: "Aakash", contactId: "cn-a", amount: 30, kind: .repaid),
+    ]
+
+    XCTAssertEqual(LendSelectors.outstandingAmount(for: "cn-a", in: lends), 70)
+    XCTAssertEqual(
+      LendSelectors.outstandingAmount(for: "cn-a", in: lends, excludingLendId: "repaid"),
+      100
+    )
+  }
 }
