@@ -11,7 +11,14 @@ describe("parseTransactionCsv", () => {
     const rows = parseTransactionCsv(
       'Date,Note,Amount,Category,Type\r\n2026-07-11 11:38:08 +0000,"Coffee, cake",354.00,Snacks,Expense\r\n',
     );
-    expect(rows).toEqual([{ occurredAt: Date.parse("2026-07-11 11:38:08 +00:00"), merchant: "Coffee, cake", amountMinor: 35400, category: "Snacks" }]);
+    expect(rows).toEqual([{ occurredAt: Date.UTC(2026, 6, 11, 11, 38, 8), merchant: "Coffee, cake", amountMinor: 35400, category: "Snacks" }]);
+  });
+
+  it("parses date-only values as UTC midnight", () => {
+    const rows = parseTransactionCsv(
+      "Date,Note,Amount,Category,Type\n2026-07-11,Coffee,3.54,Snacks,Expense\n",
+    );
+    expect(rows[0]?.occurredAt).toBe(Date.UTC(2026, 6, 11));
   });
 
   it("rejects unsupported transaction types", () => {
@@ -34,14 +41,14 @@ describe("formatTransactionCsv", () => {
         category: "Dining, out",
         amount: 12.5,
         amountMinor: 1250,
-        occurredAt: Date.parse("2026-07-12 09:00:00 +00:00"),
+        occurredAt: Date.UTC(2026, 6, 12, 9),
       },
       {
         name: "Coffee, cake",
         category: "Snacks",
         amount: 354,
         amountMinor: 35400,
-        occurredAt: Date.parse("2026-07-11 11:38:08 +00:00"),
+        occurredAt: Date.UTC(2026, 6, 11, 11, 38, 8),
       },
     ]);
 
@@ -59,11 +66,11 @@ describe("formatTransactionCsv", () => {
         category: "Snacks",
         amount: 354,
         amountMinor: 35400,
-        occurredAt: Date.parse("2026-07-11 11:38:08 +00:00"),
+        occurredAt: Date.UTC(2026, 6, 11, 11, 38, 8),
       },
     ]);
     expect(parseTransactionCsv(csv)).toEqual([
-      { occurredAt: Date.parse("2026-07-11 11:38:08 +00:00"), merchant: "Coffee, cake", amountMinor: 35400, category: "Snacks" },
+      { occurredAt: Date.UTC(2026, 6, 11, 11, 38, 8), merchant: "Coffee, cake", amountMinor: 35400, category: "Snacks" },
     ]);
   });
 });

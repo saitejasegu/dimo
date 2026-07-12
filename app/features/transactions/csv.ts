@@ -89,11 +89,52 @@ function parseCsvRecords(input: string): string[][] {
   return records;
 }
 
+const CSV_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?)?(?:\s*(Z|[+-]\d{2}:?\d{2}))?$/i;
+
+/**
+ * Parse Dimo's UTC CSV format without Date.parse. Safari does not support the
+ * space-separated timestamp emitted by the exporter (for example,
+ * `2026-07-11 11:38:08 +0000`).
+ */
 function parseDate(value: string): number {
-  const trimmed = value.trim();
-  const normalized = trimmed.replace(/ ([+-]\d{2})(\d{2})$/, " $1:$2");
-  const timestamp = Date.parse(normalized);
-  return timestamp;
+  const match = CSV_DATE_PATTERN.exec(value.trim());
+  if (!match) return Number.NaN;
+
+  const [, yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue, millisValue, timezoneValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue);
+  const day = Number(dayValue);
+  const hour = hourValue === undefined ? 0 : Number(hourValue);
+  const minute = minuteValue === undefined ? 0 : Number(minuteValue);
+  const second = secondValue === undefined ? 0 : Number(secondValue);
+  const millis = millisValue === undefined ? 0 : Number(millisValue.padEnd(3, "0"));
+
+  // Date-only values retain their previous UTC-midnight behavior. Timestamps
+  // require an explicit UTC offset so web and iOS interpret them identically.
+  if (hourValue !== undefined && timezoneValue === undefined) return Number.NaN;
+
+  const utcTimestamp = Date.UTC(year, month - 1, day, hour, minute, second, millis);
+  const utcDate = new Date(utcTimestamp);
+  if (
+    utcDate.getUTCFullYear() !== year ||
+    utcDate.getUTCMonth() !== month - 1 ||
+    utcDate.getUTCDate() !== day ||
+    utcDate.getUTCHours() !== hour ||
+    utcDate.getUTCMinutes() !== minute ||
+    utcDate.getUTCSeconds() !== second ||
+    utcDate.getUTCMilliseconds() !== millis
+  ) {
+    return Number.NaN;
+  }
+
+  if (!timezoneValue || timezoneValue.toUpperCase() === "Z") return utcTimestamp;
+
+  const sign = timezoneValue[0] === "+" ? 1 : -1;
+  const offsetDigits = timezoneValue.slice(1).replace(":", "");
+  const offsetHours = Number(offsetDigits.slice(0, 2));
+  const offsetMinutes = Number(offsetDigits.slice(2));
+  if (offsetHours > 23 || offsetMinutes > 59) return Number.NaN;
+  return utcTimestamp - sign * (offsetHours * 60 + offsetMinutes) * 60_000;
 }
 
 function escapeCsvField(value: string): string {

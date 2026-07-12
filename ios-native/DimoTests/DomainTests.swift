@@ -189,6 +189,12 @@ final class TransactionCSVTests: XCTestCase {
     XCTAssertEqual(TransactionCSV.categoryEmojiForName("Utilities"), "💡")
   }
 
+  func testParsesDateOnlyAsUTCMidnight() throws {
+    let csv = "Date,Note,Amount,Category,Type\n2026-07-11,Coffee,3.54,Snacks,Expense\n"
+    let rows = try TransactionCSV.parse(csv)
+    XCTAssertEqual(rows[0].occurredAt, 1_783_728_000_000)
+  }
+
   func testRejectsIncome() {
     let csv = "Date,Note,Amount,Category,Type\n2026-07-11 11:38:08 +0000,Pay,10.00,Work,Income\n"
     XCTAssertThrowsError(try TransactionCSV.parse(csv))

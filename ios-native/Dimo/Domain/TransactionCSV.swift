@@ -136,6 +136,16 @@ enum TransactionCSV {
 
   private static func parseDate(_ value: String) -> Int? {
     var trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let dateOnly = DateFormatter()
+    dateOnly.locale = Locale(identifier: "en_US_POSIX")
+    dateOnly.dateFormat = "yyyy-MM-dd"
+    dateOnly.timeZone = TimeZone(secondsFromGMT: 0)
+    dateOnly.isLenient = false
+    if trimmed.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil,
+       let date = dateOnly.date(from: trimmed),
+       dateOnly.string(from: date) == trimmed {
+      return Int(date.timeIntervalSince1970 * 1000)
+    }
     if let regex = try? NSRegularExpression(pattern: #" ([+-]\d{2})(\d{2})$"#),
        let match = regex.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
        let r1 = Range(match.range(at: 1), in: trimmed),
