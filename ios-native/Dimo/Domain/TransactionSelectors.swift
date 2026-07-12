@@ -4,6 +4,8 @@ struct TransactionFilter: Equatable, Sendable {
   var categories: [String] = []
   var paymentMethod: String = "All"
   var query: String = ""
+  var startDate: Date? = nil
+  var endDate: Date? = nil
 }
 
 struct DayGroup: Equatable, Sendable {
@@ -43,13 +45,28 @@ enum TransactionSelectors {
 
   static func filterTransactions(_ transactions: [Transaction], filter: TransactionFilter) -> [Transaction] {
     let q = filter.query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let startKey = filter.startDate.map { DateHelpers.localDateKey($0) }
+    let endKey = filter.endDate.map { DateHelpers.localDateKey($0) }
     return transactions.filter { t in
       let matchesCategory = filter.categories.isEmpty || filter.categories.contains(t.category)
       let matchesPayment = filter.paymentMethod == "All" || t.paymentMethod == filter.paymentMethod
       let matchesQuery = q.isEmpty
         || t.name.lowercased().contains(q)
         || t.category.lowercased().contains(q)
-      return matchesCategory && matchesPayment && matchesQuery
+      let matchesDate: Bool
+      if startKey == nil && endKey == nil {
+        matchesDate = true
+      } else if let occurredAt = t.occurredAt {
+        let day = DateHelpers.localDateKey(
+          Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
+        )
+        let afterStart = startKey.map { day >= $0 } ?? true
+        let beforeEnd = endKey.map { day <= $0 } ?? true
+        matchesDate = afterStart && beforeEnd
+      } else {
+        matchesDate = false
+      }
+      return matchesCategory && matchesPayment && matchesQuery && matchesDate
     }
   }
 

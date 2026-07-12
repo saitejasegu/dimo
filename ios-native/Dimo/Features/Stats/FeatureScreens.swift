@@ -113,7 +113,11 @@ struct StatsScreen: View {
       VStack(alignment: .leading, spacing: 12) {
         ForEach(cats.categories) { cat in
           Button {
-            store.filter = TransactionFilter(categories: [cat.category])
+            store.filter = TransactionFilter(
+              categories: [cat.category],
+              startDate: StatsSelectors.rangeStart(store.statsRange),
+              endDate: Date()
+            )
             store.setView(.home)
           } label: {
             VStack(alignment: .leading, spacing: 6) {
@@ -157,7 +161,11 @@ struct StatsScreen: View {
       VStack(spacing: 6) {
         ForEach(merchants.merchants) { merchant in
           Button {
-            store.filter = TransactionFilter(query: merchant.name)
+            store.filter = TransactionFilter(
+              query: merchant.name,
+              startDate: StatsSelectors.rangeStart(store.statsRange),
+              endDate: Date()
+            )
             store.setView(.home)
           } label: {
             HStack(spacing: 12) {

@@ -2,6 +2,10 @@ import SwiftUI
 
 struct AddExpenseSheet: View {
   @Bindable var store: AppStore
+  var onManagePaymentMethods: () -> Void
+  @State private var merchantSuggestions: [MerchantSuggestion] = []
+  @State private var selectedMerchantSuggestion: String?
+  @FocusState private var merchantFieldFocused: Bool
 
   var body: some View {
     SheetContainer(title: "Add expense", onClose: { store.closeOverlay() }) {
@@ -13,20 +17,20 @@ struct AddExpenseSheet: View {
           .padding(.vertical, 4)
 
         TextField("Merchant", text: $store.expenseDraft.name)
+          .focused($merchantFieldFocused)
           .font(DimoFont.body(16))
           .padding(12)
           .background(Theme.canvasDeep)
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-        let suggestions = TransactionSelectors.merchantSuggestions(
-          store.transactions,
-          query: store.expenseDraft.name
-        )
-        if !suggestions.isEmpty {
+        if !merchantSuggestions.isEmpty {
           ScrollView(.horizontal, showsIndicators: false) {
             HStack {
-              ForEach(suggestions, id: \.name) { suggestion in
+              ForEach(merchantSuggestions, id: \.name) { suggestion in
                 Chip(label: suggestion.name, selected: false) {
+                  merchantFieldFocused = false
+                  selectedMerchantSuggestion = suggestion.name
+                  merchantSuggestions = []
                   store.expenseDraft.name = suggestion.name
                   store.expenseDraft.category = suggestion.category
                 }
@@ -48,7 +52,7 @@ struct AddExpenseSheet: View {
           onSelect: { store.expenseDraft.paymentMethodId = $0 },
           onManage: {
             store.closeOverlay()
-            store.setView(.settings)
+            onManagePaymentMethods()
           }
         )
 
@@ -73,10 +77,28 @@ struct AddExpenseSheet: View {
       .background(Theme.surface)
     }
     .presentationBackground(Theme.surface)
+    .onAppear { updateMerchantSuggestions(for: store.expenseDraft.name) }
+    .onChange(of: store.expenseDraft.name) { _, name in
+      updateMerchantSuggestions(for: name)
+    }
   }
 
   private var canSave: Bool {
     (Double(store.expenseDraft.amount) ?? 0) > 0
+      && store.categories.contains { $0.name == store.expenseDraft.category }
+  }
+
+  private func updateMerchantSuggestions(for query: String) {
+    if let selectedMerchantSuggestion,
+       selectedMerchantSuggestion.caseInsensitiveCompare(query) == .orderedSame {
+      merchantSuggestions = []
+      return
+    }
+    selectedMerchantSuggestion = nil
+    merchantSuggestions = TransactionSelectors.merchantSuggestions(
+      store.transactions,
+      query: query
+    )
   }
 }
 
@@ -110,9 +132,9 @@ private struct CategoryDropdown: View {
         if !isOpen { searchFocused = false }
       } label: {
         HStack(spacing: 8) {
-          Text([selectedCategory?.emoji, selected].compactMap { $0 }.joined(separator: " "))
+          Text(categoryLabel)
             .font(DimoFont.body(15, weight: .semibold))
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(selected.isEmpty ? Theme.muted : Theme.ink)
             .lineLimit(1)
           Spacer()
           Image(systemName: "chevron.down")
@@ -215,10 +237,15 @@ private struct CategoryDropdown: View {
             .stroke(Theme.line, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-        .onAppear { searchFocused = true }
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
+  }
+
+  private var categoryLabel: String {
+    guard !selected.isEmpty else { return "Select category" }
+    guard let selectedCategory else { return selected }
+    return "\(selectedCategory.emoji) \(selectedCategory.name)"
   }
 }
 
@@ -227,6 +254,9 @@ struct AddRecurringSheet: View {
   @State private var originalDraft: RecurringDraft?
   @State private var historicalTransactionsPrompt = false
   @State private var confirmDeleteRecurring = false
+  @State private var merchantSuggestions: [MerchantSuggestion] = []
+  @State private var selectedMerchantSuggestion: String?
+  @FocusState private var nameFieldFocused: Bool
 
   var body: some View {
     SheetContainer(
@@ -237,18 +267,18 @@ struct AddRecurringSheet: View {
       VStack(alignment: .leading, spacing: 16) {
         recurringField("Name") {
           TextField("e.g. iCloud, House help, SIP", text: $store.recurringDraft.name)
+            .focused($nameFieldFocused)
             .textFieldStyle(.plain)
         }
 
-        let suggestions = TransactionSelectors.merchantSuggestions(
-          store.transactions,
-          query: store.recurringDraft.name
-        )
-        if !suggestions.isEmpty {
+        if !merchantSuggestions.isEmpty {
           ScrollView(.horizontal, showsIndicators: false) {
             HStack {
-              ForEach(suggestions, id: \.name) { suggestion in
+              ForEach(merchantSuggestions, id: \.name) { suggestion in
                 Chip(label: suggestion.name, selected: false) {
+                  nameFieldFocused = false
+                  selectedMerchantSuggestion = suggestion.name
+                  merchantSuggestions = []
                   store.recurringDraft.name = suggestion.name
                   store.recurringDraft.category = suggestion.category
                 }
@@ -331,6 +361,10 @@ struct AddRecurringSheet: View {
     }
     .onAppear {
       originalDraft = store.recurringDraft
+      updateMerchantSuggestions(for: store.recurringDraft.name)
+    }
+    .onChange(of: store.recurringDraft.name) { _, name in
+      updateMerchantSuggestions(for: name)
     }
     .alert(
       "Add previous transactions?",
@@ -398,6 +432,19 @@ struct AddRecurringSheet: View {
     !store.recurringDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && (Double(store.recurringDraft.amount) ?? 0) > 0
       && !store.recurringDraft.anchorDate.isEmpty
+  }
+
+  private func updateMerchantSuggestions(for query: String) {
+    if let selectedMerchantSuggestion,
+       selectedMerchantSuggestion.caseInsensitiveCompare(query) == .orderedSame {
+      merchantSuggestions = []
+      return
+    }
+    selectedMerchantSuggestion = nil
+    merchantSuggestions = TransactionSelectors.merchantSuggestions(
+      store.transactions,
+      query: query
+    )
   }
 
   private func recurringLabel(_ title: String) -> some View {

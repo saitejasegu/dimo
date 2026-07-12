@@ -161,7 +161,7 @@ final class AppStore {
     switch key {
     case .add:
       expenseDraft = ExpenseDraft(
-        category: categories.first?.name ?? "Dining",
+        category: "",
         paymentMethodId: preferredPaymentMethodId()
       )
     case .recurring:
@@ -669,7 +669,7 @@ final class AppStore {
 struct ExpenseDraft: Equatable {
   var name = ""
   var amount = ""
-  var category = "Dining"
+  var category = ""
   var paymentMethodId: String?
 }
 

@@ -4,7 +4,10 @@
   "authKit": {
     "dev": {
       "configure": {
-        "redirectUris": ["http://localhost:3000/callback"],
+        "redirectUris": [
+          "http://localhost:3000/callback",
+          "dimo://callback"
+        ],
         "appHomepageUrl": "http://localhost:3000",
         "corsOrigins": ["http://localhost:3000"]
       },
@@ -23,7 +26,10 @@
     "prod": {
       "environmentType": "production",
       "configure": {
-        "redirectUris": ["https://dimo-silk.vercel.app/callback"],
+        "redirectUris": [
+          "https://dimo-silk.vercel.app/callback",
+          "dimo://callback"
+        ],
         "appHomepageUrl": "https://dimo-silk.vercel.app",
         "corsOrigins": ["https://dimo-silk.vercel.app"]
       }

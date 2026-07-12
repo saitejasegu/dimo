@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct FabButton: View {
   var action: () -> Void
@@ -319,7 +320,80 @@ private struct ContentHeightSheetModifier: ViewModifier {
         guard newHeight > 0, abs(newHeight - contentHeight) > 0.5 else { return }
         contentHeight = newHeight
       }
+      .background(BackgroundKeyboardDismissInstaller())
       .presentationDetents([.height(contentHeight)])
+  }
+}
+
+/// Installs a non-blocking tap recognizer for the active sheet. Taps within a
+/// text input retain focus; every other tap dismisses the keyboard while still
+/// allowing the tapped control to perform its normal action.
+private struct BackgroundKeyboardDismissInstaller: UIViewRepresentable {
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView(frame: .zero)
+    view.isUserInteractionEnabled = false
+    installWhenAttached(view, coordinator: context.coordinator)
+    return view
+  }
+
+  func updateUIView(_ uiView: UIView, context: Context) {
+    installWhenAttached(uiView, coordinator: context.coordinator)
+  }
+
+  static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+    coordinator.uninstall()
+  }
+
+  private func installWhenAttached(_ view: UIView, coordinator: Coordinator) {
+    DispatchQueue.main.async { [weak view, weak coordinator] in
+      guard let view, let coordinator, let window = view.window else { return }
+      coordinator.install(on: window)
+    }
+  }
+
+  final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    private weak var hostView: UIView?
+    private weak var recognizer: UITapGestureRecognizer?
+
+    func install(on hostView: UIView) {
+      guard self.hostView !== hostView else { return }
+      uninstall()
+
+      let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+      recognizer.cancelsTouchesInView = false
+      recognizer.delegate = self
+      hostView.addGestureRecognizer(recognizer)
+      self.hostView = hostView
+      self.recognizer = recognizer
+    }
+
+    func uninstall() {
+      if let recognizer { hostView?.removeGestureRecognizer(recognizer) }
+      recognizer = nil
+      hostView = nil
+    }
+
+    @objc private func dismissKeyboard() {
+      hostView?.endEditing(true)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      var touchedView = touch.view
+      while let view = touchedView {
+        if view is UITextField || view is UITextView { return false }
+        touchedView = view.superview
+      }
+      return true
+    }
+
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+      true
+    }
   }
 }
 

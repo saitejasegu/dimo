@@ -1,0 +1,8 @@
+#include "Shared.xcconfig"
+
+// Convex + WorkOS development deployment (dev:little-bat-382).
+// To use: set the Dimo target's Debug/Release base config to this file, or
+// temporarily point Debug.xcconfig here.
+// //$() escapes // so xcconfig does not treat the URL as a comment.
+CONVEX_URL = https:/$()/little-bat-382.convex.cloud
+WORKOS_CLIENT_ID = client_01KX83VG314Y92FTEJX28H23Z9

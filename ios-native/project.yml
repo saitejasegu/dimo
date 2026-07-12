@@ -67,8 +67,8 @@ targets:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
     configFiles:
-      Debug: Config/Shared.xcconfig
-      Release: Config/Shared.xcconfig
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
     dependencies:
       - package: ConvexMobile
       - package: GRDB

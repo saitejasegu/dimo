@@ -22,9 +22,13 @@ xcodebuild -project Dimo.xcodeproj -scheme Dimo \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
-Config comes from `Config/Shared.xcconfig` → Info.plist (`ConvexURL`, `WorkOSClientID`).
+Config comes from `Config/Debug.xcconfig` / `Config/Release.xcconfig` → Info.plist (`ConvexURL`, `WorkOSClientID`).
 
-**Manual:** register `dimo://callback` as an allowed redirect URI in the WorkOS dashboard (public client + PKCE).
+Both Debug and Release currently point at Convex **prod** (`formal-akita-237`) + the WorkOS prod client. `Config/Dev.xcconfig` has the Convex dev URL if you need it later.
+
+**Manual:** register `dimo://callback` as an allowed redirect URI on the WorkOS **prod** client (public client + PKCE).
+
+After changing xcconfigs: `xcodegen generate`, then delete the app from the phone and reinstall (old builds keep the previous Info.plist URL).
 
 Bundle id: `app.dimo.ios` (does not collide with Capacitor `app.dimo.expenses`).
 

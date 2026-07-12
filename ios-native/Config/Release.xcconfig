@@ -1,0 +1,6 @@
+#include "Shared.xcconfig"
+
+// Production Convex + WorkOS (prod:formal-akita-237).
+// //$() escapes // so xcconfig does not treat the URL as a comment.
+CONVEX_URL = https:/$()/formal-akita-237.convex.cloud
+WORKOS_CLIENT_ID = client_01KX83VGCS077ZKQSRK9BNSKKK

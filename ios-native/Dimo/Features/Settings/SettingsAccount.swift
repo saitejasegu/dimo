@@ -100,9 +100,10 @@ struct SettingsScreen: View {
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(Theme.faint)
       }
+      .settingsCard()
+      .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
     .buttonStyle(.plain)
-    .settingsCard()
     .accessibilityLabel("Account, \(store.profileName), \(store.profileEmail)")
     .accessibilityHint("Opens account settings")
   }
@@ -417,12 +418,13 @@ struct AccountScreen: View {
       .buttonStyle(.plain)
       .disabled(syncing)
       .padding(.top, 12)
-      Button("Sync now (full replace)") {
+      ActionButton(
+        title: "Sync now (full replace)",
+        variant: .danger,
+        enabled: !syncing
+      ) {
         store.requestFullSync()
       }
-      .font(DimoFont.body(12, weight: .medium))
-      .foregroundStyle(Theme.muted)
-      .disabled(syncing)
       .padding(.top, 10)
       if !error.isEmpty, !offline {
         Text(error)

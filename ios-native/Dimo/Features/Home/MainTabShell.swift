@@ -80,7 +80,9 @@ struct MainTabShell: View {
     .sheet(item: $store.overlay) { overlay in
       switch overlay {
       case .add:
-        AddExpenseSheet(store: store)
+        AddExpenseSheet(store: store) {
+          settingsPath.append(.settings)
+        }
       case .recurring:
         AddRecurringSheet(store: store)
       case .category:

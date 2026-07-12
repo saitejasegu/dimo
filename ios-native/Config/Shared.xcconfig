@@ -1,8 +1,7 @@
-// Public client config (mirrors NEXT_PUBLIC_* from .env.local).
+// Shared non-environment settings.
 // Do not put secrets here — mobile OAuth uses PKCE with no client secret.
+// CONVEX_URL / WORKOS_CLIENT_ID live in Debug.xcconfig and Release.xcconfig.
 
-CONVEX_URL = https:/$()/little-bat-382.convex.cloud
-WORKOS_CLIENT_ID = client_01KX83VG314Y92FTEJX28H23Z9
 PRODUCT_BUNDLE_IDENTIFIER = app.dimo.ios
 PRODUCT_NAME = Dimo
 MARKETING_VERSION = 1.0.0

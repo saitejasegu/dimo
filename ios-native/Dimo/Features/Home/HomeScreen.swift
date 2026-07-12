@@ -5,6 +5,7 @@ struct HomeScreen: View {
   var onOpenSettings: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @State private var filtersOpen = false
+  @State private var activeFilter = TransactionFilter()
   @State private var visibleLimit = TransactionSelectors.homePageSize
   @State private var selecting = false
   @State private var selectedIds: Set<String> = []
@@ -40,7 +41,20 @@ struct HomeScreen: View {
       }
     }
     .sheet(isPresented: $filtersOpen) {
-      FilterSheet(store: store)
+      FilterSheet(
+        filter: activeFilter,
+        categories: store.categories,
+        paymentMethods: store.paymentMethods.filter { !$0.archived },
+        transactions: store.transactions,
+        onApply: { filter in
+          applyFilter(filter)
+          filtersOpen = false
+        },
+        onClear: {
+          applyFilter(TransactionFilter())
+          filtersOpen = false
+        }
+      )
     }
     .confirmationDialog(
       "Delete \(selectedIds.count) transaction\(selectedIds.count == 1 ? "" : "s")?",
@@ -52,13 +66,23 @@ struct HomeScreen: View {
         selecting = false
       }
     }
-    .onChange(of: store.filter) { _, _ in
+    .onAppear {
+      activeFilter = store.filter
+      environment.applyTheme(store.theme)
+    }
+    .onChange(of: store.filter) { _, newFilter in
+      activeFilter = newFilter
       visibleLimit = TransactionSelectors.homePageSize
     }
-    .onAppear { environment.applyTheme(store.theme) }
     .onChange(of: store.theme) { _, theme in
       environment.applyTheme(theme)
     }
+  }
+
+  private func applyFilter(_ filter: TransactionFilter) {
+    activeFilter = filter
+    store.filter = filter
+    visibleLimit = TransactionSelectors.homePageSize
   }
 
   private var totals: BudgetTotals {
@@ -66,7 +90,7 @@ struct HomeScreen: View {
   }
 
   private var filtered: [Transaction] {
-    TransactionSelectors.filterTransactions(store.transactions, filter: store.filter)
+    TransactionSelectors.filterTransactions(store.transactions, filter: activeFilter)
   }
 
   private var page: (items: [Transaction], hasMore: Bool) {
@@ -177,7 +201,7 @@ struct HomeScreen: View {
   }
 
   private var transactionsSection: some View {
-    VStack(alignment: .leading, spacing: 0) {
+    LazyVStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("Transactions")
           .font(DimoFont.display(16, weight: .semibold))
@@ -201,6 +225,17 @@ struct HomeScreen: View {
       }
       .padding(.bottom, 14)
 
+      if filtersActive {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 8) {
+            ForEach(filterTags) { tag in
+              filterTagView(tag)
+            }
+          }
+        }
+        .padding(.bottom, 14)
+      }
+
       let groups = TransactionSelectors.groupByDay(page.items)
       if groups.isEmpty {
         Text("No transactions match.")
@@ -210,7 +245,7 @@ struct HomeScreen: View {
           .padding(.vertical, 48)
       }
       ForEach(groups, id: \.label) { group in
-        VStack(alignment: .leading, spacing: 8) {
+        LazyVStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .firstTextBaseline) {
             Text(group.label.uppercased())
               .font(DimoFont.body(12, weight: .medium))
@@ -226,24 +261,108 @@ struct HomeScreen: View {
           }
         }
         .padding(.bottom, 18)
+        .id(group.items.map(\.id).joined(separator: ","))
       }
 
       if page.hasMore {
-        Button {
-          visibleLimit += TransactionSelectors.homePageSize
-        } label: {
-          Text("Load more")
-            .font(DimoFont.body(13, weight: .medium))
-            .foregroundStyle(Theme.onGreen)
-            .frame(maxWidth: .infinity)
-            .frame(height: 38)
-            .background(Theme.green)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .padding(.bottom, 8)
+        ProgressView()
+          .tint(Theme.green)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+          .id(page.items.count)
+          .onAppear {
+            let nextLimit = min(
+              visibleLimit + TransactionSelectors.homePageSize,
+              filtered.count
+            )
+            guard nextLimit > visibleLimit else { return }
+            DispatchQueue.main.async {
+              visibleLimit = nextLimit
+            }
+          }
       }
     }
+    .id(filterEpoch)
+  }
+
+  private var filterTags: [FilterTag] {
+    var tags: [FilterTag] = []
+    for name in activeFilter.categories {
+      let emoji = store.categories.first { $0.name == name }?.emoji
+      tags.append(FilterTag(
+        id: "category:\(name)",
+        label: [emoji, name].compactMap { $0 }.joined(separator: " ")
+      ))
+    }
+    if activeFilter.paymentMethod != "All" {
+      tags.append(FilterTag(id: "payment", label: activeFilter.paymentMethod))
+    }
+    let query = activeFilter.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !query.isEmpty {
+      tags.append(FilterTag(id: "query", label: "“\(query)”"))
+    }
+    if activeFilter.startDate != nil || activeFilter.endDate != nil {
+      tags.append(FilterTag(id: "dates", label: dateRangeLabel))
+    }
+    return tags
+  }
+
+  private var dateRangeLabel: String {
+    let formatter = DateFormatter()
+    formatter.setLocalizedDateFormatFromTemplate("MMMd")
+    let start = activeFilter.startDate.map { formatter.string(from: $0) }
+    let end = activeFilter.endDate.map { formatter.string(from: $0) }
+    switch (start, end) {
+    case let (s?, e?): return s == e ? s : "\(s) – \(e)"
+    case let (s?, nil): return "From \(s)"
+    case let (nil, e?): return "Until \(e)"
+    case (nil, nil): return ""
+    }
+  }
+
+  private func removeFilterTag(_ tag: FilterTag) {
+    var next = activeFilter
+    if tag.id == "payment" {
+      next.paymentMethod = "All"
+    } else if tag.id == "query" {
+      next.query = ""
+    } else if tag.id == "dates" {
+      next.startDate = nil
+      next.endDate = nil
+    } else if tag.id.hasPrefix("category:") {
+      let name = String(tag.id.dropFirst("category:".count))
+      next.categories.removeAll { $0 == name }
+    }
+    applyFilter(next)
+  }
+
+  private func filterTagView(_ tag: FilterTag) -> some View {
+    HStack(spacing: 6) {
+      Text(tag.label)
+        .font(DimoFont.body(12, weight: .medium))
+        .lineLimit(1)
+      Button {
+        removeFilterTag(tag)
+      } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 9, weight: .bold))
+          .frame(width: 18, height: 18)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    }
+    .foregroundStyle(Theme.greenDeep)
+    .padding(.leading, 12)
+    .padding(.trailing, 6)
+    .padding(.vertical, 6)
+    .background(Theme.greenSoft)
+    .clipShape(Capsule())
+  }
+
+  private var filterEpoch: String {
+    let start = activeFilter.startDate.map { DateHelpers.localDateKey($0) } ?? ""
+    let end = activeFilter.endDate.map { DateHelpers.localDateKey($0) } ?? ""
+    return "\(activeFilter.categories.joined(separator: ","))|\(activeFilter.paymentMethod)|\(activeFilter.query)|\(start)|\(end)"
   }
 
   private func transactionRow(_ tx: Transaction) -> some View {
@@ -320,9 +439,11 @@ struct HomeScreen: View {
   }
 
   private var filtersActive: Bool {
-    !store.filter.categories.isEmpty
-      || store.filter.paymentMethod != "All"
-      || !store.filter.query.isEmpty
+    !activeFilter.categories.isEmpty
+      || activeFilter.paymentMethod != "All"
+      || !activeFilter.query.isEmpty
+      || activeFilter.startDate != nil
+      || activeFilter.endDate != nil
   }
 
   private var currentMonthName: String {
@@ -340,6 +461,12 @@ struct HomeScreen: View {
       return cal.isDate(d, equalTo: now, toGranularity: .month)
     }.count
   }
+}
+
+/// One active-filter pill shown under the Transactions header; id encodes which filter to remove.
+private struct FilterTag: Identifiable {
+  let id: String
+  let label: String
 }
 
 /// The rounded-square emoji swatch used in list rows, matching the web CategoryTint.
@@ -383,8 +510,55 @@ private extension View {
 }
 
 private struct FilterSheet: View {
-  @Bindable var store: AppStore
-  @Environment(\.dismiss) private var dismiss
+  var categories: [CategoryEntity]
+  var paymentMethods: [PaymentMethodOption]
+  var transactions: [Transaction]
+  var onApply: (TransactionFilter) -> Void
+  var onClear: () -> Void
+
+  @State private var draft: TransactionFilter
+  @State private var dateFilterEnabled: Bool
+  @State private var fromDate: Date
+  @State private var toDate: Date
+
+  init(
+    filter: TransactionFilter,
+    categories: [CategoryEntity],
+    paymentMethods: [PaymentMethodOption],
+    transactions: [Transaction],
+    onApply: @escaping (TransactionFilter) -> Void,
+    onClear: @escaping () -> Void
+  ) {
+    self.categories = categories
+    self.paymentMethods = paymentMethods
+    self.transactions = transactions
+    self.onApply = onApply
+    self.onClear = onClear
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: Date())
+    let defaultStart = calendar.date(byAdding: .month, value: -1, to: today) ?? today
+    _draft = State(initialValue: filter)
+    _dateFilterEnabled = State(initialValue: filter.startDate != nil || filter.endDate != nil)
+    _fromDate = State(initialValue: filter.startDate.map { calendar.startOfDay(for: $0) } ?? defaultStart)
+    _toDate = State(initialValue: filter.endDate.map { calendar.startOfDay(for: $0) } ?? today)
+  }
+
+  private var previewFilter: TransactionFilter {
+    var next = draft
+    if dateFilterEnabled {
+      let calendar = Calendar.current
+      next.startDate = calendar.startOfDay(for: fromDate)
+      next.endDate = calendar.startOfDay(for: toDate)
+    } else {
+      next.startDate = nil
+      next.endDate = nil
+    }
+    return next
+  }
+
+  private var matchCount: Int {
+    TransactionSelectors.filterTransactions(transactions, filter: previewFilter).count
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -399,7 +573,7 @@ private struct FilterSheet: View {
             Image(systemName: "magnifyingglass")
               .font(.system(size: 17, weight: .medium))
               .foregroundStyle(Theme.faint)
-            TextField("Search merchant or category", text: $store.filter.query)
+            TextField("Search merchant or category", text: $draft.query)
               .font(DimoFont.body(16))
               .foregroundStyle(Theme.ink)
               .textFieldStyle(.plain)
@@ -415,10 +589,27 @@ private struct FilterSheet: View {
         }
 
         VStack(alignment: .leading, spacing: 8) {
+          HStack {
+            filterLabel("Date range")
+            Spacer()
+            Toggle("Filter by date", isOn: $dateFilterEnabled)
+              .labelsHidden()
+              .tint(Theme.green)
+          }
+
+          if dateFilterEnabled {
+            HStack(spacing: 10) {
+              dateField("From", selection: $fromDate)
+              dateField("To", selection: $toDate)
+            }
+          }
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
           filterLabel("Categories")
           FilterCategoryDropdown(
-            categories: store.categories,
-            selected: $store.filter.categories
+            categories: categories,
+            selected: $draft.categories
           )
         }
         .zIndex(2)
@@ -426,19 +617,23 @@ private struct FilterSheet: View {
         VStack(alignment: .leading, spacing: 8) {
           filterLabel("Payment methods")
           FilterPaymentDropdown(
-            methods: store.paymentMethods.filter { !$0.archived },
-            selection: $store.filter.paymentMethod
+            methods: paymentMethods,
+            selection: $draft.paymentMethod
           )
         }
         .zIndex(1)
 
+        Text("\(matchCount) transaction\(matchCount == 1 ? "" : "s") match")
+          .font(DimoFont.body(13))
+          .foregroundStyle(Theme.muted)
+          .frame(maxWidth: .infinity, alignment: .center)
+
         HStack(spacing: 12) {
           ActionButton(title: "Clear", variant: .secondary) {
-            store.filter = TransactionFilter()
-            dismiss()
+            onClear()
           }
-          ActionButton(title: "Done", variant: .accent) {
-            dismiss()
+          ActionButton(title: "Apply", variant: .accent) {
+            onApply(previewFilter)
           }
         }
     }
@@ -449,6 +644,12 @@ private struct FilterSheet: View {
     .contentHeightSheet()
     .presentationDragIndicator(.visible)
     .presentationBackground(Theme.surface)
+    .onChange(of: fromDate) { _, newValue in
+      if newValue > toDate { toDate = newValue }
+    }
+    .onChange(of: toDate) { _, newValue in
+      if newValue < fromDate { fromDate = newValue }
+    }
   }
 
   private func filterLabel(_ text: String) -> some View {
@@ -456,6 +657,23 @@ private struct FilterSheet: View {
       .font(DimoFont.body(12, weight: .semibold))
       .foregroundStyle(Theme.muted)
       .tracking(0.8)
+  }
+
+  private func dateField(_ label: String, selection: Binding<Date>) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(label)
+        .font(DimoFont.body(11, weight: .medium))
+        .foregroundStyle(Theme.muted)
+      DatePicker(label, selection: selection, displayedComponents: .date)
+        .labelsHidden()
+        .datePickerStyle(.compact)
+        .tint(Theme.green)
+    }
+    .padding(.horizontal, 12)
+    .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+    .background(Theme.canvas)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
   }
 }
 

@@ -176,11 +176,12 @@ final class TransactionSelectorTests: XCTestCase {
     category: String,
     day: String,
     amount: Double,
-    payment: String? = nil
+    payment: String? = nil,
+    occurredAt: Int = 1
   ) -> Transaction {
     Transaction(
       id: id, name: name, category: category, time: "10:00 AM", day: day,
-      amount: amount, paymentMethod: payment, occurredAt: 1
+      amount: amount, paymentMethod: payment, occurredAt: occurredAt
     )
   }
 
@@ -211,6 +212,30 @@ final class TransactionSelectorTests: XCTestCase {
     let suggestions = TransactionSelectors.merchantSuggestions(items, query: "cof")
     XCTAssertEqual(suggestions.first?.name, "Coffee House")
     XCTAssertEqual(suggestions.first?.count, 2)
+  }
+
+  func testDateRangeIncludesBothBoundaryDays() {
+    let calendar = Calendar.current
+    func date(_ day: Int, hour: Int = 12) -> Date {
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: day, hour: hour))!
+    }
+    func timestamp(_ day: Int, hour: Int = 12) -> Int {
+      Int(date(day, hour: hour).timeIntervalSince1970 * 1000)
+    }
+
+    let items = [
+      tx(id: "9", name: "Before", category: "Dining", day: "", amount: 1, occurredAt: timestamp(9)),
+      tx(id: "10", name: "Start", category: "Dining", day: "", amount: 1, occurredAt: timestamp(10, hour: 0)),
+      tx(id: "12", name: "End", category: "Dining", day: "", amount: 1, occurredAt: timestamp(12, hour: 23)),
+      tx(id: "13", name: "After", category: "Dining", day: "", amount: 1, occurredAt: timestamp(13)),
+    ]
+
+    let filtered = TransactionSelectors.filterTransactions(
+      items,
+      filter: TransactionFilter(startDate: date(10), endDate: date(12))
+    )
+
+    XCTAssertEqual(filtered.map(\.id), ["10", "12"])
   }
 }
 
