@@ -28,6 +28,19 @@ describe("local repository", () => {
     expect(await db.outbox.count()).toBe(0);
   });
 
+  it("replays the cloud snapshot once for clients with stale lending payloads", async () => {
+    await initializeLocalDatabase();
+    await db.syncMeta.update("global", { lastPulledRevision: 42 });
+    await db.deviceMeta.update("device", { bootstrapVersion: 3 });
+
+    await initializeLocalDatabase();
+    expect((await db.syncMeta.get("global"))?.lastPulledRevision).toBe(0);
+
+    await db.syncMeta.update("global", { lastPulledRevision: 7 });
+    await initializeLocalDatabase();
+    expect((await db.syncMeta.get("global"))?.lastPulledRevision).toBe(7);
+  });
+
   it("normalizes older preferences to the one-year stats default", () => {
     const olderPreferences: Partial<typeof DEFAULT_PREFERENCES> = {
       ...DEFAULT_PREFERENCES,

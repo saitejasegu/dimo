@@ -21,7 +21,12 @@ import {
   type TransactionEntity,
 } from "@/data/model";
 
-const BOOTSTRAP_VERSION = 3;
+/**
+ * Version 4 replays the cloud snapshot once. Some mobile-web databases pulled
+ * lending rows before the `kind` field existed and otherwise keep classifying
+ * repayments as money lent.
+ */
+const BOOTSTRAP_VERSION = 4;
 const listeners = new Set<() => void>();
 
 export function onLocalWrite(listener: () => void) {
@@ -230,6 +235,7 @@ export async function initializeLocalDatabase() {
   await db.open();
   await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, db.syncMeta, async () => {
     const device = await ensureDevice();
+    const shouldReplayCloudSnapshot = device.bootstrapVersion < 4;
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
       // Cash + preferences only — new accounts start with no seeded categories.
       if (!(await db.entities.get(entityKey("paymentMethod", CASH_PAYMENT_METHOD.id)))) {
@@ -248,6 +254,8 @@ export async function initializeLocalDatabase() {
         error: null,
         syncing: false,
       });
+    } else if (shouldReplayCloudSnapshot) {
+      await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
     }
   });
   if (typeof navigator !== "undefined") {

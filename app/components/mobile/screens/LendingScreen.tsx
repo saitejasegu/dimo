@@ -49,22 +49,6 @@ export function LendingScreen() {
                 ? "No active balances"
                 : `${summaries.length} contact${summaries.length === 1 ? "" : "s"} · ${lends.length} ${lends.length === 1 ? "entry" : "entries"}`}
             </div>
-            {lends.length > 0 ? (
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-side-faint/50 pt-4">
-                <div>
-                  <div className="text-[11px] text-side-muted">Total lent</div>
-                  <div className="mt-1 font-display text-base font-semibold">
-                    {money(totals.lent, currency)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-side-muted">Received back</div>
-                  <div className="mt-1 font-display text-base font-semibold text-green-bright">
-                    {money(totals.repaid, currency)}
-                  </div>
-                </div>
-              </div>
-            ) : null}
           </HeroCard>
           <SegmentedControl
             options={SECTIONS}

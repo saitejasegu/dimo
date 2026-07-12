@@ -55,35 +55,15 @@ export function LendingScreen() {
         action={<Badge label="Read only" tone="muted" className="px-3 py-1.5" />}
       />
 
-      <HeroCard className="mb-[22px] grid grid-cols-[1.4fr_1fr_1fr] divide-x divide-side-faint/50 p-6">
-        <div className="pr-8">
-          <div className="mb-2.5 text-[13px] text-side-muted">Outstanding</div>
-          <div className="font-display text-4xl font-semibold">
-            {money(totals.outstanding, currency)}
-          </div>
-          <div className="mt-2 text-xs text-side-sub">
-            {summaries.length === 0
-              ? "No active balances"
-              : `${summaries.length} active contact${summaries.length === 1 ? "" : "s"}`}
-          </div>
+      <HeroCard className="mb-[22px] p-6">
+        <div className="mb-2.5 text-[13px] text-side-muted">Outstanding</div>
+        <div className="font-display text-4xl font-semibold">
+          {money(totals.outstanding, currency)}
         </div>
-        <div className="px-8">
-          <div className="mb-2.5 text-[13px] text-side-muted">Total lent</div>
-          <div className="font-display text-2xl font-semibold">
-            {money(totals.lent, currency)}
-          </div>
-          <div className="mt-2 text-xs text-side-sub">
-            {lends.filter((lend) => lend.kind === "lent").length} entries
-          </div>
-        </div>
-        <div className="pl-8">
-          <div className="mb-2.5 text-[13px] text-side-muted">Received back</div>
-          <div className="font-display text-2xl font-semibold text-green-bright">
-            {money(totals.repaid, currency)}
-          </div>
-          <div className="mt-2 text-xs text-side-sub">
-            {lends.filter((lend) => lend.kind === "repaid").length} repayments
-          </div>
+        <div className="mt-2 text-xs text-side-sub">
+          {summaries.length === 0
+            ? "No active balances"
+            : `${summaries.length} active contact${summaries.length === 1 ? "" : "s"}`}
         </div>
       </HeroCard>
 
