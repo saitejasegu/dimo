@@ -70,7 +70,7 @@ enum StatsRange: String, Codable, CaseIterable, Sendable {
 }
 
 enum ViewKey: String, Codable, CaseIterable, Sendable {
-  case home, tx, stats, recurring, budgets, sms, settings, account
+  case home, tx, stats, recurring, budgets, settings, account
 }
 
 struct NotificationSettings: Codable, Hashable, Sendable {

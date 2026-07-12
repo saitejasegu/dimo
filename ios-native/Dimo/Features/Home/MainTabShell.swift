@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-  case home, stats, recurring, budgets, sms
+  case home, stats, recurring, budgets
 
   var id: String { rawValue }
 
@@ -11,7 +11,6 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "Stats"
     case .recurring: return "Recurring"
     case .budgets: return "Budgets"
-    case .sms: return "SMS"
     }
   }
 
@@ -21,7 +20,6 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "chart.bar.fill"
     case .recurring: return "arrow.2.circlepath"
     case .budgets: return "target"
-    case .sms: return "message.fill"
     }
   }
 }
@@ -67,9 +65,6 @@ struct MainTabShell: View {
       }
       Tab(AppTab.budgets.title, systemImage: AppTab.budgets.systemImage, value: .budgets) {
         BudgetsScreen(store: store)
-      }
-      Tab(AppTab.sms.title, systemImage: AppTab.sms.systemImage, value: .sms) {
-        SMSScreen()
       }
     }
     .tint(Theme.green)
@@ -160,7 +155,6 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
-    case .sms: return .sms
     }
   }
 
@@ -170,7 +164,6 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
-    case .sms: return .sms
     case .settings, .account: return nil
     }
   }
@@ -178,26 +171,6 @@ struct MainTabShell: View {
 
 private enum SettingsRoute: Hashable {
   case settings, account
-}
-
-private struct SMSScreen: View {
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        Text("SMS")
-          .font(DimoFont.display(24, weight: .semibold))
-          .foregroundStyle(Theme.ink)
-        Spacer()
-      }
-      .frame(minHeight: 56)
-      .padding(.horizontal, 22)
-      .padding(.top, 12)
-      .padding(.bottom, 14)
-
-      Spacer()
-    }
-    .background(Theme.canvas.ignoresSafeArea())
-  }
 }
 
 private struct DetailSheetItem: Identifiable {
