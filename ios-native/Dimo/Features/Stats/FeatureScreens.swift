@@ -112,18 +112,25 @@ struct StatsScreen: View {
       }
       VStack(alignment: .leading, spacing: 12) {
         ForEach(cats.categories) { cat in
-          VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-              Text(cat.category)
-                .font(DimoFont.body(13, weight: .medium))
-                .foregroundStyle(Theme.ink)
-              Spacer()
-              Text(cat.caption)
-                .font(DimoFont.body(12))
-                .foregroundStyle(Theme.muted)
+          Button {
+            store.filter = TransactionFilter(categories: [cat.category])
+            store.setView(.home)
+          } label: {
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(alignment: .firstTextBaseline) {
+                Text(cat.category)
+                  .font(DimoFont.body(13, weight: .medium))
+                  .foregroundStyle(Theme.ink)
+                Spacer()
+                Text(cat.caption)
+                  .font(DimoFont.body(12))
+                  .foregroundStyle(Theme.muted)
+              }
+              StatBarTrack(value: cat.relative, fill: cat.primary ? Theme.green : Theme.barSoft)
             }
-            StatBarTrack(value: cat.relative, fill: cat.primary ? Theme.green : Theme.barSoft)
+            .contentShape(Rectangle())
           }
+          .buttonStyle(.plain)
         }
       }
     }
@@ -149,28 +156,35 @@ struct StatsScreen: View {
       }
       VStack(spacing: 6) {
         ForEach(merchants.merchants) { merchant in
-          HStack(spacing: 12) {
-            CategoryTintView(green: merchant.green, emoji: merchant.emoji ?? "🙂", size: 34, radius: 10)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(merchant.name)
-                .font(DimoFont.body(14, weight: .medium))
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-              Text(merchant.sub)
-                .font(DimoFont.body(11))
-                .foregroundStyle(Theme.muted)
-                .lineLimit(1)
+          Button {
+            store.filter = TransactionFilter(query: merchant.name)
+            store.setView(.home)
+          } label: {
+            HStack(spacing: 12) {
+              CategoryTintView(green: merchant.green, emoji: merchant.emoji ?? "🙂", size: 34, radius: 10)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(merchant.name)
+                  .font(DimoFont.body(14, weight: .medium))
+                  .foregroundStyle(Theme.ink)
+                  .lineLimit(1)
+                Text(merchant.sub)
+                  .font(DimoFont.body(11))
+                  .foregroundStyle(Theme.muted)
+                  .lineLimit(1)
+              }
+              Spacer()
+              VStack(alignment: .trailing, spacing: 4) {
+                Text(Formatting.money(merchant.amount, currency: store.currency))
+                  .font(DimoFont.display(14, weight: .semibold))
+                  .foregroundStyle(Theme.ink)
+                StatBarTrack(value: merchant.relative, fill: Theme.green, height: 4)
+                  .frame(width: 52)
+              }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-              Text(Formatting.money(merchant.amount, currency: store.currency))
-                .font(DimoFont.display(14, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-              StatBarTrack(value: merchant.relative, fill: Theme.green, height: 4)
-                .frame(width: 52)
-            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
           }
-          .padding(.vertical, 6)
+          .buttonStyle(.plain)
         }
       }
     }
@@ -541,52 +555,107 @@ private struct SuggestedBudgetsSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        Button("Close") { dismiss() }
-        Spacer()
-        Text("Suggested budgets")
-          .font(DimoFont.display(18, weight: .semibold))
-        Spacer()
-        Button("Apply") {
-          store.applySuggestedBudgets(selected)
-          dismiss()
-        }
-        .disabled(selected.isEmpty)
-      }
-      .padding(.horizontal, 20)
-      .padding(.vertical, 14)
+    VStack(alignment: .leading, spacing: 20) {
+      Text("Suggested budgets")
+        .font(DimoFont.display(18, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+        .frame(maxWidth: .infinity, alignment: .center)
+
+      Text("Based on the last 6 months of spend. Choose which categories to update.")
+        .font(DimoFont.body(15))
+        .foregroundStyle(Theme.muted)
+        .fixedSize(horizontal: false, vertical: true)
 
       ScrollView {
-        LazyVStack(spacing: 0) {
+        LazyVStack(spacing: 10) {
           ForEach(suggestions) { item in
+            let isSelected = selected.contains(item.id)
             Button {
-              if selected.contains(item.id) { selected.remove(item.id) }
+              if isSelected { selected.remove(item.id) }
               else { selected.insert(item.id) }
             } label: {
-              HStack {
-                VStack(alignment: .leading) {
-                  Text(item.name)
-                  Text("Suggest \(Formatting.money(item.suggestedLimit, currency: store.currency))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+              HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                  .fill(isSelected ? Theme.green : Theme.canvasDeep)
+                  .frame(width: 28, height: 28)
+                  .overlay {
+                    if isSelected {
+                      Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Theme.onGreen)
+                    }
+                  }
+
+                VStack(alignment: .leading, spacing: 4) {
+                  let emoji = store.categories.first(where: { $0.id == item.id })?.emoji
+                  Text([emoji, item.name].compactMap { $0 }.joined(separator: " "))
+                    .font(DimoFont.body(15, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                  Text(item.currentLimit.map {
+                    "Now \(Formatting.money($0, currency: store.currency))"
+                  } ?? "No current budget")
+                    .font(DimoFont.body(12))
+                    .foregroundStyle(Theme.faint)
                 }
+
                 Spacer()
-                if selected.contains(item.id) {
-                  Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                  Text(Formatting.money(item.suggestedLimit, currency: store.currency))
+                    .font(DimoFont.display(16, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                  Text("SUGGESTED")
+                    .font(DimoFont.body(10, weight: .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.green)
                 }
               }
-              .padding(.horizontal, 20)
-              .frame(height: 62)
+              .padding(.horizontal, 16)
+              .frame(height: 82)
+              .background(isSelected ? Theme.greenSoft.opacity(0.45) : Theme.canvas)
+              .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+              .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                  .stroke(Theme.line, lineWidth: 1)
+              )
+              .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
           }
         }
       }
-      .frame(height: min(CGFloat(max(suggestions.count, 1)) * 62, 434))
+      .frame(height: min(CGFloat(max(suggestions.count, 1)) * 92, 368))
+
+      HStack(spacing: 12) {
+        Button("Cancel") { dismiss() }
+          .font(DimoFont.body(15, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .frame(width: 90, height: 54)
+          .background(Theme.canvas)
+          .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
+          .buttonStyle(.plain)
+
+        Button("Update \(selected.count) budget\(selected.count == 1 ? "" : "s")") {
+          store.applySuggestedBudgets(selected)
+          dismiss()
+        }
+        .font(DimoFont.body(15, weight: .semibold))
+        .foregroundStyle(Theme.onGreen)
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .background(selected.isEmpty ? Theme.disabled : Theme.green)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .buttonStyle(.plain)
+        .disabled(selected.isEmpty)
+      }
     }
+    .padding(.horizontal, 22)
+    .padding(.top, 28)
+    .padding(.bottom, 22)
     .onAppear { selected = Set(suggestions.map(\.id)) }
     .contentHeightSheet()
     .presentationDragIndicator(.visible)
+    .presentationBackground(Theme.surface)
   }
 }

@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 
 struct SettingsScreen: View {
   @Bindable var store: AppStore
+  var onOpenAccount: () -> Void
   @Environment(AppEnvironment.self) private var environment
+  @Environment(\.dismiss) private var dismiss
   @State private var importPresented = false
   @State private var exportURL: URL?
   @State private var confirmDeleteHistory = false
@@ -11,14 +13,23 @@ struct SettingsScreen: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
+        Button { closeSettings() } label: {
+          Image(systemName: "chevron.left")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+            .frame(width: 38, height: 38)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Theme.line, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
         Text("Settings")
           .font(DimoFont.display(24, weight: .semibold))
           .foregroundStyle(Theme.ink)
         Spacer()
-        Button { store.openAccount() } label: {
-          AvatarView(name: store.profileName, photoUrl: store.profilePhotoUrl)
-        }
-        .buttonStyle(.plain)
       }
       .frame(minHeight: 56)
       .padding(.horizontal, 22)
@@ -27,6 +38,8 @@ struct SettingsScreen: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
+          accountCard
+
           preferencesCard
 
           PaymentMethodsManager(store: store)
@@ -39,6 +52,7 @@ struct SettingsScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
+    .edgeSwipeBack(action: closeSettings)
     .onAppear { environment.applyTheme(store.theme) }
     .fileImporter(
       isPresented: $importPresented,
@@ -49,9 +63,48 @@ struct SettingsScreen: View {
         importFile(url)
       }
     }
-    .confirmationDialog("Delete all transactions?", isPresented: $confirmDeleteHistory) {
-      Button("Delete history", role: .destructive) { store.deleteHistory() }
+    .alert("Delete history?", isPresented: $confirmDeleteHistory) {
+      Button("Delete", role: .destructive) { store.deleteHistory() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This permanently deletes your transaction history. This action cannot be undone.")
     }
+  }
+
+  private func closeSettings() {
+    dismiss()
+  }
+
+  private var accountCard: some View {
+    Button(action: onOpenAccount) {
+      HStack(spacing: 14) {
+        AvatarView(
+          name: store.profileName,
+          photoUrl: store.profilePhotoUrl,
+          size: 52,
+          radius: 16,
+          fontSize: 22
+        )
+        VStack(alignment: .leading, spacing: 3) {
+          Text(store.profileName.isEmpty ? "Account" : store.profileName)
+            .font(DimoFont.display(16, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+          Text(store.profileEmail)
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
+            .lineLimit(1)
+        }
+        Spacer()
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Theme.faint)
+      }
+    }
+    .buttonStyle(.plain)
+    .settingsCard()
+    .accessibilityLabel("Account, \(store.profileName), \(store.profileEmail)")
+    .accessibilityHint("Opens account settings")
   }
 
   private var preferencesCard: some View {
@@ -155,9 +208,11 @@ struct SettingsScreen: View {
         .padding(.vertical, 16)
 
       ActionButton(
-        title: store.transactions.isEmpty && store.recurring.isEmpty ? "No history to delete" : "Delete history",
+        title: store.deletingHistory
+          ? "Deleting history…"
+          : (store.transactions.isEmpty ? "No history to delete" : "Delete history"),
         variant: .danger,
-        enabled: !(store.transactions.isEmpty && store.recurring.isEmpty)
+        enabled: !store.transactions.isEmpty && !store.deletingHistory
       ) {
         confirmDeleteHistory = true
       }
@@ -216,18 +271,21 @@ extension View {
 
 struct AccountScreen: View {
   @Bindable var store: AppStore
+  var onClose: (() -> Void)?
   @Environment(AppEnvironment.self) private var environment
   @Environment(\.dismiss) private var dismiss
   @State private var confirmSignOut = false
   @State private var confirmDelete = false
 
+  init(store: AppStore, onClose: (() -> Void)? = nil) {
+    self.store = store
+    self.onClose = onClose
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 14) {
-        Button {
-          store.closeAccount()
-          dismiss()
-        } label: {
+        Button { closeAccount() } label: {
           Image(systemName: "chevron.left")
             .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(Theme.ink)
@@ -262,6 +320,7 @@ struct AccountScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
+    .edgeSwipeBack(action: closeAccount)
     .confirmationDialog("Sign out?", isPresented: $confirmSignOut) {
       Button("Sign out", role: .destructive) {
         Task {
@@ -275,6 +334,15 @@ struct AccountScreen: View {
           try? await environment.session.deleteAccount()
         }
       }
+    }
+  }
+
+  private func closeAccount() {
+    if let onClose {
+      onClose()
+    } else {
+      store.closeAccount()
+      dismiss()
     }
   }
 
@@ -411,5 +479,22 @@ struct AccountScreen: View {
             .stroke(Theme.line, lineWidth: 1)
         )
     }
+  }
+}
+
+private extension View {
+  func edgeSwipeBack(action: @escaping () -> Void) -> some View {
+    simultaneousGesture(
+      DragGesture(minimumDistance: 20, coordinateSpace: .global)
+        .onEnded { value in
+          let horizontalDistance = value.translation.width
+          let verticalDistance = abs(value.translation.height)
+          guard value.startLocation.x <= 28,
+                horizontalDistance >= 80,
+                horizontalDistance > verticalDistance * 1.25
+          else { return }
+          action()
+        }
+    )
   }
 }

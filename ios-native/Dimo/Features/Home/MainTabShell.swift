@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-  case home, stats, recurring, budgets, settings
+  case home, stats, recurring, budgets, sms
 
   var id: String { rawValue }
 
@@ -11,7 +11,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "Stats"
     case .recurring: return "Recurring"
     case .budgets: return "Budgets"
-    case .settings: return "Settings"
+    case .sms: return "SMS"
     }
   }
 
@@ -21,7 +21,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "chart.bar.fill"
     case .recurring: return "arrow.2.circlepath"
     case .budgets: return "target"
-    case .settings: return "gearshape.fill"
+    case .sms: return "message.fill"
     }
   }
 }
@@ -30,11 +30,34 @@ struct MainTabShell: View {
   @Bindable var store: AppStore
   @Environment(\.scenePhase) private var scenePhase
   @State private var tab: AppTab = .home
+  @State private var settingsPath: [SettingsRoute] = []
 
   var body: some View {
+    NavigationStack(path: $settingsPath) {
+      tabShell
+        .navigationDestination(for: SettingsRoute.self) { route in
+          switch route {
+          case .settings:
+            SettingsScreen(store: store) {
+              settingsPath.append(.account)
+            }
+            .toolbar(.hidden, for: .navigationBar)
+          case .account:
+            AccountScreen(store: store) {
+              if !settingsPath.isEmpty { settingsPath.removeLast() }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+          }
+        }
+    }
+  }
+
+  private var tabShell: some View {
     TabView(selection: $tab) {
       Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
-        HomeScreen(store: store)
+        HomeScreen(store: store) {
+          settingsPath.append(.settings)
+        }
       }
       Tab(AppTab.stats.title, systemImage: AppTab.stats.systemImage, value: .stats) {
         StatsScreen(store: store)
@@ -45,15 +68,18 @@ struct MainTabShell: View {
       Tab(AppTab.budgets.title, systemImage: AppTab.budgets.systemImage, value: .budgets) {
         BudgetsScreen(store: store)
       }
-      Tab(AppTab.settings.title, systemImage: AppTab.settings.systemImage, value: .settings) {
-        SettingsScreen(store: store)
+      Tab(AppTab.sms.title, systemImage: AppTab.sms.systemImage, value: .sms) {
+        SMSScreen()
       }
     }
     .tint(Theme.green)
-    .tabBarMinimizeBehavior(.onScrollDown)
-    .tabViewBottomAccessory {
+    .tabBarMinimizeBehavior(.never)
+    .overlay(alignment: .bottomTrailing) {
       if showsFAB {
-        fabAccessory
+        contextualAction
+          .padding(.trailing, 22)
+          .padding(.bottom, 68)
+          .transition(.scale(scale: 0.9).combined(with: .opacity))
       }
     }
     .sheet(item: $store.overlay) { overlay in
@@ -71,12 +97,6 @@ struct MainTabShell: View {
       set: { store.detailId = $0?.id }
     )) { item in
       TxDetailSheet(store: store, transactionId: item.id)
-    }
-    .fullScreenCover(isPresented: Binding(
-      get: { store.view == .account },
-      set: { if !$0 { store.closeAccount() } }
-    )) {
-      AccountScreen(store: store)
     }
     .overlay(alignment: .top) {
       if let toast = store.toast {
@@ -104,7 +124,7 @@ struct MainTabShell: View {
     tab == .home || tab == .recurring || tab == .budgets
   }
 
-  private var fabAccessory: some View {
+  private var contextualAction: some View {
     Button {
       switch tab {
       case .home: store.openOverlay(.add)
@@ -113,19 +133,23 @@ struct MainTabShell: View {
       default: break
       }
     } label: {
-      Label(fabTitle, systemImage: "plus")
-        .font(DimoFont.body(15, weight: .semibold))
-        .frame(maxWidth: .infinity)
+      Image(systemName: "plus")
+        .font(.system(size: 18, weight: .semibold))
+        .frame(width: 28, height: 28)
     }
     .buttonStyle(.borderedProminent)
+    .controlSize(.large)
     .tint(Theme.green)
+    .shadow(color: Theme.ink.opacity(0.16), radius: 12, y: 5)
+    .accessibilityLabel(fabTitle)
+    .id(tab)
   }
 
   private var fabTitle: String {
     switch tab {
     case .home: return "Add expense"
     case .recurring: return "Add recurring"
-    case .budgets: return "New category"
+    case .budgets: return "Add category"
     default: return "Add"
     }
   }
@@ -136,7 +160,7 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
-    case .settings: return .settings
+    case .sms: return .sms
     }
   }
 
@@ -146,9 +170,33 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
-    case .settings: return .settings
-    case .account: return nil
+    case .sms: return .sms
+    case .settings, .account: return nil
     }
+  }
+}
+
+private enum SettingsRoute: Hashable {
+  case settings, account
+}
+
+private struct SMSScreen: View {
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        Text("SMS")
+          .font(DimoFont.display(24, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+        Spacer()
+      }
+      .frame(minHeight: 56)
+      .padding(.horizontal, 22)
+      .padding(.top, 12)
+      .padding(.bottom, 14)
+
+      Spacer()
+    }
+    .background(Theme.canvas.ignoresSafeArea())
   }
 }
 

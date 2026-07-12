@@ -39,6 +39,7 @@ final class AppStore {
   var syncMeta: SyncMeta?
   var pendingCount = 0
   var blockedCount = 0
+  var deletingHistory = false
 
   var expenseDraft = ExpenseDraft()
   var recurringDraft = RecurringDraft()
@@ -208,6 +209,26 @@ final class AppStore {
     showToast("Transaction deleted")
   }
 
+  func deleteRecurring(_ id: String) {
+    try? repository?.removeEntity(entityType: .recurring, id: id)
+    closeOverlay()
+    showToast("Recurring transaction deleted")
+  }
+
+  func deleteCategoryAndTransactions(_ categoryId: String) {
+    let transactionIds = transactions.filter { $0.categoryId == categoryId }.map(\.id)
+    for id in transactionIds {
+      try? repository?.removeEntity(entityType: .transaction, id: id)
+    }
+    try? repository?.removeEntity(entityType: .category, id: categoryId)
+    closeOverlay()
+    showToast(
+      transactionIds.isEmpty
+        ? "Category deleted"
+        : "Category and \(transactionIds.count) transaction\(transactionIds.count == 1 ? "" : "s") deleted"
+    )
+  }
+
   func saveTransactionEdits(
     id: String,
     name: String,
@@ -231,7 +252,7 @@ final class AppStore {
     showToast("Transaction updated")
   }
 
-  func saveRecurring() {
+  func saveRecurring(includeHistoricalTransactions: Bool = false) {
     guard let amount = Double(recurringDraft.amount), amount > 0 else { return }
     guard let category = categories.first(where: { $0.name == recurringDraft.category }) else { return }
     let name = recurringDraft.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -249,15 +270,31 @@ final class AppStore {
     )
     var batch: [(EntityType, EntityPayload)] = [(.recurring, .recurring(entity))]
     if recurringDraft.editingId == nil {
-      let tx = TransactionEntity(
-        id: makeId(prefix: "tx_"),
-        name: name,
-        amountMinor: entity.amountMinor,
-        occurredAt: DateHelpers.occurrenceTimestamp(DateHelpers.parseLocalDate(entity.anchorDate)),
-        categoryId: category.id,
-        paymentMethodId: entity.paymentMethodId
-      )
-      batch.append((.transaction, .transaction(tx)))
+      let anchor = DateHelpers.parseLocalDate(entity.anchorDate)
+      let today = Calendar.current.startOfDay(for: Date())
+      let occurrenceDates: [Date]
+      if includeHistoricalTransactions {
+        occurrenceDates = DateHelpers.occurrencesThrough(
+          anchorDate: entity.anchorDate,
+          frequency: entity.frequency
+        )
+      } else if Calendar.current.isDate(anchor, inSameDayAs: today) {
+        occurrenceDates = [anchor]
+      } else {
+        occurrenceDates = []
+      }
+
+      batch.append(contentsOf: occurrenceDates.map { date in
+        let transaction = TransactionEntity(
+          id: makeId(prefix: "tx_"),
+          name: name,
+          amountMinor: entity.amountMinor,
+          occurredAt: DateHelpers.occurrenceTimestamp(date),
+          categoryId: category.id,
+          paymentMethodId: entity.paymentMethodId
+        )
+        return (.transaction, .transaction(transaction))
+      })
     }
     try? repository?.saveEntities(batch)
     closeOverlay()
@@ -397,11 +434,19 @@ final class AppStore {
   }
 
   func deleteHistory() {
-    let txs = (try? repository?.activeEntities(type: .transaction)) ?? []
-    for tx in txs {
-      try? repository?.removeEntity(entityType: .transaction, id: tx.entityId)
+    guard !deletingHistory, let repository else { return }
+    deletingHistory = true
+    Task {
+      do {
+        let count = try await Task.detached {
+          try repository.removeActiveEntities(entityType: .transaction)
+        }.value
+        showToast(count == 1 ? "Transaction deleted" : "\(count) transactions deleted")
+      } catch {
+        showToast("Could not delete history")
+      }
+      deletingHistory = false
     }
-    showToast("History deleted")
   }
 
   func deleteTransactions(_ ids: [String]) {

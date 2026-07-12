@@ -100,6 +100,26 @@ final class Repository: @unchecked Sendable {
     notifyWrite()
   }
 
+  /// Tombstones every active entity of a type in one database transaction and
+  /// emits a single write notification, avoiding a listener storm for bulk deletes.
+  @discardableResult
+  func removeActiveEntities(entityType: EntityType) throws -> Int {
+    var removedCount = 0
+    try db.write { db in
+      let records = try EntityRecord
+        .filter(Column("workspaceId") == workspaceID && Column("entityType") == entityType.rawValue)
+        .fetchAll(db)
+      for record in records {
+        let stored = try record.toStoredEntity()
+        guard !stored.deleted else { continue }
+        try putInTransaction(db, entityType: entityType, payload: stored.payload, deleted: true)
+        removedCount += 1
+      }
+    }
+    if removedCount > 0 { notifyWrite() }
+    return removedCount
+  }
+
   func setLastPaymentMethod(_ id: String?) throws {
     try db.write { db in
       _ = try ensureDevice(db)

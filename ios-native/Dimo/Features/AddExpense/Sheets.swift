@@ -224,56 +224,479 @@ private struct CategoryDropdown: View {
 
 struct AddRecurringSheet: View {
   @Bindable var store: AppStore
+  @State private var originalDraft: RecurringDraft?
+  @State private var historicalTransactionsPrompt = false
+  @State private var confirmDeleteRecurring = false
 
   var body: some View {
     SheetContainer(
       title: store.recurringDraft.editingId == nil ? "Add recurring" : "Edit recurring",
-      onClose: { store.closeOverlay() }
+      onClose: { store.closeOverlay() },
+      titleAlignment: store.recurringDraft.editingId == nil ? .center : .leading
     ) {
-      VStack(spacing: 16) {
-        TextField("Name", text: $store.recurringDraft.name)
-        TextField("Amount", text: $store.recurringDraft.amount)
-          .keyboardType(.decimalPad)
-        Picker("Category", selection: $store.recurringDraft.category) {
-          ForEach(Array(store.limits.keys.sorted()), id: \.self) { Text($0).tag($0) }
+      VStack(alignment: .leading, spacing: 16) {
+        recurringField("Name") {
+          TextField("e.g. iCloud, House help, SIP", text: $store.recurringDraft.name)
+            .textFieldStyle(.plain)
         }
-        Picker("Frequency", selection: $store.recurringDraft.frequency) {
-          Text("Monthly").tag(RecurringFrequency.monthly)
-          Text("Yearly").tag(RecurringFrequency.yearly)
+
+        let suggestions = TransactionSelectors.merchantSuggestions(
+          store.transactions,
+          query: store.recurringDraft.name
+        )
+        if !suggestions.isEmpty {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+              ForEach(suggestions, id: \.name) { suggestion in
+                Chip(label: suggestion.name, selected: false) {
+                  store.recurringDraft.name = suggestion.name
+                  store.recurringDraft.category = suggestion.category
+                }
+              }
+            }
+          }
         }
-        TextField("Anchor date (YYYY-MM-DD)", text: $store.recurringDraft.anchorDate)
-        if store.recurringDraft.editingId != nil {
-          Toggle("Paused", isOn: $store.recurringDraft.paused)
+
+        recurringField("Amount") {
+          HStack(spacing: 8) {
+            Text(Formatting.currencySymbol(store.currency))
+              .foregroundStyle(Theme.muted)
+            TextField("0", text: $store.recurringDraft.amount)
+              .keyboardType(.decimalPad)
+              .textFieldStyle(.plain)
+          }
         }
-        Button("Save") { store.saveRecurring() }
+
+        RecurringDateField(anchorDate: $store.recurringDraft.anchorDate)
+
+        VStack(alignment: .leading, spacing: 6) {
+          recurringLabel("Category")
+          CategoryDropdown(
+            categories: store.categories,
+            selected: store.recurringDraft.category,
+            onSelect: { store.recurringDraft.category = $0 },
+            onAdd: { store.openOverlay(.category) }
+          )
+        }
+
+        PaymentMethodField(
+          methods: store.paymentMethods.filter { !$0.archived },
+          selectedId: store.recurringDraft.paymentMethodId,
+          onSelect: { store.recurringDraft.paymentMethodId = $0 },
+          onManage: nil
+        )
+
+        VStack(alignment: .leading, spacing: 8) {
+          recurringLabel("Repeats")
+          HStack(spacing: 8) {
+            frequencyButton("Monthly", value: .monthly)
+            frequencyButton("Yearly", value: .yearly)
+          }
+        }
+
+        Button(primaryButtonTitle) {
+          handlePrimaryAction()
+        }
+        .font(DimoFont.body(16, weight: .semibold))
+        .foregroundStyle(Theme.onGreen)
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .background(canSave ? Theme.green : Theme.disabled)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .buttonStyle(.plain)
+        .disabled(!canSave)
       }
       .padding(.horizontal, 20)
       .padding(.vertical, 12)
+    }
+    .presentationBackground(Theme.surface)
+    .overlay(alignment: .topTrailing) {
+      if store.recurringDraft.editingId != nil {
+        Button { confirmDeleteRecurring = true } label: {
+          Image(systemName: "trash")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Theme.danger)
+            .frame(width: 42, height: 42)
+            .background(Theme.dangerSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Theme.dangerLine, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 14)
+        .padding(.trailing, 20)
+      }
+    }
+    .onAppear {
+      originalDraft = store.recurringDraft
+    }
+    .alert(
+      "Add previous transactions?",
+      isPresented: $historicalTransactionsPrompt
+    ) {
+      Button("Add all \(historicalTransactionCount) transaction\(historicalTransactionCount == 1 ? "" : "s")") {
+        store.saveRecurring(includeHistoricalTransactions: true)
+      }
+      Button("Discard previous transactions") {
+        store.saveRecurring(includeHistoricalTransactions: false)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("The selected start date creates \(historicalTransactionCount) transaction\(historicalTransactionCount == 1 ? "" : "s") through today.")
+    }
+    .alert("Delete this recurring transaction?", isPresented: $confirmDeleteRecurring) {
+      Button("Delete", role: .destructive) {
+        guard let id = store.recurringDraft.editingId else { return }
+        store.deleteRecurring(id)
+      }
+      Button("Cancel", role: .cancel) {}
+    }
+  }
+
+  private var hasChanges: Bool {
+    guard let originalDraft else { return false }
+    return store.recurringDraft != originalDraft
+  }
+
+  private var primaryButtonTitle: String {
+    guard store.recurringDraft.editingId != nil else { return "Add recurring" }
+    if hasChanges { return "Save recurring" }
+    return store.recurringDraft.paused ? "Resume" : "Pause"
+  }
+
+  private var hasPastStartDate: Bool {
+    let calendar = Calendar.current
+    let start = calendar.startOfDay(for: DateHelpers.parseLocalDate(store.recurringDraft.anchorDate))
+    return start < calendar.startOfDay(for: Date())
+  }
+
+  private var historicalTransactionCount: Int {
+    DateHelpers.occurrencesThrough(
+      anchorDate: store.recurringDraft.anchorDate,
+      frequency: store.recurringDraft.frequency
+    ).count
+  }
+
+  private func handlePrimaryAction() {
+    if let editingId = store.recurringDraft.editingId {
+      if hasChanges {
+        store.saveRecurring()
+      } else {
+        store.toggleRecurring(editingId)
+        store.closeOverlay()
+      }
+    } else if hasPastStartDate {
+      historicalTransactionsPrompt = true
+    } else {
+      store.saveRecurring()
+    }
+  }
+
+  private var canSave: Bool {
+    !store.recurringDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && (Double(store.recurringDraft.amount) ?? 0) > 0
+      && !store.recurringDraft.anchorDate.isEmpty
+  }
+
+  private func recurringLabel(_ title: String) -> some View {
+    Text(title)
+      .font(DimoFont.body(12))
+      .foregroundStyle(Theme.muted)
+  }
+
+  private func recurringField<Content: View>(
+    _ title: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      recurringLabel(title)
+      content()
+        .font(DimoFont.body(15))
+        .foregroundStyle(Theme.ink)
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+    }
+  }
+
+  private func frequencyButton(_ title: String, value: RecurringFrequency) -> some View {
+    let selected = store.recurringDraft.frequency == value
+    return Button(title) { store.recurringDraft.frequency = value }
+      .font(DimoFont.body(15, weight: .semibold))
+      .foregroundStyle(selected ? Theme.canvas : Theme.muted)
+      .frame(maxWidth: .infinity)
+      .frame(height: 46)
+      .background(selected ? Theme.ink : Theme.canvas)
+      .clipShape(Capsule())
+      .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
+      .buttonStyle(.plain)
+  }
+}
+
+private struct RecurringDateField: View {
+  @Binding var anchorDate: String
+
+  private var date: Binding<Date> {
+    Binding(
+      get: { DateHelpers.parseLocalDate(anchorDate) },
+      set: { anchorDate = DateHelpers.localDateKey($0) }
+    )
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Start date")
+        .font(DimoFont.body(12))
+        .foregroundStyle(Theme.muted)
+
+      DatePicker("Start date", selection: date, displayedComponents: .date)
+        .labelsHidden()
+        .datePickerStyle(.compact)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        .tint(Theme.green)
     }
   }
 }
 
 struct NewCategorySheet: View {
   @Bindable var store: AppStore
+  @State private var confirmDeleteCategory = false
 
   var body: some View {
-    SheetContainer(
-      title: store.categoryDraft.editingId == nil ? "New category" : "Edit category",
-      onClose: { store.closeOverlay() }
-    ) {
-      VStack(spacing: 16) {
-        TextField("Name", text: $store.categoryDraft.name)
-        TextField("Emoji", text: $store.categoryDraft.emoji)
-        TextField("Monthly budget", text: $store.categoryDraft.limitText)
-          .keyboardType(.decimalPad)
-        Picker("Tint", selection: $store.categoryDraft.tint) {
-          Text("Green").tag(CategoryTint.green)
-          Text("Neutral").tag(CategoryTint.neutral)
+    VStack(alignment: .leading, spacing: 20) {
+      Text(store.categoryDraft.editingId == nil ? "New category" : "Edit category")
+        .font(DimoFont.display(18, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+        .frame(
+          maxWidth: .infinity,
+          alignment: store.categoryDraft.editingId == nil ? .center : .leading
+        )
+
+      VStack(alignment: .leading, spacing: 8) {
+        categoryLabel("Name")
+        HStack(spacing: 10) {
+          TextField("🙂", text: $store.categoryDraft.emoji)
+            .font(.system(size: 22))
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.plain)
+            .frame(width: 50, height: 50)
+            .background(Theme.canvas)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+
+          TextField("e.g. Pets, Travel, Health", text: $store.categoryDraft.name)
+            .font(DimoFont.body(15))
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .background(Theme.canvas)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
         }
-        Button("Save") { store.saveCategory() }
       }
-      .padding(.horizontal, 20)
-      .padding(.vertical, 12)
+
+      VStack(alignment: .leading, spacing: 8) {
+        categoryLabel("Monthly budget (optional)")
+        if let lookback = categoryLookback, lookback.total > 0 {
+          Text("\(Formatting.money(lookback.total, currency: store.currency)) spent over the last 6 months")
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.faint)
+        }
+        HStack(spacing: 8) {
+          Text(Formatting.currencySymbol(store.currency))
+            .font(DimoFont.body(16))
+            .foregroundStyle(Theme.muted)
+          TextField("Amount", text: $store.categoryDraft.limitText)
+            .font(DimoFont.body(15))
+            .keyboardType(.decimalPad)
+            .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+
+        BudgetChipWrapLayout(spacing: 8) {
+          if let suggestedBudget {
+            Button {
+              store.categoryDraft.limitText = String(Int(suggestedBudget))
+            } label: {
+              HStack(spacing: 7) {
+                Text(Formatting.money(suggestedBudget, currency: store.currency))
+                Text("SUGGESTED")
+                  .font(DimoFont.body(9, weight: .semibold))
+                  .padding(.horizontal, 7)
+                  .padding(.vertical, 4)
+                  .background(Theme.canvas.opacity(0.2))
+                  .clipShape(Capsule())
+              }
+              .font(DimoFont.body(12, weight: .semibold))
+              .foregroundStyle(Theme.canvas)
+              .padding(.horizontal, 14)
+              .frame(height: 38)
+              .background(Theme.ink)
+              .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+          }
+
+          ForEach([1000, 2500, 5000, 10000], id: \.self) { amount in
+            Button(Formatting.money(Double(amount), currency: store.currency)) {
+              store.categoryDraft.limitText = String(amount)
+            }
+            .font(DimoFont.body(12, weight: .medium))
+            .foregroundStyle(Theme.muted)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(Theme.canvas)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Theme.line))
+            .buttonStyle(.plain)
+          }
+        }
+      }
+
+      Button(store.categoryDraft.editingId == nil ? "Create category" : "Save category") {
+        store.saveCategory()
+      }
+      .font(DimoFont.body(16, weight: .semibold))
+      .foregroundStyle(Theme.onGreen)
+      .frame(maxWidth: .infinity)
+      .frame(height: 54)
+      .background(canSave ? Theme.green : Theme.disabled)
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .buttonStyle(.plain)
+      .disabled(!canSave)
+    }
+    .padding(.horizontal, 22)
+    .padding(.top, 28)
+    .padding(.bottom, 22)
+    .contentHeightSheet()
+    .presentationDragIndicator(.visible)
+    .presentationBackground(Theme.surface)
+    .overlay(alignment: .topTrailing) {
+      if store.categoryDraft.editingId != nil {
+        Button { confirmDeleteCategory = true } label: {
+          Image(systemName: "trash")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Theme.danger)
+            .frame(width: 42, height: 42)
+            .background(Theme.dangerSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Theme.dangerLine, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 14)
+        .padding(.trailing, 22)
+      }
+    }
+    .alert("Delete this category?", isPresented: $confirmDeleteCategory) {
+      Button("Delete", role: .destructive) {
+        guard let id = store.categoryDraft.editingId else { return }
+        store.deleteCategoryAndTransactions(id)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(categoryDeletionMessage)
+    }
+  }
+
+  private var canSave: Bool {
+    !store.categoryDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var categoryLookback: CategoryLookbackSpend? {
+    guard let categoryId = store.categoryDraft.editingId else { return nil }
+    return BudgetSelectors.categoryLookbackSpend(
+      store.transactions,
+      categoryId: categoryId,
+      monthCount: 6
+    )
+  }
+
+  private var suggestedBudget: Double? {
+    guard let categoryLookback, categoryLookback.total > 0 else { return nil }
+    return categoryLookback.monthlyAverage.rounded()
+  }
+
+  private var categoryDeletionMessage: String {
+    let count = categoryTransactionCount
+    return "This will also permanently delete \(count) transaction\(count == 1 ? "" : "s") in this category. This action cannot be undone."
+  }
+
+  private var categoryTransactionCount: Int {
+    guard let categoryId = store.categoryDraft.editingId else { return 0 }
+    return store.transactions.filter { $0.categoryId == categoryId }.count
+  }
+
+  private func categoryLabel(_ title: String) -> some View {
+    Text(title)
+      .font(DimoFont.body(12))
+      .foregroundStyle(Theme.muted)
+  }
+}
+
+private struct BudgetChipWrapLayout: Layout {
+  var spacing: CGFloat
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    let width = proposal.width ?? .infinity
+    var rowWidth: CGFloat = 0
+    var totalHeight: CGFloat = 0
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if rowWidth > 0, rowWidth + spacing + size.width > width {
+        totalHeight += rowHeight + spacing
+        rowWidth = 0
+        rowHeight = 0
+      }
+      rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
+      rowHeight = max(rowHeight, size.height)
+    }
+
+    return CGSize(width: proposal.width ?? rowWidth, height: totalHeight + rowHeight)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    var x = bounds.minX
+    var y = bounds.minY
+    var rowHeight: CGFloat = 0
+
+    for subview in subviews {
+      let size = subview.sizeThatFits(.unspecified)
+      if x > bounds.minX, x + size.width > bounds.maxX {
+        x = bounds.minX
+        y += rowHeight + spacing
+        rowHeight = 0
+      }
+      subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+      x += size.width + spacing
+      rowHeight = max(rowHeight, size.height)
     }
   }
 }
@@ -383,10 +806,11 @@ struct TxDetailSheet: View {
     }
     .contentHeightSheet()
     .presentationDragIndicator(.visible)
-    .confirmationDialog("Delete this expense?", isPresented: $confirmDelete) {
-      Button("Delete expense", role: .destructive) {
+    .alert("Delete this expense?", isPresented: $confirmDelete) {
+      Button("Delete", role: .destructive) {
         store.deleteTransaction(transactionId)
       }
+      Button("Cancel", role: .cancel) {}
     }
   }
 

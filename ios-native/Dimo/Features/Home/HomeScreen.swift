@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HomeScreen: View {
   @Bindable var store: AppStore
+  var onOpenSettings: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @State private var filtersOpen = false
   @State private var visibleLimit = TransactionSelectors.homePageSize
@@ -84,7 +85,7 @@ struct HomeScreen: View {
           .lineLimit(1)
       }
       Spacer()
-      Button { store.openAccount() } label: {
+      Button(action: onOpenSettings) {
         AvatarView(name: store.profileName, photoUrl: store.profilePhotoUrl)
       }
       .buttonStyle(.plain)
@@ -233,15 +234,11 @@ struct HomeScreen: View {
         } label: {
           Text("Load more")
             .font(DimoFont.body(13, weight: .medium))
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(Theme.onGreen)
             .frame(maxWidth: .infinity)
             .frame(height: 38)
-            .background(Theme.canvas)
+            .background(Theme.green)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-              RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Theme.line, lineWidth: 1)
-            )
         }
         .buttonStyle(.plain)
         .padding(.bottom, 8)

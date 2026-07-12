@@ -333,6 +333,7 @@ extension View {
 struct SheetContainer<Content: View>: View {
   var title: String
   var onClose: () -> Void
+  var titleAlignment: Alignment = .center
   @ViewBuilder var content: () -> Content
 
   var body: some View {
@@ -340,9 +341,10 @@ struct SheetContainer<Content: View>: View {
       Text(title)
         .font(DimoFont.display(18, weight: .semibold))
         .foregroundStyle(Theme.ink)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: titleAlignment)
         .padding(.top, 22)
         .padding(.bottom, 10)
+        .padding(.horizontal, 20)
 
       content()
     }
