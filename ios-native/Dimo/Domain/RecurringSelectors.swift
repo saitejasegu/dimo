@@ -17,16 +17,23 @@ enum RecurringSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    Array(
-      activeRecurring(recs)
-        .filter { rec in
-          guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return false }
-          let due = DateHelpers.nextOccurrence(anchorDate: anchor, frequency: frequency, now: now, calendar: calendar)
-          return calendar.component(.year, from: due) == calendar.component(.year, from: now)
-            && calendar.component(.month, from: due) == calendar.component(.month, from: now)
-        }
-        .prefix(limit)
-    )
+    let dueThisMonth = activeRecurring(recs)
+      .compactMap { rec -> (Recurring, Date)? in
+        guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return nil }
+        let due = DateHelpers.nextOccurrence(
+          anchorDate: anchor,
+          frequency: frequency,
+          now: now,
+          calendar: calendar
+        )
+        let sameYear = calendar.component(.year, from: due) == calendar.component(.year, from: now)
+        let sameMonth = calendar.component(.month, from: due) == calendar.component(.month, from: now)
+        guard sameYear && sameMonth else { return nil }
+        return (rec, due)
+      }
+      .sorted { $0.1 < $1.1 }
+
+    return Array(dueThisMonth.prefix(limit).map(\.0))
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

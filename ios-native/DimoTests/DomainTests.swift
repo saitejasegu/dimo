@@ -91,6 +91,41 @@ final class DateHelpersTests: XCTestCase {
   }
 }
 
+final class RecurringSelectorsTests: XCTestCase {
+  func testUpcomingBillsSortedByDueDateAscending() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 12))!
+    let recs = [
+      recurring(id: "late", name: "Rent", anchorDate: "2026-07-28"),
+      recurring(id: "early", name: "Netflix", anchorDate: "2026-07-15"),
+      recurring(id: "mid", name: "Gym", anchorDate: "2026-07-20"),
+      recurring(id: "paused", name: "Paused", anchorDate: "2026-07-13", paused: true),
+      recurring(id: "next-month", name: "Later", anchorDate: "2026-08-01"),
+    ]
+
+    let upcoming = RecurringSelectors.upcomingBills(recs, limit: 3, now: now, calendar: cal)
+    XCTAssertEqual(upcoming.map(\.id), ["early", "mid", "late"])
+  }
+
+  private func recurring(
+    id: String,
+    name: String,
+    anchorDate: String,
+    paused: Bool = false
+  ) -> Recurring {
+    Recurring(
+      id: id,
+      name: name,
+      category: "Subscriptions",
+      due: "",
+      amount: 10,
+      paused: paused,
+      anchorDate: anchorDate,
+      frequency: .monthly
+    )
+  }
+}
+
 final class PermanentSyncErrorTests: XCTestCase {
   func testPermanentMessages() {
     XCTAssertTrue(isPermanentSyncError("ArgumentValidationError: bad"))

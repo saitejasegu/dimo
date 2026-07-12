@@ -684,6 +684,10 @@ final class AppStore {
         )
       }
 
+    nextRecurring.sort {
+      DateHelpers.nextOccurrence(anchorDate: $0.anchorDate, frequency: $0.frequency)
+        < DateHelpers.nextOccurrence(anchorDate: $1.anchorDate, frequency: $1.frequency)
+    }
     recurring = nextRecurring.map { rec in
       let cat = categoryById[rec.categoryId]
       return Recurring(
