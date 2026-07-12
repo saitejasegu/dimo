@@ -9,7 +9,7 @@ export default function PrivacyPage() {
     <main className="mx-auto min-h-dvh max-w-2xl bg-canvas px-6 py-12 font-body text-ink">
       <p className="mb-2 text-sm text-muted">Dimo</p>
       <h1 className="mb-2 font-display text-3xl font-semibold">Privacy Policy</h1>
-      <p className="mb-8 text-sm text-muted">Last updated: July 11, 2026</p>
+      <p className="mb-8 text-sm text-muted">Last updated: July 13, 2026</p>
 
       <div className="space-y-6 text-[15px] leading-relaxed text-body">
         <section className="space-y-2">
@@ -26,12 +26,15 @@ export default function PrivacyPage() {
           </h2>
           <p>
             Expense entries, budgets, recurring bills, payment method labels,
+            lending records (contact names, amounts, and optional comments),
             and app preferences are stored on your device for the purpose of
-            running Dimo. Your sign-in provider supplies your full name, email
-            address, and optional profile photo; these fields are read-only in
-            Dimo. An encrypted network connection sends your app data to the
-            configured Convex deployment so it can be restored and synchronized
-            across your devices.
+            running Dimo. Address-book contact photos used for lending stay on
+            your device and are not uploaded. Your sign-in provider supplies
+            your full name, email address, and optional profile photo; these
+            fields are read-only in Dimo. An encrypted network connection sends
+            your app data to the configured Convex deployment so it can be
+            restored and synchronized across your signed-in devices, including
+            the web and desktop clients.
           </p>
         </section>
 
@@ -40,8 +43,8 @@ export default function PrivacyPage() {
             Data we do not collect
           </h2>
           <p>
-            Dimo does not sell personal data and does not use your expense data
-            for analytics, advertising, or profiling.
+            Dimo does not sell personal data and does not use your expense or
+            lending data for advertising or profiling.
           </p>
         </section>
 
@@ -55,7 +58,15 @@ export default function PrivacyPage() {
             social sign-in under the privacy policy for the provider you choose.
             If you install Dimo from the App Store, Apple may collect standard
             install and diagnostics information under Apple&apos;s privacy
-            policy. Dimo does not embed third-party ad or tracking SDKs.
+            policy.
+          </p>
+          <p>
+            The hosted web and desktop builds embed Vercel Analytics and Vercel
+            Speed Insights to measure site traffic and performance (for
+            example, page views and load timing). Those services do not receive
+            your expense entries, budgets, or lending records. Native iOS does
+            not embed those Vercel SDKs. Dimo does not embed third-party
+            advertising SDKs.
           </p>
         </section>
 
