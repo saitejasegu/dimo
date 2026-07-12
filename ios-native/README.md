@@ -6,6 +6,15 @@ Requires **iOS 26** (native Liquid Glass `TabView`).
 
 ## Setup
 
+From the repo root (macOS):
+
+```bash
+brew bundle --file=Brewfile   # installs xcodegen
+npm run ios:native            # xcodegen generate + open Dimo.xcodeproj
+```
+
+Or manually:
+
 ```bash
 brew install xcodegen
 cd ios-native
@@ -27,6 +36,8 @@ Config comes from `Config/Shared.xcconfig` → Info.plist (`ConvexURL`, `WorkOSC
 **Manual:** register `dimo://callback` as an allowed redirect URI in the WorkOS dashboard (public client + PKCE).
 
 Bundle id: `app.dimo.ios` (does not collide with Capacitor `app.dimo.expenses`).
+
+Linux cloud agents can edit sources under `ios-native/` but cannot run XcodeGen/Xcode — use `npm run ios:setup` for the Capacitor shell instead, or generate the project on a Mac.
 
 ## Architecture
 
