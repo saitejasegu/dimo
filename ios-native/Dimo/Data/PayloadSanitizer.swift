@@ -56,6 +56,21 @@ enum PayloadSanitizer {
         paused: value.paused
       ))
 
+    case .lend:
+      guard case .lend(let value) = payload else { return payload }
+      var occurredAt = Int(Double(value.occurredAt).rounded())
+      if occurredAt == 0 {
+        occurredAt = Int(Date().timeIntervalSince1970 * 1000)
+      }
+      return .lend(LendEntity(
+        id: value.id,
+        contactName: value.contactName,
+        amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
+        occurredAt: occurredAt,
+        comment: value.comment,
+        kind: value.kind ?? .lent
+      ))
+
     case .preferences:
       guard case .preferences(let value) = payload else { return payload }
       let allowedRanges: Set<StatsRange> = [.oneWeek, .month, .threeMonths, .sixMonths, .oneYear, .twoYears]

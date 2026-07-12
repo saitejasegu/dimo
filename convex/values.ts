@@ -5,6 +5,7 @@ export const entityTypeValidator = v.union(
   v.literal("paymentMethod"),
   v.literal("transaction"),
   v.literal("recurring"),
+  v.literal("lend"),
   v.literal("preferences"),
 );
 
@@ -66,6 +67,17 @@ export const recurringValidator = v.object({
   paused: v.boolean(),
 });
 
+export const lendValidator = v.object({
+  id: v.string(),
+  contactName: v.string(),
+  amountMinor: v.number(),
+  occurredAt: v.number(),
+  comment: v.string(),
+  /** Direction of money. Optional so rows written before repayments existed
+   * keep syncing; a missing value means "lent". */
+  kind: v.optional(v.union(v.literal("lent"), v.literal("repaid"))),
+});
+
 export const preferencesValidator = v.object({
   id: v.literal("preferences"),
   profileName: v.string(),
@@ -107,6 +119,7 @@ export const payloadValidator = v.union(
   paymentMethodValidator,
   transactionValidator,
   recurringValidator,
+  lendValidator,
   preferencesValidator,
 );
 

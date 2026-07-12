@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-  case home, stats, recurring, budgets
+  case home, stats, recurring, budgets, lending
 
   var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "Stats"
     case .recurring: return "Recurring"
     case .budgets: return "Budgets"
+    case .lending: return "Lending"
     }
   }
 
@@ -20,6 +21,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "chart.bar.fill"
     case .recurring: return "arrow.2.circlepath"
     case .budgets: return "target"
+    case .lending: return "person.2.fill"
     }
   }
 }
@@ -66,6 +68,9 @@ struct MainTabShell: View {
       Tab(AppTab.budgets.title, systemImage: AppTab.budgets.systemImage, value: .budgets) {
         BudgetsScreen(store: store)
       }
+      Tab(AppTab.lending.title, systemImage: AppTab.lending.systemImage, value: .lending) {
+        LendingScreen(store: store)
+      }
     }
     .tint(Theme.green)
     .tabBarMinimizeBehavior(.never)
@@ -87,6 +92,8 @@ struct MainTabShell: View {
         AddRecurringSheet(store: store)
       case .category:
         NewCategorySheet(store: store)
+      case .lend:
+        AddLendSheet(store: store)
       }
     }
     .sheet(item: Binding(
@@ -118,7 +125,7 @@ struct MainTabShell: View {
   }
 
   private var showsFAB: Bool {
-    tab == .home || tab == .recurring || tab == .budgets
+    tab == .home || tab == .recurring || tab == .budgets || tab == .lending
   }
 
   private var contextualAction: some View {
@@ -127,6 +134,7 @@ struct MainTabShell: View {
       case .home: store.openOverlay(.add)
       case .recurring: store.openOverlay(.recurring)
       case .budgets: store.openOverlay(.category)
+      case .lending: store.openOverlay(.lend)
       default: break
       }
     } label: {
@@ -147,6 +155,7 @@ struct MainTabShell: View {
     case .home: return "Add expense"
     case .recurring: return "Add recurring"
     case .budgets: return "Add category"
+    case .lending: return "Add lend"
     default: return "Add"
     }
   }
@@ -157,6 +166,7 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
+    case .lending: return .lending
     }
   }
 
@@ -166,6 +176,7 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .recurring: return .recurring
     case .budgets: return .budgets
+    case .lending: return .lending
     case .settings, .account: return nil
     }
   }
@@ -180,6 +191,6 @@ private struct DetailSheetItem: Identifiable {
 }
 
 enum OverlayKey: String, Identifiable {
-  case add, recurring, category
+  case add, recurring, category, lend
   var id: String { rawValue }
 }

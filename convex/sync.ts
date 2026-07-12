@@ -30,6 +30,8 @@ function payloadMatches(type: string, payload: Record<string, unknown>) {
       return "occurredAt" in payload;
     case "recurring":
       return "anchorDate" in payload && "frequency" in payload;
+    case "lend":
+      return "contactName" in payload && "occurredAt" in payload;
     case "preferences":
       return payload.id === "preferences";
     default:
@@ -71,7 +73,9 @@ export const push = mutationGeneric({
       }
       const untypedPayload = operation.payload as Record<string, unknown>;
       if (
-        (operation.entityType === "transaction" || operation.entityType === "recurring") &&
+        (operation.entityType === "transaction" ||
+          operation.entityType === "recurring" ||
+          operation.entityType === "lend") &&
         (!Number.isInteger(untypedPayload.amountMinor) || Number(untypedPayload.amountMinor) <= 0)
       ) {
         throw new Error("Invalid minor-unit amount");

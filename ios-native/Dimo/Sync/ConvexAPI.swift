@@ -56,6 +56,15 @@ struct WireRecurring: Codable, Sendable {
   var paused: Bool
 }
 
+struct WireLend: Codable, Sendable {
+  var id: String
+  var contactName: String
+  var amountMinor: Double
+  var occurredAt: Double
+  var comment: String
+  var kind: String?
+}
+
 struct WireNotifications: Codable, Sendable {
   var bills: Bool
   var budget: Bool
@@ -117,6 +126,15 @@ enum WirePayload {
         "frequency": e.frequency.rawValue,
         "anchorDate": e.anchorDate,
         "paused": e.paused,
+      ]
+    case .lend(let e):
+      return [
+        "id": e.id,
+        "contactName": e.contactName,
+        "amountMinor": Double(e.amountMinor),
+        "occurredAt": Double(e.occurredAt),
+        "comment": e.comment,
+        "kind": (e.kind ?? .lent).rawValue,
       ]
     case .preferences(let e):
       return [
@@ -184,6 +202,16 @@ enum WirePayload {
         frequency: RecurringFrequency(rawValue: wire.frequency) ?? .monthly,
         anchorDate: wire.anchorDate,
         paused: wire.paused
+      ))
+    case .lend:
+      let wire = try JSONDecoder().decode(WireLend.self, from: data)
+      return .lend(LendEntity(
+        id: wire.id,
+        contactName: wire.contactName,
+        amountMinor: Int(wire.amountMinor),
+        occurredAt: Int(wire.occurredAt),
+        comment: wire.comment,
+        kind: wire.kind.flatMap(LendKind.init) ?? .lent
       ))
     case .preferences:
       let wire = try JSONDecoder().decode(WirePreferences.self, from: data)

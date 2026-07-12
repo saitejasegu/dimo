@@ -5,6 +5,7 @@ enum EntityType: String, Codable, CaseIterable, Sendable {
   case paymentMethod
   case transaction
   case recurring
+  case lend
   case preferences
 }
 
@@ -70,7 +71,7 @@ enum StatsRange: String, Codable, CaseIterable, Sendable {
 }
 
 enum ViewKey: String, Codable, CaseIterable, Sendable {
-  case home, tx, stats, recurring, budgets, settings, account
+  case home, tx, stats, recurring, budgets, lending, settings, account
 }
 
 struct NotificationSettings: Codable, Hashable, Sendable {
@@ -118,6 +119,20 @@ struct RecurringEntity: Codable, Hashable, Sendable, Identifiable {
   var paused: Bool
 }
 
+enum LendKind: String, Codable, Sendable {
+  case lent, repaid
+}
+
+struct LendEntity: Codable, Hashable, Sendable, Identifiable {
+  var id: String
+  var contactName: String
+  var amountMinor: Int
+  var occurredAt: Int
+  var comment: String
+  /// Optional so rows saved before repayments existed still decode; nil means lent.
+  var kind: LendKind?
+}
+
 struct PreferencesEntity: Codable, Hashable, Sendable, Identifiable {
   var id: String
   var profileName: String
@@ -137,6 +152,7 @@ enum EntityPayload: Codable, Hashable, Sendable {
   case paymentMethod(PaymentMethodEntity)
   case transaction(TransactionEntity)
   case recurring(RecurringEntity)
+  case lend(LendEntity)
   case preferences(PreferencesEntity)
 
   var id: String {
@@ -145,6 +161,7 @@ enum EntityPayload: Codable, Hashable, Sendable {
     case .paymentMethod(let e): return e.id
     case .transaction(let e): return e.id
     case .recurring(let e): return e.id
+    case .lend(let e): return e.id
     case .preferences(let e): return e.id
     }
   }
@@ -155,6 +172,7 @@ enum EntityPayload: Codable, Hashable, Sendable {
     case .paymentMethod: return .paymentMethod
     case .transaction: return .transaction
     case .recurring: return .recurring
+    case .lend: return .lend
     case .preferences: return .preferences
     }
   }
@@ -259,6 +277,21 @@ struct Recurring: Hashable, Sendable, Identifiable {
   var paymentMethodId: String?
   var anchorDate: String?
   var frequency: RecurringFrequency?
+}
+
+struct Lend: Hashable, Sendable, Identifiable {
+  var id: String
+  var contactName: String
+  var amount: Double
+  var comment: String
+  var time: String
+  var day: String
+  var amountMinor: Int
+  var occurredAt: Int
+  var kind: LendKind
+
+  /// Positive for money lent out, negative for money received back.
+  var signedAmount: Double { kind == .repaid ? -amount : amount }
 }
 
 typealias CategoryLimits = [String: Double?]

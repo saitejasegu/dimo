@@ -22,6 +22,7 @@ final class AppStore {
 
   var transactions: [Transaction] = []
   var recurring: [Recurring] = []
+  var lends: [Lend] = []
   var categories: [CategoryEntity] = []
   var paymentMethods: [PaymentMethodOption] = []
   var limits: CategoryLimits = [:]
@@ -44,6 +45,7 @@ final class AppStore {
   var expenseDraft = ExpenseDraft()
   var recurringDraft = RecurringDraft()
   var categoryDraft = CategoryDraft()
+  var lendDraft = LendDraft()
 
   private let authProvider: WorkOSAuthProvider
   private var repository: Repository?
@@ -172,6 +174,8 @@ final class AppStore {
       )
     case .category:
       categoryDraft = CategoryDraft()
+    case .lend:
+      lendDraft = LendDraft()
     }
     overlay = key
   }
@@ -201,6 +205,79 @@ final class AppStore {
     closeOverlay()
     setView(.home)
     showToast("Expense saved")
+  }
+
+  func saveLend() {
+    guard let amount = Double(lendDraft.amount), amount > 0 else { return }
+    let contact = lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !contact.isEmpty else { return }
+    let existing = lendDraft.editingId.flatMap { id in lends.first { $0.id == id } }
+    let occurredAt: Int
+    if let existing,
+       Calendar.current.isDate(
+         Date(timeIntervalSince1970: TimeInterval(existing.occurredAt) / 1000),
+         inSameDayAs: lendDraft.date
+       ) {
+      occurredAt = existing.occurredAt
+    } else {
+      occurredAt = lendTimestamp(for: lendDraft.date)
+    }
+    let entity = LendEntity(
+      id: existing?.id ?? makeId(prefix: "lend_"),
+      contactName: contact,
+      amountMinor: Int((amount * 100).rounded()),
+      occurredAt: occurredAt,
+      comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
+      kind: existing?.kind ?? lendDraft.kind
+    )
+    try? repository?.saveEntity(entityType: .lend, payload: .lend(entity))
+    closeOverlay()
+    let kind = existing?.kind ?? lendDraft.kind
+    let noun = kind == .repaid ? "Repayment" : "Lend"
+    showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
+  }
+
+  func openEditLend(_ id: String) {
+    guard let lend = lends.first(where: { $0.id == id }) else { return }
+    lendDraft = LendDraft(
+      editingId: id,
+      kind: lend.kind,
+      contactName: lend.contactName,
+      amount: lend.amount.rounded() == lend.amount
+        ? String(Int(lend.amount))
+        : String(format: "%.2f", lend.amount),
+      date: Date(timeIntervalSince1970: TimeInterval(lend.occurredAt) / 1000),
+      comment: lend.comment
+    )
+    overlay = .lend
+  }
+
+  func openAddRepayment(contactName: String, outstanding: Double = 0) {
+    let amount: String
+    if outstanding > 0 {
+      amount = outstanding.rounded() == outstanding
+        ? String(Int(outstanding))
+        : String(format: "%.2f", outstanding)
+    } else {
+      amount = ""
+    }
+    lendDraft = LendDraft(kind: .repaid, contactName: contactName, amount: amount)
+    overlay = .lend
+  }
+
+  func deleteLend(_ id: String) {
+    try? repository?.removeEntity(entityType: .lend, id: id)
+    closeOverlay()
+    showToast("Lend deleted")
+  }
+
+  /// Today keeps the current time so entries order naturally; past dates pin to noon
+  /// like recurring occurrences.
+  private func lendTimestamp(for date: Date) -> Int {
+    if Calendar.current.isDate(date, inSameDayAs: Date()) {
+      return Int(Date().timeIntervalSince1970 * 1000)
+    }
+    return DateHelpers.occurrenceTimestamp(date)
   }
 
   func deleteTransaction(_ id: String) {
@@ -537,6 +614,7 @@ final class AppStore {
     var nextPaymentMethods: [PaymentMethodEntity] = []
     var nextTransactions: [TransactionEntity] = []
     var nextRecurring: [RecurringEntity] = []
+    var nextLends: [LendEntity] = []
     var prefs = SeedData.defaultPreferences
 
     for entity in active {
@@ -545,6 +623,7 @@ final class AppStore {
       case .paymentMethod(let p): nextPaymentMethods.append(p)
       case .transaction(let t): nextTransactions.append(t)
       case .recurring(let r): nextRecurring.append(r)
+      case .lend(let l): nextLends.append(l)
       case .preferences(let p): prefs = p
       }
     }
@@ -586,6 +665,22 @@ final class AppStore {
           occurredAt: tx.occurredAt,
           categoryId: tx.categoryId,
           paymentMethodId: tx.paymentMethodId
+        )
+      }
+
+    lends = nextLends
+      .sorted { $0.occurredAt > $1.occurredAt }
+      .map { lend in
+        Lend(
+          id: lend.id,
+          contactName: lend.contactName,
+          amount: Double(lend.amountMinor) / 100,
+          comment: lend.comment,
+          time: DateHelpers.formatTransactionTime(lend.occurredAt),
+          day: DateHelpers.formatTransactionDay(lend.occurredAt),
+          amountMinor: lend.amountMinor,
+          occurredAt: lend.occurredAt,
+          kind: lend.kind ?? .lent
         )
       }
 
@@ -690,6 +785,15 @@ struct CategoryDraft: Equatable {
   var emoji = "🙂"
   var limitText = ""
   var tint: CategoryTint = .neutral
+}
+
+struct LendDraft: Equatable {
+  var editingId: String?
+  var kind: LendKind = .lent
+  var contactName = ""
+  var amount = ""
+  var date = Date()
+  var comment = ""
 }
 
 extension AppStore {

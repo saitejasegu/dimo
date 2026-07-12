@@ -336,6 +336,15 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "anchorDate": e.anchorDate,
         "paused": e.paused,
       ]
+    case .lend(let e):
+      return [
+        "id": e.id,
+        "contactName": e.contactName,
+        "amountMinor": Double(e.amountMinor),
+        "occurredAt": Double(e.occurredAt),
+        "comment": e.comment,
+        "kind": (e.kind ?? .lent).rawValue,
+      ]
     case .preferences(let e):
       return [
         "id": e.id,
