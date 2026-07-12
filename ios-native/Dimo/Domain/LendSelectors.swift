@@ -45,6 +45,28 @@ enum LendSelectors {
     })
   }
 
+  /// Chronological transactions in the contact's current unsettled cycle.
+  /// Entries before the most recent zero balance belong to an earlier,
+  /// completed settlement and are omitted.
+  static func unsettledTransactions(for contactId: String, in lends: [Lend]) -> [Lend] {
+    let contactLends = lends
+      .filter { $0.contactId == contactId }
+      .sorted {
+        if $0.occurredAt != $1.occurredAt { return $0.occurredAt < $1.occurredAt }
+        return $0.id < $1.id
+      }
+
+    var balance = 0.0
+    var unsettledStartIndex = 0
+    for (index, lend) in contactLends.enumerated() {
+      balance += lend.signedAmount
+      if abs(balance) < 0.0001 {
+        unsettledStartIndex = index + 1
+      }
+    }
+    return Array(contactLends.dropFirst(unsettledStartIndex))
+  }
+
   /// Groups lends per person by address-book identifier, keeping the name
   /// casing of the most recent entry, sorted by highest outstanding total;
   /// settled contacts are omitted.

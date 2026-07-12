@@ -1,6 +1,6 @@
 # Dimo
 
-Personal spending tracker — expenses, budgets, recurring bills, and stats. Local-first on every platform, with optional cloud sync through Convex and WorkOS AuthKit.
+Personal spending tracker — expenses, budgets, recurring bills, lending, and stats. Local-first on every platform, with optional cloud sync through Convex and WorkOS AuthKit.
 
 | Surface | Stack | Notes |
 | --- | --- | --- |
@@ -8,7 +8,7 @@ Personal spending tracker — expenses, budgets, recurring bills, and stats. Loc
 | Desktop | Electron wrapping the same export | `electron/` |
 | iOS | SwiftUI + GRDB SQLite | `app.dimo.ios` · `ios-native/` |
 
-Web, desktop, and native iOS share the same Convex backend and WorkOS account. Lending is native-iOS-only today; other entity types sync across clients.
+Web, desktop, and native iOS share the same Convex backend and WorkOS account. Lending records are created and managed in native iOS, then shown read-only on web and desktop.
 
 ## Features
 
@@ -17,7 +17,8 @@ Web, desktop, and native iOS share the same Convex backend and WorkOS account. L
 - Recurring monthly / yearly bills
 - Activity list, stats ranges, and CSV export
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
-- **Native iOS:** lending tracker (contacts from the device address book; `contactId` + name sync, photos stay on-device), Liquid Glass tab UI (requires iOS 26+)
+- Read-only lending summary and activity on web, desktop, and responsive mobile web
+- **Native iOS:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device. Liquid Glass tab UI requires iOS 26+.
 
 ## Architecture
 
@@ -28,7 +29,7 @@ Web, desktop, and native iOS share the same Convex backend and WorkOS account. L
 | Web / Electron | IndexedDB via Dexie (`dimo-expenses`, scoped per WorkOS user) |
 | Native iOS | SQLite via GRDB (`dimo-{userId}.sqlite`) |
 
-Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend` (native). Every local write and its outbox op commit together. The app works fully offline; sync runs when a Convex deployment and auth are configured.
+Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS owns lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The app works fully offline; sync runs when a Convex deployment and auth are configured.
 
 ### Sync
 

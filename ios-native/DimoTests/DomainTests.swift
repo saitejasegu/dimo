@@ -502,4 +502,19 @@ final class LendSelectorsTests: XCTestCase {
       100
     )
   }
+
+  func testUnsettledTransactionsStartAfterMostRecentSettlement() {
+    let lends = [
+      lend("old-lend", name: "Aakash", contactId: "cn-a", amount: 100, occurredAt: 1_000),
+      lend("old-repayment", name: "Aakash", contactId: "cn-a", amount: 100, kind: .repaid, occurredAt: 2_000),
+      lend("current-lend", name: "Aakash", contactId: "cn-a", amount: 70, occurredAt: 3_000),
+      lend("partial-repayment", name: "Aakash", contactId: "cn-a", amount: 20, kind: .repaid, occurredAt: 4_000),
+      lend("other-contact", name: "Ravi", contactId: "cn-r", amount: 25, occurredAt: 5_000),
+    ]
+
+    XCTAssertEqual(
+      LendSelectors.unsettledTransactions(for: "cn-a", in: lends).map(\.id),
+      ["current-lend", "partial-repayment"]
+    )
+  }
 }

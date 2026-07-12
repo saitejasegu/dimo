@@ -17,6 +17,7 @@ enum LendingSection: String, CaseIterable, Identifiable {
 struct LendingScreen: View {
   @Bindable var store: AppStore
   @State private var section: LendingSection = .summary
+  @State private var messageToShare: String?
   private let contactPhotos = ContactsLoader.shared
 
   var body: some View {
@@ -70,6 +71,17 @@ struct LendingScreen: View {
     }
     .background(Theme.canvas.ignoresSafeArea())
     .onAppear { contactPhotos.loadIfAuthorized() }
+    .sheet(
+      isPresented: Binding(
+        get: { messageToShare != nil },
+        set: { if !$0 { messageToShare = nil } }
+      )
+    ) {
+      if let messageToShare {
+        LendingShareSheet(message: messageToShare)
+          .presentationDetents([.medium, .large])
+      }
+    }
   }
 
   private func hero(total: Double, contacts: Int) -> some View {
@@ -145,46 +157,87 @@ struct LendingScreen: View {
   }
 
   private func summaryRow(_ summary: LendContactSummary) -> some View {
-    Button {
-      store.openAddRepayment(
-        contactName: summary.contactName,
-        contactId: summary.contactId
-      )
-    } label: {
-      HStack(spacing: 12) {
-        AvatarView(
-          name: summary.contactName,
-          photoData: contactPhotos.thumbnail(contactId: summary.contactId),
-          size: 38,
-          radius: 11,
-          fontSize: 15
+    HStack(spacing: 0) {
+      Button {
+        store.openAddRepayment(
+          contactName: summary.contactName,
+          contactId: summary.contactId
         )
-        VStack(alignment: .leading, spacing: 2) {
-          Text(summary.contactName)
-            .font(DimoFont.body(14, weight: .medium))
+      } label: {
+        HStack(spacing: 12) {
+          AvatarView(
+            name: summary.contactName,
+            photoData: contactPhotos.thumbnail(contactId: summary.contactId),
+            size: 38,
+            radius: 11,
+            fontSize: 15
+          )
+          VStack(alignment: .leading, spacing: 2) {
+            Text(summary.contactName)
+              .font(DimoFont.body(14, weight: .medium))
+              .foregroundStyle(Theme.ink)
+              .lineLimit(1)
+            Text("\(summary.count) entr\(summary.count == 1 ? "y" : "ies") · last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
+              .font(DimoFont.body(12))
+              .foregroundStyle(Theme.muted)
+              .lineLimit(1)
+          }
+          Spacer()
+          Text(Formatting.money(summary.total, currency: store.currency))
+            .font(DimoFont.display(15, weight: .semibold))
             .foregroundStyle(Theme.ink)
-            .lineLimit(1)
-          Text("\(summary.count) entr\(summary.count == 1 ? "y" : "ies") · last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
-            .font(DimoFont.body(12))
-            .foregroundStyle(Theme.muted)
-            .lineLimit(1)
         }
-        Spacer()
-        Text(Formatting.money(summary.total, currency: store.currency))
-          .font(DimoFont.display(15, weight: .semibold))
-          .foregroundStyle(Theme.ink)
+        .padding(.leading, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
       }
-      .padding(12)
-      .background(Theme.surface)
-      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(Theme.line, lineWidth: 1)
-      )
-      .contentShape(Rectangle())
+      .buttonStyle(.plain)
+      .accessibilityLabel("Record amount got back from \(summary.contactName)")
+
+      Button {
+        messageToShare = shareText(for: summary)
+      } label: {
+        Image(systemName: "square.and.arrow.up")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(Theme.green)
+          .frame(width: 48, height: 48)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Share lending summary with \(summary.contactName)")
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Record amount got back from \(summary.contactName)")
+    .background(Theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Theme.line, lineWidth: 1)
+    )
+  }
+
+  private func shareText(for summary: LendContactSummary) -> String {
+    let dateFormatter = DateFormatter()
+    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+    dateFormatter.dateFormat = "dd-MMM-yyyy"
+
+    let transactionLines: [String] = LendSelectors
+      .unsettledTransactions(for: summary.contactId, in: store.lends)
+      .map { lend -> String in
+        let sign = lend.kind == .repaid ? "-" : "+"
+        let amount = Formatting.money(lend.amount, currency: store.currency)
+        let occurredAt = Date(timeIntervalSince1970: TimeInterval(lend.occurredAt) / 1000)
+        let date = dateFormatter.string(from: occurredAt)
+        return "• \(date) · \(sign)\(amount)"
+      }
+    let transactions = transactionLines.joined(separator: "\n")
+
+    return """
+    Hi \(summary.contactName), here’s our lending summary:
+
+    Outstanding: \(Formatting.money(summary.total, currency: store.currency))
+
+    \(transactions)
+    """
   }
 
   private var transactionList: some View {
@@ -256,4 +309,14 @@ struct LendingScreen: View {
     }
     .buttonStyle(.plain)
   }
+}
+
+private struct LendingShareSheet: UIViewControllerRepresentable {
+  let message: String
+
+  func makeUIViewController(context: Context) -> UIActivityViewController {
+    UIActivityViewController(activityItems: [message as NSString], applicationActivities: nil)
+  }
+
+  func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
