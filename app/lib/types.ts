@@ -65,6 +65,8 @@ export interface TransactionEditInput {
   amount: number;
   category: CategoryName;
   paymentMethod: PaymentMethod;
+  /** Epoch ms for the edited occurrence. */
+  occurredAt: number;
 }
 
 export interface Recurring {

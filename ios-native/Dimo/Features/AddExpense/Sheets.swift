@@ -56,6 +56,25 @@ struct AddExpenseSheet: View {
           }
         )
 
+        DatePicker(
+          "Date",
+          selection: $store.expenseDraft.date,
+          in: ...Date(),
+          displayedComponents: [.date, .hourAndMinute]
+        )
+        .labelsHidden()
+        .datePickerStyle(.compact)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(Theme.line, lineWidth: 1)
+        )
+        .tint(Theme.green)
+
         AmountKeypad { store.pressAmountKey($0) }
 
         Button {
@@ -755,6 +774,7 @@ struct TxDetailSheet: View {
   @State private var amount = ""
   @State private var category = ""
   @State private var paymentMethodId: String?
+  @State private var date = Date()
   @State private var confirmDelete = false
 
   var body: some View {
@@ -817,6 +837,25 @@ struct TxDetailSheet: View {
           }
         )
 
+        DatePicker(
+          "Date",
+          selection: $date,
+          in: ...Date(),
+          displayedComponents: [.date, .hourAndMinute]
+        )
+        .labelsHidden()
+        .datePickerStyle(.compact)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(Theme.line, lineWidth: 1)
+        )
+        .tint(Theme.green)
+
         AmountKeypad { pressAmountKey($0) }
 
         Button {
@@ -826,7 +865,8 @@ struct TxDetailSheet: View {
             name: name,
             amount: value,
             categoryName: category,
-            paymentMethodId: paymentMethodId
+            paymentMethodId: paymentMethodId,
+            date: date
           )
         } label: {
           Text("Save expense")
@@ -850,6 +890,9 @@ struct TxDetailSheet: View {
       amount = formattedAmount(tx.amount)
       category = tx.category
       paymentMethodId = tx.paymentMethodId
+      if let occurredAt = tx.occurredAt {
+        date = Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
+      }
     }
     .contentHeightSheet()
     .presentationDragIndicator(.visible)

@@ -8,10 +8,12 @@ import {
 } from "@/lib/types";
 import { currencySymbol } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { localDateKey, localDateTimeTimestamp, localTimeKey } from "@/lib/dates";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { categoryNames } from "@/features/transactions/selectors";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
+import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
 import { Button } from "@/components/ui/Button";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
@@ -38,7 +40,7 @@ export function EditExpenseForm({
   transaction: Transaction;
   size: "mobile" | "web";
 }) {
-  const { currency, limits, paymentMethods } = useAppState();
+  const { currency, limits, paymentMethods, weekStart } = useAppState();
   const actions = useAppActions();
   const defaultMethod =
     paymentMethods.find((method) => method.isDefault && !method.archived) ??
@@ -54,11 +56,14 @@ export function EditExpenseForm({
     ...(selectedArchived ? [selectedArchived] : []),
   ];
 
+  const initialOccurred = new Date(transaction.occurredAt ?? 0);
   const [amount, setAmount] = useState(String(transaction.amount));
   const [name, setName] = useState(transaction.name);
   const [category, setCategory] = useState(transaction.category);
   const [paymentMethod, setPaymentMethod] =
     useState<PaymentMethod>(initialPaymentMethod);
+  const [date, setDate] = useState(localDateKey(initialOccurred));
+  const [time, setTime] = useState(localTimeKey(initialOccurred));
   const amountValue = Math.round(parseFloat(amount));
   const valid = Number.isFinite(amountValue) && amountValue > 0;
   const mobile = size === "mobile";
@@ -70,6 +75,7 @@ export function EditExpenseForm({
       amount: amountValue,
       category,
       paymentMethod,
+      occurredAt: localDateTimeTimestamp(date, time),
     });
   };
 
@@ -128,6 +134,15 @@ export function EditExpenseForm({
         onChange={setPaymentMethod}
         methods={availableMethods}
         onManage={actions.managePaymentMethods}
+        className="mb-4"
+      />
+
+      <ExpenseDateTimeFields
+        date={date}
+        time={time}
+        onDateChange={setDate}
+        onTimeChange={setTime}
+        weekStartsOn={weekStart === "Mon" ? 1 : 0}
         className="mb-4"
       />
 

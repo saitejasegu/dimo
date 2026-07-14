@@ -9,9 +9,33 @@ export function localDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+export function localTimeKey(date: Date) {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 export function parseLocalDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+/**
+ * Combine local `YYYY-MM-DD` + `HH:mm` into epoch ms.
+ * Missing/invalid date falls back to now; result is capped at now.
+ */
+export function localDateTimeTimestamp(
+  dateKey: string,
+  timeKey: string,
+  now = new Date(),
+): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return now.getTime();
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(timeKey);
+  const hours = timeMatch ? Number(timeMatch[1]) : now.getHours();
+  const minutes = timeMatch ? Number(timeMatch[2]) : now.getMinutes();
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const ts = new Date(year, month - 1, day, hours, minutes, 0, 0).getTime();
+  return Math.min(ts, now.getTime());
 }
 
 export function formatTransactionDay(timestamp: number, now = new Date()) {

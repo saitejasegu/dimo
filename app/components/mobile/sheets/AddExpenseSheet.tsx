@@ -11,9 +11,10 @@ import { CategoryChips } from "@/components/forms/CategoryChips";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { MerchantField } from "@/components/forms/MerchantField";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
+import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
 
 export function AddExpenseSheet() {
-  const { expenseDraft, limits, currency, paymentMethods, transactions } =
+  const { expenseDraft, limits, currency, paymentMethods, transactions, weekStart } =
     useAppState();
   const actions = useAppActions();
 
@@ -65,6 +66,15 @@ export function AddExpenseSheet() {
         onChange={actions.setExpensePaymentMethod}
         methods={availableMethods}
         onManage={actions.managePaymentMethods}
+        className="mb-4"
+      />
+
+      <ExpenseDateTimeFields
+        date={expenseDraft.date}
+        time={expenseDraft.time}
+        onDateChange={actions.setExpenseDate}
+        onTimeChange={actions.setExpenseTime}
+        weekStartsOn={weekStart === "Mon" ? 1 : 0}
         className="mb-4"
       />
 

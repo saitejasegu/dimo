@@ -196,7 +196,7 @@ final class AppStore {
       name: expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         ? "Expense" : expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines),
       amountMinor: Int((amount * 100).rounded()),
-      occurredAt: Int(Date().timeIntervalSince1970 * 1000),
+      occurredAt: Int(expenseDraft.date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
       paymentMethodId: expenseDraft.paymentMethodId
     )
@@ -315,16 +315,17 @@ final class AppStore {
     name: String,
     amount: Double,
     categoryName: String,
-    paymentMethodId: String?
+    paymentMethodId: String?,
+    date: Date
   ) {
     guard amount > 0,
           let category = categories.first(where: { $0.name == categoryName }),
-          let existing = transactions.first(where: { $0.id == id }) else { return }
+          transactions.contains(where: { $0.id == id }) else { return }
     let entity = TransactionEntity(
       id: id,
       name: name,
       amountMinor: Int((amount * 100).rounded()),
-      occurredAt: existing.occurredAt ?? Int(Date().timeIntervalSince1970 * 1000),
+      occurredAt: Int(date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
       paymentMethodId: paymentMethodId
     )
@@ -779,6 +780,7 @@ struct ExpenseDraft: Equatable {
   var amount = ""
   var category = ""
   var paymentMethodId: String?
+  var date = Date()
 }
 
 struct RecurringDraft: Equatable {

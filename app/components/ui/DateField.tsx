@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
@@ -19,8 +20,15 @@ interface DateFieldProps {
   label?: ReactNode;
   /** Earliest selectable day as `YYYY-MM-DD`. */
   min?: string;
+  /** Latest selectable day as `YYYY-MM-DD`. */
+  max?: string;
   /** 0 = Sunday, 1 = Monday. */
   weekStartsOn?: 0 | 1;
+  /**
+   * When set, the calendar popover matches this element’s width/left instead of
+   * the trigger — useful when date sits beside another field.
+   */
+  popoverContainerRef?: RefObject<HTMLElement | null>;
   className?: string;
 }
 
@@ -98,6 +106,7 @@ function MonthGrid({
   value,
   todayKey,
   minKey,
+  maxKey,
   weekStartsOn,
   onPick,
 }: {
@@ -105,6 +114,7 @@ function MonthGrid({
   value: string;
   todayKey: string;
   minKey: string | null;
+  maxKey: string | null;
   weekStartsOn: 0 | 1;
   onPick: (date: Date) => void;
 }) {
@@ -120,7 +130,9 @@ function MonthGrid({
         const inMonth = date.getMonth() === month.getMonth();
         const selectedDay = value === key;
         const isToday = key === todayKey;
-        const disabled = Boolean(minKey && key < minKey);
+        const disabled = Boolean(
+          (minKey && key < minKey) || (maxKey && key > maxKey),
+        );
 
         return (
           <button
@@ -151,7 +163,9 @@ export function DateField({
   onChange,
   label,
   min,
+  max,
   weekStartsOn = 0,
+  popoverContainerRef,
   className,
 }: DateFieldProps) {
   const labelId = useId();
@@ -203,14 +217,18 @@ export function DateField({
       if (!trigger) return;
 
       const rect = trigger.getBoundingClientRect();
+      const containerRect =
+        popoverContainerRef?.current?.getBoundingClientRect() ?? null;
       const popoverHeight = popover?.offsetHeight ?? 360;
       const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_PAD;
       const spaceAbove = rect.top - VIEWPORT_PAD;
       const openUp = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
 
-      const width = Math.min(rect.width, window.innerWidth - VIEWPORT_PAD * 2);
+      const maxWidth = window.innerWidth - VIEWPORT_PAD * 2;
+      const width = Math.min(containerRect?.width ?? rect.width, maxWidth);
+      const preferredLeft = containerRect?.left ?? rect.left;
       const left = Math.min(
-        Math.max(VIEWPORT_PAD, rect.left),
+        Math.max(VIEWPORT_PAD, preferredLeft),
         window.innerWidth - width - VIEWPORT_PAD,
       );
       const top = openUp
@@ -240,7 +258,7 @@ export function DateField({
       window.removeEventListener("resize", updatePlacement);
       window.removeEventListener("scroll", updatePlacement, true);
     };
-  }, [open]);
+  }, [open, popoverContainerRef]);
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
@@ -285,6 +303,7 @@ export function DateField({
 
   const todayKey = localDateKey(new Date());
   const minKey = min && /^\d{4}-\d{2}-\d{2}$/.test(min) ? min : null;
+  const maxKey = max && /^\d{4}-\d{2}-\d{2}$/.test(max) ? max : null;
   const weekdays = weekStartsOn === 1 ? WEEKDAYS_MON : WEEKDAYS_SUN;
   const monthLabel = visibleMonth.toLocaleDateString(undefined, {
     month: "long",
@@ -320,6 +339,7 @@ export function DateField({
   function pick(date: Date) {
     const key = localDateKey(date);
     if (minKey && key < minKey) return;
+    if (maxKey && key > maxKey) return;
     onChange(key);
     setOpen(false);
   }
@@ -329,6 +349,10 @@ export function DateField({
     const key = localDateKey(today);
     if (minKey && key < minKey) {
       jumpToMonth(parseLocalDate(minKey));
+      return;
+    }
+    if (maxKey && key > maxKey) {
+      jumpToMonth(parseLocalDate(maxKey));
       return;
     }
     onChange(key);
@@ -404,6 +428,7 @@ export function DateField({
                 value={value}
                 todayKey={todayKey}
                 minKey={minKey}
+                maxKey={maxKey}
                 weekStartsOn={weekStartsOn}
                 onPick={pick}
               />

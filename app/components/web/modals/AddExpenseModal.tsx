@@ -9,9 +9,10 @@ import { Button } from "@/components/ui/Button";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { MerchantField } from "@/components/forms/MerchantField";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
+import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
 
 export function AddExpenseModal() {
-  const { expenseDraft, limits, currency, paymentMethods, transactions } =
+  const { expenseDraft, limits, currency, paymentMethods, transactions, weekStart } =
     useAppState();
   const actions = useAppActions();
 
@@ -53,6 +54,15 @@ export function AddExpenseModal() {
             actions.setExpensePaymentMethod(suggestion.paymentMethod);
           }
         }}
+      />
+
+      <ExpenseDateTimeFields
+        date={expenseDraft.date}
+        time={expenseDraft.time}
+        onDateChange={actions.setExpenseDate}
+        onTimeChange={actions.setExpenseTime}
+        weekStartsOn={weekStart === "Mon" ? 1 : 0}
+        className="mb-4"
       />
 
       <p className="mb-2 text-xs text-muted">Category</p>

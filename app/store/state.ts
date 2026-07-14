@@ -27,6 +27,10 @@ import {
 export interface ExpenseDraft {
   amount: string;
   name: string;
+  /** Occurrence day as `YYYY-MM-DD`; empty means "now". */
+  date: string;
+  /** Local time as `HH:mm`; empty uses the current clock when saving. */
+  time: string;
   category: CategoryName;
   paymentMethod: PaymentMethod;
 }
@@ -111,6 +115,8 @@ export interface AppState {
 export const EMPTY_EXPENSE_DRAFT: ExpenseDraft = {
   amount: "",
   name: "",
+  date: "",
+  time: "",
   category: "Dining",
   paymentMethod: "UPI · HDFC Debit · ••42",
 };

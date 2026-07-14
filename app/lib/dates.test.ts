@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { nextOccurrence, occurrencesThrough } from "@/lib/dates";
+import {
+  localDateTimeTimestamp,
+  localTimeKey,
+  nextOccurrence,
+  occurrencesThrough,
+} from "@/lib/dates";
+
+describe("localDateTimeTimestamp", () => {
+  it("combines a local date and time into epoch ms", () => {
+    const now = new Date(2026, 6, 15, 18, 0, 0);
+    expect(localDateTimeTimestamp("2026-07-10", "09:30", now)).toBe(
+      new Date(2026, 6, 10, 9, 30, 0, 0).getTime(),
+    );
+  });
+
+  it("caps future datetimes at now", () => {
+    const now = new Date(2026, 6, 15, 12, 0, 0);
+    expect(localDateTimeTimestamp("2026-07-15", "18:00", now)).toBe(now.getTime());
+  });
+
+  it("falls back to now when the date is missing", () => {
+    const now = new Date(2026, 6, 15, 12, 0, 0);
+    expect(localDateTimeTimestamp("", "09:30", now)).toBe(now.getTime());
+  });
+});
+
+describe("localTimeKey", () => {
+  it("formats hours and minutes as HH:mm", () => {
+    expect(localTimeKey(new Date(2026, 6, 15, 9, 5, 30))).toBe("09:05");
+  });
+});
 
 describe("recurrence dates", () => {
   it("clamps a monthly day to the end of a short month", () => {

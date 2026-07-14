@@ -33,7 +33,7 @@ import {
   saveEntities,
   setLastPaymentMethod,
 } from "@/data/repository";
-import { formatTransactionDay, formatTransactionTime, localDateKey, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel } from "@/lib/dates";
+import { formatTransactionDay, formatTransactionTime, localDateKey, localDateTimeTimestamp, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel } from "@/lib/dates";
 import {
   paymentMethodLabel,
   type CategoryName,
@@ -84,7 +84,9 @@ export interface AppActions {
   toggleRecurring: (id: ID) => void;
   openEditRecurring: (id: ID) => void;
   setExpenseAmount: (amount: string) => void; pressAmountKey: (key: string) => void;
-  setExpenseName: (name: string) => void; setExpenseCategory: (category: CategoryName) => void;
+  setExpenseName: (name: string) => void; setExpenseDate: (date: string) => void;
+  setExpenseTime: (time: string) => void;
+  setExpenseCategory: (category: CategoryName) => void;
   setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void; saveExpense: () => void;
   managePaymentMethods: () => void; addPaymentMethod: (input: PaymentMethodInput) => void;
   editPaymentMethod: (id: ID, input: PaymentMethodInput) => void;
@@ -258,13 +260,19 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     },
     openEditRecurring: (id) => dispatch({ type: "OPEN_EDIT_RECURRING", id }),
     setExpenseAmount: (amount) => dispatch({ type: "SET_EXPENSE_AMOUNT", amount }), pressAmountKey: (key) => dispatch({ type: "PRESS_AMOUNT_KEY", key }),
-    setExpenseName: (name) => dispatch({ type: "SET_EXPENSE_NAME", name }), setExpenseCategory: (category) => dispatch({ type: "SET_EXPENSE_CATEGORY", category }),
+    setExpenseName: (name) => dispatch({ type: "SET_EXPENSE_NAME", name }), setExpenseDate: (date) => dispatch({ type: "SET_EXPENSE_DATE", date }),
+    setExpenseTime: (time) => dispatch({ type: "SET_EXPENSE_TIME", time }),
+    setExpenseCategory: (category) => dispatch({ type: "SET_EXPENSE_CATEGORY", category }),
     setExpensePaymentMethod: (paymentMethod) => dispatch({ type: "SET_EXPENSE_PAYMENT_METHOD", paymentMethod }),
     saveExpense: () => {
       const state = getState(); const amount = Number(state.expenseDraft.amount); const category = state.categories.find((c) => c.name === state.expenseDraft.category);
       const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === state.expenseDraft.paymentMethod);
       if (!(amount > 0) || !category) return;
-      const entity: TransactionEntity = { id: crypto.randomUUID(), name: state.expenseDraft.name.trim() || "New expense", amountMinor: Math.round(amount * 100), occurredAt: Date.now(), categoryId: category.id, paymentMethodId: method?.id ?? null };
+      const occurredAt = localDateTimeTimestamp(
+        state.expenseDraft.date,
+        state.expenseDraft.time,
+      );
+      const entity: TransactionEntity = { id: crypto.randomUUID(), name: state.expenseDraft.name.trim() || "New expense", amountMinor: Math.round(amount * 100), occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null };
       persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
     },
     managePaymentMethods: () => {
@@ -295,7 +303,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     saveTransactionEdits: (id, input) => {
       const state = getState(); const current = state.transactions.find((t) => t.id === id); const category = state.categories.find((c) => c.name === input.category); const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!current || !category) return;
-      persist(saveEntity("transaction", { id, name: input.name, amountMinor: Math.round(input.amount * 100), occurredAt: current.occurredAt ?? Date.now(), categoryId: category.id, paymentMethodId: method?.id ?? null }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
+      persist(saveEntity("transaction", { id, name: input.name, amountMinor: Math.round(input.amount * 100), occurredAt: input.occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
     },
     setRecurringName: (name) => dispatch({ type: "SET_RECURRING_NAME", name }), setRecurringAmount: (amount) => dispatch({ type: "SET_RECURRING_AMOUNT", amount }),
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),

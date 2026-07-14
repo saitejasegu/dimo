@@ -47,6 +47,8 @@ export type Action =
   | { type: "SET_EXPENSE_AMOUNT"; amount: string }
   | { type: "PRESS_AMOUNT_KEY"; key: string }
   | { type: "SET_EXPENSE_NAME"; name: string }
+  | { type: "SET_EXPENSE_DATE"; date: string }
+  | { type: "SET_EXPENSE_TIME"; time: string }
   | { type: "SET_EXPENSE_CATEGORY"; category: CategoryName }
   | { type: "SET_EXPENSE_PAYMENT_METHOD"; paymentMethod: PaymentMethod }
   | { type: "SAVE_EXPENSE" }

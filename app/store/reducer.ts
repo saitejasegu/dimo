@@ -5,7 +5,13 @@ import {
   type Recurring,
   type Transaction,
 } from "@/lib/types";
-import { localDateKey, nextOccurrence } from "@/lib/dates";
+import {
+  formatTransactionDay,
+  formatTransactionTime,
+  localDateKey,
+  localTimeKey,
+  nextOccurrence,
+} from "@/lib/dates";
 import type { Action } from "@/store/actions";
 import {
   AppState,
@@ -39,7 +45,13 @@ function expenseDraftFor(state: AppState) {
     state.lastPaymentMethod && activeLabels.includes(state.lastPaymentMethod)
       ? state.lastPaymentMethod
       : defaultPaymentMethodLabel(state);
-  return { ...EMPTY_EXPENSE_DRAFT, paymentMethod };
+  const now = new Date();
+  return {
+    ...EMPTY_EXPENSE_DRAFT,
+    date: localDateKey(now),
+    time: localTimeKey(now),
+    paymentMethod,
+  };
 }
 
 function recurringDraftFor(state: AppState) {
@@ -309,6 +321,18 @@ export function reducer(state: AppState, action: Action): AppState {
         expenseDraft: { ...state.expenseDraft, name: action.name },
       };
 
+    case "SET_EXPENSE_DATE":
+      return {
+        ...state,
+        expenseDraft: { ...state.expenseDraft, date: action.date },
+      };
+
+    case "SET_EXPENSE_TIME":
+      return {
+        ...state,
+        expenseDraft: { ...state.expenseDraft, time: action.time },
+      };
+
     case "SET_EXPENSE_CATEGORY":
       return {
         ...state,
@@ -475,6 +499,9 @@ export function reducer(state: AppState, action: Action): AppState {
                   amount: action.input.amount,
                   category: action.input.category,
                   paymentMethod: action.input.paymentMethod,
+                  occurredAt: action.input.occurredAt,
+                  time: formatTransactionTime(action.input.occurredAt),
+                  day: formatTransactionDay(action.input.occurredAt),
                 }
               : transaction,
           ),
