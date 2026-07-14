@@ -1,14 +1,13 @@
 "use client";
 
 import { useAppActions, useAppState } from "@/store/app-store";
-import { CURRENCY_OPTIONS } from "@/features/account/constants";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ChevronIcon } from "@/components/ui/icons";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { ThemeDropdown } from "@/components/common/ThemeDropdown";
+import { CurrencyDropdown } from "@/components/common/CurrencyDropdown";
 import { TransactionDataActions } from "@/components/common/TransactionDataActions";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
@@ -64,7 +63,7 @@ export function SettingsScreen() {
         <Card className="mb-3.5 p-5"><h2 className="mb-4 font-display text-base font-semibold text-ink">Preferences</h2>
           <div className="mb-4 flex items-center justify-between gap-4"><p className="text-[13px] font-medium text-ink">Appearance</p><ThemeDropdown value={theme} onChange={actions.setTheme} /></div>
           <div id="stats-defaults" className="mb-4 flex items-center justify-between gap-4"><p className="text-[13px] font-medium text-ink">Default stats range</p><StatsRangeDropdown value={defaultStatsRange} onChange={actions.setDefaultStatsRange} /></div>
-          <p className="mb-2 text-[13px] font-medium text-ink">Currency</p><SegmentedControl options={CURRENCY_OPTIONS} value={currency} onChange={actions.setCurrency} />
+          <div className="flex items-center justify-between gap-4"><p className="text-[13px] font-medium text-ink">Currency</p><CurrencyDropdown value={currency} onChange={actions.setCurrency} /></div>
         </Card>
         <Card className="mb-3.5 p-5"><PaymentMethodsManager /></Card>
         <Card className="mb-3.5 p-5"><TransactionDataActions /></Card>

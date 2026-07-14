@@ -2,13 +2,12 @@
 
 import type { ReactNode } from "react";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { CURRENCY_OPTIONS } from "@/features/account/constants";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { ThemeDropdown } from "@/components/common/ThemeDropdown";
+import { CurrencyDropdown } from "@/components/common/CurrencyDropdown";
 import { TransactionDataActions } from "@/components/common/TransactionDataActions";
 import { WebScreen } from "@/components/web/WebScreen";
 
@@ -31,7 +30,7 @@ export function SettingsScreen() {
     <Card className="mb-[18px] p-[22px]"><h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">Preferences</h2><div className="flex flex-col gap-[18px]">
       <Row label="Appearance" description="Defaults to Light" control={<ThemeDropdown value={theme} onChange={actions.setTheme} />} /><div className="h-px bg-line-soft" />
       <div id="stats-defaults"><Row label="Default stats range" description="Range selected when you open Stats" control={<StatsRangeDropdown value={defaultStatsRange} onChange={actions.setDefaultStatsRange} />} /></div><div className="h-px bg-line-soft" />
-      <Row label="Currency" description="Used across the whole app" control={<SegmentedControl options={CURRENCY_OPTIONS} value={currency} onChange={actions.setCurrency} fill={false} />} />
+      <Row label="Currency" description="Used across the whole app" control={<CurrencyDropdown value={currency} onChange={actions.setCurrency} />} />
     </div></Card>
     <Card className="mb-[18px] p-[22px]"><PaymentMethodsManager /></Card>
     <Card className="mb-[18px] p-[22px]"><TransactionDataActions /></Card>

@@ -144,37 +144,21 @@ struct SettingsScreen: View {
         }
       }
 
-      VStack(alignment: .leading, spacing: 8) {
+      HStack {
         Text("Currency")
           .font(DimoFont.body(13, weight: .medium))
           .foregroundStyle(Theme.ink)
-        currencySegments
+        Spacer()
+        PillDropdown(
+          options: Currency.allCases,
+          selected: store.currency,
+          label: { "\(Formatting.currencySymbol($0)) \($0.rawValue)" }
+        ) { option in
+          store.updatePreferences { $0.currency = option }
+        }
       }
     }
     .settingsCard()
-  }
-
-  private var currencySegments: some View {
-    HStack(spacing: 2) {
-      ForEach(Currency.allCases, id: \.self) { option in
-        let active = store.currency == option
-        Button {
-          store.updatePreferences { $0.currency = option }
-        } label: {
-          Text("\(Formatting.currencySymbol(option)) \(option.rawValue)")
-            .font(DimoFont.body(12, weight: active ? .semibold : .medium))
-            .foregroundStyle(active ? Theme.canvas : Theme.muted)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 7)
-            .background(active ? Theme.ink : .clear)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(3)
-    .background(Theme.canvasDeep)
-    .clipShape(Capsule())
   }
 
   private var transactionDataCard: some View {
