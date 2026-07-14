@@ -100,6 +100,8 @@ struct PaymentMethodField: View {
   var selectedId: String?
   var onSelect: (String?) -> Void
   var onManage: (() -> Void)?
+  var flyoutWidth: CGFloat? = nil
+  var flyoutOffset: CGFloat = 0
   @State private var isOpen = false
 
   private var selected: PaymentMethodOption? {
@@ -138,67 +140,87 @@ struct PaymentMethodField: View {
       }
       .buttonStyle(.plain)
 
-      if isOpen {
-        VStack(spacing: 6) {
-          ForEach(methods) { method in
-            let isSelected = method.id == selected?.id
-            Button {
-              onSelect(method.id)
-              withAnimation(.easeOut(duration: 0.18)) { isOpen = false }
-            } label: {
-              HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(method.name)
-                    .font(DimoFont.body(14, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? Theme.greenDeep : Theme.ink)
-                  Text([method.type.rawValue, method.detail]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " · "))
-                    .font(DimoFont.body(12))
-                    .foregroundStyle(Theme.muted)
-                }
-                Spacer()
-                if isSelected {
-                  Image(systemName: "checkmark")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Theme.green)
-                }
-              }
-              .padding(.horizontal, 14)
-              .frame(height: 58)
-              .background(isSelected ? Theme.greenSoft : .clear)
-              .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            .buttonStyle(.plain)
-          }
-
-          if let onManage {
-            Divider().overlay(Theme.lineSoft)
-            Button {
-              isOpen = false
-              onManage()
-            } label: {
-              Text("Manage payment methods…")
-                .font(DimoFont.body(14, weight: .medium))
-                .foregroundStyle(Theme.green)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .frame(height: 42)
-            }
-            .buttonStyle(.plain)
-          }
-        }
-        .padding(8)
-        .background(Theme.popup)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(Theme.line, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+      if isOpen && flyoutWidth == nil {
+        paymentFlyout
       }
     }
+    .overlay(alignment: .topLeading) {
+      if isOpen, let flyoutWidth {
+        paymentFlyout
+          .frame(width: flyoutWidth)
+          .offset(x: flyoutOffset, y: 72)
+      }
+    }
+    .padding(.bottom, isOpen && flyoutWidth != nil ? paymentFlyoutHeight + 8 : 0)
+  }
+
+  private var paymentFlyoutHeight: CGFloat {
+    let menuChildren = methods.count + (onManage == nil ? 0 : 2)
+    let itemHeight = CGFloat(methods.count) * 58
+    let manageHeight: CGFloat = onManage == nil ? 0 : 43
+    let spacing = CGFloat(max(menuChildren - 1, 0)) * 6
+    return itemHeight + manageHeight + spacing + 16
+  }
+
+  private var paymentFlyout: some View {
+    VStack(spacing: 6) {
+      ForEach(methods) { method in
+        let isSelected = method.id == selected?.id
+        Button {
+          onSelect(method.id)
+          withAnimation(.easeOut(duration: 0.18)) { isOpen = false }
+        } label: {
+          HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+              Text(method.name)
+                .font(DimoFont.body(14, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Theme.greenDeep : Theme.ink)
+              Text([method.type.rawValue, method.detail]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · "))
+                .font(DimoFont.body(12))
+                .foregroundStyle(Theme.muted)
+            }
+            Spacer()
+            if isSelected {
+              Image(systemName: "checkmark")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Theme.green)
+            }
+          }
+          .padding(.horizontal, 14)
+          .frame(height: 58)
+          .background(isSelected ? Theme.greenSoft : .clear)
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+      }
+
+      if let onManage {
+        Divider().overlay(Theme.lineSoft)
+        Button {
+          isOpen = false
+          onManage()
+        } label: {
+          Text("Manage payment methods…")
+            .font(DimoFont.body(14, weight: .medium))
+            .foregroundStyle(Theme.green)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .frame(height: 42)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(8)
+    .background(Theme.popup)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(Theme.line, lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
+    .transition(.opacity.combined(with: .move(edge: .top)))
   }
 }
 
@@ -412,6 +434,7 @@ struct SheetContainer<Content: View>: View {
   var title: String
   var onClose: () -> Void
   var titleAlignment: Alignment = .center
+  var titleHorizontalOffset: CGFloat = 0
   @ViewBuilder var content: () -> Content
 
   var body: some View {
@@ -420,6 +443,7 @@ struct SheetContainer<Content: View>: View {
         .font(DimoFont.display(18, weight: .semibold))
         .foregroundStyle(Theme.ink)
         .frame(maxWidth: .infinity, alignment: titleAlignment)
+        .offset(x: titleHorizontalOffset)
         .padding(.top, 22)
         .padding(.bottom, 10)
         .padding(.horizontal, 20)

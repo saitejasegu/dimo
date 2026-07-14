@@ -2,29 +2,23 @@
 
 import { useAppActions, useAppState } from "@/store/app-store";
 import { Modal } from "@/components/ui/Modal";
-import { AddRecurringForm } from "@/components/forms/AddRecurringForm";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
+import { ExpenseEditorForm } from "@/components/forms/ExpenseEditorForm";
 
 export function AddRecurringModal() {
-  const { recurringDraft } = useAppState();
-  const { closeOverlay, deleteRecurring } = useAppActions();
-  const editing = Boolean(recurringDraft.id);
-
+  const { recurringDraft, recurring } = useAppState();
+  const actions = useAppActions();
+  const item = recurring.find((candidate) => candidate.id === recurringDraft.id);
+  if (!item) return null;
   return (
     <Modal
-      onClose={closeOverlay}
+      onClose={actions.closeOverlay}
       width={460}
-      title={editing ? "Edit recurring" : "Add recurring"}
-      headerRight={
-        editing ? (
-          <DeleteIconButton
-            onClick={deleteRecurring}
-            aria-label="Delete recurring"
-          />
-        ) : undefined
-      }
+      title="Edit recurring expense"
+      titleAlignment="center"
+      headerRight={<DeleteIconButton onClick={actions.deleteRecurring} aria-label="Delete recurring" />}
     >
-      <AddRecurringForm onCancel={closeOverlay} />
+      <ExpenseEditorForm mode="recurring" size="web" recurring={item} onCancel={actions.closeOverlay} />
     </Modal>
   );
 }

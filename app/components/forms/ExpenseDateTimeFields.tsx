@@ -14,6 +14,10 @@ interface ExpenseDateTimeFieldsProps {
   className?: string;
   /** 0 = Sunday, 1 = Monday — forwarded to the calendar. */
   weekStartsOn?: 0 | 1;
+  dateLabel?: string;
+  allowFuture?: boolean;
+  minDate?: string;
+  showTime?: boolean;
 }
 
 /** Shared date + time row for add/edit expense sheets and modals. */
@@ -24,27 +28,34 @@ export function ExpenseDateTimeFields({
   onTimeChange,
   className,
   weekStartsOn = 0,
+  dateLabel = "Date",
+  allowFuture = false,
+  minDate,
+  showTime = true,
 }: ExpenseDateTimeFieldsProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const today = localDateKey(new Date());
   const nowTime = localTimeKey(new Date());
 
   return (
-    <div ref={rowRef} className={cn("grid grid-cols-2 gap-3", className)}>
+    <div ref={rowRef} className={cn("grid gap-3", showTime ? "grid-cols-2" : "grid-cols-1", className)}>
       <DateField
-        label="Date"
+        label={dateLabel}
         value={date}
         onChange={onDateChange}
-        max={today}
+        min={minDate}
+        max={allowFuture ? undefined : today}
         weekStartsOn={weekStartsOn}
         popoverContainerRef={rowRef}
       />
-      <TimeField
-        label="Time"
-        value={time}
-        onChange={onTimeChange}
-        max={date === today || !date ? nowTime : undefined}
-      />
+      {showTime ? (
+        <TimeField
+          label="Time"
+          value={time}
+          onChange={onTimeChange}
+          max={date === today || !date ? nowTime : undefined}
+        />
+      ) : null}
     </div>
   );
 }

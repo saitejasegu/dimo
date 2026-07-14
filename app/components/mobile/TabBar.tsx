@@ -85,7 +85,7 @@ export function TabBar() {
       />
       <div
         ref={trackRef}
-        className="liquid-glass pointer-events-auto relative mx-auto grid max-w-md grid-cols-5 items-center gap-0.5 rounded-full px-1.5 py-1.5"
+        className="liquid-glass pointer-events-auto relative mx-auto grid max-w-md grid-cols-4 items-center gap-0.5 rounded-full px-1.5 py-1.5"
       >
         {indicator ? (
           <span

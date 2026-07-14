@@ -14,6 +14,8 @@ interface ConfirmDialogProps {
   tone?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
+  alternateLabel?: string;
+  onAlternate?: () => void;
 }
 
 /** Centered warning/confirm dialog matching the app modal language. */
@@ -26,6 +28,8 @@ export function ConfirmDialog({
   tone = "danger",
   onConfirm,
   onCancel,
+  alternateLabel,
+  onAlternate,
 }: ConfirmDialogProps) {
   if (!open) return null;
 
@@ -55,25 +59,37 @@ export function ConfirmDialog({
         >
           {message}
         </p>
-        <div className="mt-6 flex gap-3">
-          <Button
-            variant="secondary"
-            onClick={onCancel}
-            className="flex-1"
-          >
-            {cancelLabel}
-          </Button>
-          <Button
-            variant={tone === "danger" ? "danger" : "primary"}
-            onClick={onConfirm}
-            className={cn(
-              "flex-1",
-              tone === "danger" &&
-                "!border-danger !bg-danger !text-white hover:!bg-danger-hover",
-            )}
-          >
-            {confirmLabel}
-          </Button>
+        <div className={cn("mt-6 gap-3", onAlternate ? "flex flex-col" : "flex")}>
+          {onAlternate ? (
+            <>
+              <Button variant="primary" onClick={onConfirm} className="flex-1">
+                {confirmLabel}
+              </Button>
+              <Button variant="secondary" onClick={onAlternate} className="flex-1">
+                {alternateLabel}
+              </Button>
+              <Button variant="secondary" onClick={onCancel} className="flex-1">
+                {cancelLabel}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={onCancel} className="flex-1">
+                {cancelLabel}
+              </Button>
+              <Button
+                variant={tone === "danger" ? "danger" : "primary"}
+                onClick={onConfirm}
+                className={cn(
+                  "flex-1",
+                  tone === "danger" &&
+                    "!border-danger !bg-danger !text-white hover:!bg-danger-hover",
+                )}
+              >
+                {confirmLabel}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>

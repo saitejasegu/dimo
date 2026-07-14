@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  localDateKey,
   localDateTimeTimestamp,
   localTimeKey,
   nextOccurrence,
+  occurrenceTimestamp,
   occurrencesThrough,
+  recurringTransactionDates,
 } from "@/lib/dates";
 
 describe("localDateTimeTimestamp", () => {
@@ -67,5 +70,52 @@ describe("recurrence dates", () => {
       new Date(2026, 3, 20),
     );
     expect(dates).toEqual([]);
+  });
+
+  it("plans all or only the selected past occurrence", () => {
+    const recurring = { anchorDate: "2026-01-15", frequency: "monthly" as const };
+    const now = new Date(2026, 3, 20, 18, 0);
+    expect(recurringTransactionDates(recurring, "all", now).map((date) => date.getMonth())).toEqual([0, 1, 2, 3]);
+    expect(recurringTransactionDates(recurring, "selected", now).map((date) => date.getMonth())).toEqual([0]);
+  });
+
+  it("creates one transaction for monthly and yearly schedules starting today", () => {
+    const now = new Date(2026, 6, 15, 18, 0);
+    for (const frequency of ["monthly", "yearly"] as const) {
+      const dates = recurringTransactionDates(
+        { anchorDate: "2026-07-15", frequency },
+        "selected",
+        now,
+      );
+      expect(dates.map((date) => localDateKey(date))).toEqual(["2026-07-15"]);
+    }
+  });
+
+  it("lists yearly occurrences for a past schedule", () => {
+    const dates = recurringTransactionDates(
+      { anchorDate: "2024-02-29", frequency: "yearly" },
+      "all",
+      new Date(2026, 2, 1),
+    );
+    expect(dates.map((date) => localDateKey(date))).toEqual([
+      "2024-02-29",
+      "2025-02-28",
+      "2026-02-28",
+    ]);
+  });
+
+  it("creates no transaction dates for a future schedule", () => {
+    expect(recurringTransactionDates(
+      { anchorDate: "2026-08-01", frequency: "yearly" },
+      "selected",
+      new Date(2026, 6, 15),
+    )).toEqual([]);
+  });
+
+  it("preserves the selected time on generated occurrences", () => {
+    const now = new Date(2026, 6, 15, 18, 0);
+    expect(occurrenceTimestamp(new Date(2026, 3, 15), "09:45", now)).toBe(
+      new Date(2026, 3, 15, 9, 45).getTime(),
+    );
   });
 });

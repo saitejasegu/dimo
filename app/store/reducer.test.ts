@@ -51,3 +51,13 @@ describe("store hydration", () => {
     expect(pulled.statsRange).toBe("6M");
   });
 });
+
+describe("legacy navigation", () => {
+  it("maps the retired recurring destination to home", () => {
+    const state = reducer(createInitialState(), {
+      type: "SET_VIEW",
+      view: "recurring",
+    });
+    expect(state.view).toBe("home");
+  });
+});

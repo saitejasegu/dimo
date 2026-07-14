@@ -157,7 +157,9 @@ struct HomeScreen: View {
     if !allUpcoming.isEmpty {
       let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
       let canShowAll = allUpcoming.count > upcoming.count
-      let upcomingTotal = visibleUpcoming.reduce(0) { $0 + $1.amount }
+      let upcomingTotal = visibleUpcoming.reduce(0) { total, item in
+        total + (item.paused ? 0 : item.amount)
+      }
       VStack(alignment: .leading, spacing: 0) {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
           Text(upcomingExpanded ? "Upcoming" : "Upcoming this month")
@@ -197,22 +199,39 @@ struct HomeScreen: View {
               } label: {
                 HStack(spacing: 12) {
                   CategoryTintView(green: rec.green, emoji: store.categoryEmoji(explicit: rec.emoji, categoryId: rec.categoryId, category: rec.category))
+                    .saturation(rec.paused ? 0 : 1)
+                    .opacity(rec.paused ? 0.6 : 1)
                   VStack(alignment: .leading, spacing: 2) {
                     Text(rec.name)
                       .font(DimoFont.body(14, weight: .medium))
-                      .foregroundStyle(Theme.ink)
+                      .foregroundStyle(rec.paused ? Theme.muted : Theme.ink)
                       .lineLimit(1)
-                    Text(rec.due)
-                      .font(DimoFont.body(12, weight: rec.urgent == true ? .medium : .regular))
-                      .foregroundStyle(rec.urgent == true ? Theme.warn : Theme.muted)
-                      .lineLimit(1)
+                    if rec.paused {
+                      Text("Paused")
+                        .font(DimoFont.body(10, weight: .medium))
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Theme.surface)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Theme.hairline, lineWidth: 1))
+                    } else {
+                      Text(rec.due)
+                        .font(DimoFont.body(12, weight: rec.urgent == true ? .medium : .regular))
+                        .foregroundStyle(rec.urgent == true ? Theme.warn : Theme.muted)
+                        .lineLimit(1)
+                    }
                   }
                   Spacer()
                   Text(Formatting.money(rec.amount, currency: store.currency))
                     .font(DimoFont.display(15, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
+                    .foregroundStyle(rec.paused ? Theme.muted : Theme.ink)
                 }
-                .cardRow()
+                .cardRow(
+                  borderColor: rec.paused ? Theme.hairline : Theme.line,
+                  background: rec.paused ? Theme.canvasDeep.opacity(0.7) : Theme.surface,
+                  dashed: rec.paused
+                )
               }
               .buttonStyle(.plain)
             }
@@ -512,6 +531,7 @@ struct CategoryTintView: View {
 private struct CardRowModifier: ViewModifier {
   var borderColor: Color
   var background: Color
+  var dashed: Bool
 
   func body(content: Content) -> some View {
     content
@@ -521,14 +541,21 @@ private struct CardRowModifier: ViewModifier {
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(borderColor, lineWidth: 1)
+          .stroke(
+            borderColor,
+            style: StrokeStyle(lineWidth: 1, dash: dashed ? [5, 4] : [])
+          )
       )
   }
 }
 
 private extension View {
-  func cardRow(borderColor: Color = Theme.line, background: Color = Theme.surface) -> some View {
-    modifier(CardRowModifier(borderColor: borderColor, background: background))
+  func cardRow(
+    borderColor: Color = Theme.line,
+    background: Color = Theme.surface,
+    dashed: Bool = false
+  ) -> some View {
+    modifier(CardRowModifier(borderColor: borderColor, background: background, dashed: dashed))
   }
 }
 

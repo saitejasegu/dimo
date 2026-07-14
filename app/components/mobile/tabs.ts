@@ -10,7 +10,6 @@ export interface MobileTabDef {
 export const MOBILE_TABS: MobileTabDef[] = [
   { key: "home", label: "Home" },
   { key: "stats", label: "Stats" },
-  { key: "recurring", label: "Recurring" },
   { key: "budgets", label: "Budgets" },
   { key: "lending", label: "Lending" },
 ];
@@ -18,7 +17,7 @@ export const MOBILE_TABS: MobileTabDef[] = [
 export type MobileTabKey = (typeof MOBILE_TABS)[number]["key"];
 
 export function mobileTabIndex(view: ViewKey): number {
-  const key = view === "tx" ? "home" : view;
+  const key = view === "tx" || view === "recurring" ? "home" : view;
   const index = MOBILE_TABS.findIndex((tab) => tab.key === key);
   return index >= 0 ? index : 0;
 }

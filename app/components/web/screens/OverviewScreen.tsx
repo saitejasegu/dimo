@@ -28,7 +28,10 @@ export function OverviewScreen() {
   const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
   const canShowAll = allUpcoming.length > upcoming.length;
   const showUpcomingSection = allUpcoming.length > 0;
-  const upcomingTotal = visibleUpcoming.reduce((total, item) => total + item.amount, 0);
+  const upcomingTotal = visibleUpcoming.reduce(
+    (total, item) => total + (item.paused ? 0 : item.amount),
+    0,
+  );
 
   return (
     <WebScreen>

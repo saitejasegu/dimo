@@ -14,9 +14,10 @@ enum RecurringSelectors {
   private static func withNextDue(
     _ recs: [Recurring],
     now: Date,
-    calendar: Calendar
+    calendar: Calendar,
+    includePaused: Bool = false
   ) -> [(Recurring, Date)] {
-    activeRecurring(recs)
+    (includePaused ? recs : activeRecurring(recs))
       .compactMap { rec -> (Recurring, Date)? in
         guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return nil }
         let due = DateHelpers.nextOccurrence(
@@ -49,13 +50,13 @@ enum RecurringSelectors {
     return Array(dueThisMonth.prefix(limit))
   }
 
-  /// All active bills sorted by next due date (any month).
+  /// All bills, including paused bills, sorted by next due date (any month).
   static func allUpcomingBills(
     _ recs: [Recurring],
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    withNextDue(recs, now: now, calendar: calendar).map(\.0)
+    withNextDue(recs, now: now, calendar: calendar, includePaused: true).map(\.0)
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

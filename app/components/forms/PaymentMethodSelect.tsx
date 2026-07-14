@@ -14,12 +14,14 @@ export function PaymentMethodSelect({
   methods,
   onManage,
   className,
+  menuClassName,
 }: {
   value: PaymentMethod;
   onChange: (value: PaymentMethod) => void;
   methods: PaymentMethodOption[];
   onManage?: () => void;
   className?: string;
+  menuClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(() =>
@@ -110,7 +112,10 @@ export function PaymentMethodSelect({
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
-          className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.28)]"
+          className={cn(
+            "absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.28)]",
+            menuClassName,
+          )}
         >
           {methods.map((method, index) => {
             const label = paymentMethodLabel(method);

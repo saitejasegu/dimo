@@ -17,7 +17,6 @@ interface NavDef {
 const NAV: NavDef[] = [
   { key: "home", label: "Home" },
   { key: "stats", label: "Stats" },
-  { key: "recurring", label: "Recurring" },
   { key: "budgets", label: "Budgets" },
   { key: "lending", label: "Lending" },
   { key: "settings", label: "Settings" },

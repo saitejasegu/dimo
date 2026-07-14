@@ -13,6 +13,7 @@ export function CategoryChips({
   onChange,
   surface = "canvas",
   className,
+  menuClassName,
 }: {
   categories: CategoryName[];
   value: CategoryName;
@@ -20,6 +21,7 @@ export function CategoryChips({
   surface?: "white" | "canvas";
   selectedFirst?: boolean;
   className?: string;
+  menuClassName?: string;
 }) {
   const { categories: categoryEntities } = useAppState();
   const { openOverlay } = useAppActions();
@@ -73,7 +75,12 @@ export function CategoryChips({
       </button>
 
       {open ? (
-        <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-popup p-2 shadow-[0_16px_40px_rgba(0,0,0,0.24)]">
+        <div
+          className={cn(
+            "absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-line bg-popup p-2 shadow-[0_16px_40px_rgba(0,0,0,0.24)]",
+            menuClassName,
+          )}
+        >
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2">
             <SearchIcon className="shrink-0 text-faint" />
             <input

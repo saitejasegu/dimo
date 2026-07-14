@@ -69,6 +69,29 @@ export interface TransactionEditInput {
   occurredAt: number;
 }
 
+/** Client-only input for the unified add-expense editor. */
+export interface ExpenseSaveInput {
+  name: string;
+  amount: number;
+  category: CategoryName;
+  paymentMethod: PaymentMethod;
+  date: string;
+  time: string;
+  recurring: boolean;
+  frequency: Frequency;
+  occurrenceSelection: "all" | "selected";
+}
+
+/** Client-only input for editing an existing recurring entity. */
+export interface RecurringEditInput {
+  name: string;
+  amount: number;
+  category: CategoryName;
+  paymentMethod: PaymentMethod;
+  anchorDate: string;
+  frequency: Frequency;
+}
+
 export interface Recurring {
   id: ID;
   name: string;

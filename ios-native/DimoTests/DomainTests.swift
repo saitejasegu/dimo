@@ -161,7 +161,77 @@ final class RecurringSelectorsTests: XCTestCase {
     ]
 
     let all = RecurringSelectors.allUpcomingBills(recs, now: now, calendar: cal)
-    XCTAssertEqual(all.map(\.id), ["first", "second", "next-month"])
+    XCTAssertEqual(all.map(\.id), ["first", "paused", "second", "next-month"])
+  }
+
+  func testPausedOnlyAccountsRemainAvailableInExpandedHomeResults() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 12))!
+    let paused = recurring(id: "paused", name: "Paused", anchorDate: "2026-09-01", paused: true)
+
+    XCTAssertTrue(RecurringSelectors.upcomingBills([paused], now: now, calendar: cal).isEmpty)
+    XCTAssertEqual(
+      RecurringSelectors.allUpcomingBills([paused], now: now, calendar: cal).map(\.id),
+      ["paused"]
+    )
+  }
+
+  func testRecurringTransactionDatesSupportsAllSelectedAndFuture() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 4, day: 20, hour: 18))!
+    let all = DateHelpers.recurringTransactionDates(
+      anchorDate: "2026-01-15", frequency: .monthly, selection: .all, now: now, calendar: cal
+    )
+    let selected = DateHelpers.recurringTransactionDates(
+      anchorDate: "2026-01-15", frequency: .monthly, selection: .selected, now: now, calendar: cal
+    )
+    let future = DateHelpers.recurringTransactionDates(
+      anchorDate: "2026-08-01", frequency: .yearly, selection: .selected, now: now, calendar: cal
+    )
+    XCTAssertEqual(all.map { cal.component(.month, from: $0) }, [1, 2, 3, 4])
+    XCTAssertEqual(selected.map { cal.component(.month, from: $0) }, [1])
+    XCTAssertTrue(future.isEmpty)
+  }
+
+  func testMonthlyAndYearlySchedulesStartingTodayCreateOneTransaction() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 15, hour: 18))!
+    for frequency in [RecurringFrequency.monthly, .yearly] {
+      let dates = DateHelpers.recurringTransactionDates(
+        anchorDate: "2026-07-15",
+        frequency: frequency,
+        selection: .selected,
+        now: now,
+        calendar: cal
+      )
+      XCTAssertEqual(dates.map { DateHelpers.localDateKey($0, calendar: cal) }, ["2026-07-15"])
+    }
+  }
+
+  func testPastYearlyScheduleListsEveryOccurrence() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 3, day: 1))!
+    let dates = DateHelpers.recurringTransactionDates(
+      anchorDate: "2024-02-29",
+      frequency: .yearly,
+      selection: .all,
+      now: now,
+      calendar: cal
+    )
+    XCTAssertEqual(
+      dates.map { DateHelpers.localDateKey($0, calendar: cal) },
+      ["2024-02-29", "2025-02-28", "2026-02-28"]
+    )
+  }
+
+  func testOccurrenceTimestampPreservesSelectedTime() {
+    let cal = Calendar(identifier: .gregorian)
+    let date = cal.date(from: DateComponents(year: 2026, month: 4, day: 15))!
+    let time = cal.date(from: DateComponents(year: 2026, month: 7, day: 1, hour: 9, minute: 45))!
+    let timestamp = DateHelpers.occurrenceTimestamp(date, time: time, calendar: cal)
+    let combined = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
+    XCTAssertEqual(cal.component(.hour, from: combined), 9)
+    XCTAssertEqual(cal.component(.minute, from: combined), 45)
   }
 
   private func recurring(
@@ -180,6 +250,13 @@ final class RecurringSelectorsTests: XCTestCase {
       anchorDate: anchorDate,
       frequency: .monthly
     )
+  }
+}
+
+final class LegacyNavigationTests: XCTestCase {
+  func testRecurringViewKeyStillDecodes() throws {
+    let data = try XCTUnwrap("\"recurring\"".data(using: .utf8))
+    XCTAssertEqual(try JSONDecoder().decode(ViewKey.self, from: data), .recurring)
   }
 }
 

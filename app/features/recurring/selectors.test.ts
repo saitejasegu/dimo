@@ -57,7 +57,7 @@ describe("upcomingBills", () => {
 });
 
 describe("allUpcomingBills", () => {
-  it("returns every active bill sorted by next due date", () => {
+  it("returns active and paused bills sorted by next due date", () => {
     const now = new Date(2026, 6, 12);
     const result = allUpcomingBills(
       [
@@ -69,6 +69,14 @@ describe("allUpcomingBills", () => {
       now,
     );
 
-    expect(result.map((item) => item.id)).toEqual(["first", "second", "next-month"]);
+    expect(result.map((item) => item.id)).toEqual(["first", "paused", "second", "next-month"]);
+  });
+
+  it("keeps paused-only accounts manageable from Home", () => {
+    const now = new Date(2026, 6, 12);
+    const paused = recurring("paused", "2026-09-01", true);
+
+    expect(upcomingBills([paused], undefined, now)).toEqual([]);
+    expect(allUpcomingBills([paused], now)).toEqual([paused]);
   });
 });

@@ -49,7 +49,10 @@ export function HomeScreen() {
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
-  const upcomingTotal = visibleUpcoming.reduce((total, item) => total + item.amount, 0);
+  const upcomingTotal = visibleUpcoming.reduce(
+    (total, item) => total + (item.paused ? 0 : item.amount),
+    0,
+  );
 
   return (
     <MobileScreen

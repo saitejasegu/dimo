@@ -1,5 +1,9 @@
 import Foundation
 
+enum RecurringOccurrenceSelection {
+  case all, selected
+}
+
 enum DateHelpers {
   static let dayMS = 86_400_000
 
@@ -156,6 +160,21 @@ enum DateHelpers {
     return dates
   }
 
+  static func recurringTransactionDates(
+    anchorDate: String,
+    frequency: RecurringFrequency,
+    selection: RecurringOccurrenceSelection,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Date] {
+    let anchor = parseLocalDate(anchorDate, calendar: calendar)
+    let today = calendar.startOfDay(for: now)
+    guard anchor <= today else { return [] }
+    return selection == .all
+      ? occurrencesThrough(anchorDate: anchorDate, frequency: frequency, now: now, calendar: calendar)
+      : [anchor]
+  }
+
   static func occurrenceTimestamp(_ date: Date, calendar: Calendar = .current) -> Int {
     var c = calendar.dateComponents([.year, .month, .day], from: date)
     c.hour = 12
@@ -163,6 +182,20 @@ enum DateHelpers {
     c.second = 0
     let noon = calendar.date(from: c) ?? date
     return Int(noon.timeIntervalSince1970 * 1000)
+  }
+
+  static func occurrenceTimestamp(
+    _ date: Date,
+    time: Date,
+    calendar: Calendar = .current
+  ) -> Int {
+    var dateParts = calendar.dateComponents([.year, .month, .day], from: date)
+    let timeParts = calendar.dateComponents([.hour, .minute], from: time)
+    dateParts.hour = timeParts.hour
+    dateParts.minute = timeParts.minute
+    dateParts.second = 0
+    let combined = calendar.date(from: dateParts) ?? date
+    return Int(combined.timeIntervalSince1970 * 1000)
   }
 
   static func recurringDueLabel(

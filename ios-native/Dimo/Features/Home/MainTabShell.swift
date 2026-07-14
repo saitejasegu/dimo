@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-  case home, stats, recurring, budgets, lending
+  case home, stats, budgets, lending
 
   var id: String { rawValue }
 
@@ -9,7 +9,6 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .home: return "Home"
     case .stats: return "Stats"
-    case .recurring: return "Recurring"
     case .budgets: return "Budgets"
     case .lending: return "Lending"
     }
@@ -19,7 +18,6 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     switch self {
     case .home: return "house.fill"
     case .stats: return "chart.bar.fill"
-    case .recurring: return "arrow.2.circlepath"
     case .budgets: return "target"
     case .lending: return "person.2.fill"
     }
@@ -62,9 +60,6 @@ struct MainTabShell: View {
       Tab(AppTab.stats.title, systemImage: AppTab.stats.systemImage, value: .stats) {
         StatsScreen(store: store)
       }
-      Tab(AppTab.recurring.title, systemImage: AppTab.recurring.systemImage, value: .recurring) {
-        RecurringScreen(store: store)
-      }
       Tab(AppTab.budgets.title, systemImage: AppTab.budgets.systemImage, value: .budgets) {
         BudgetsScreen(store: store)
       }
@@ -85,11 +80,15 @@ struct MainTabShell: View {
     .sheet(item: $store.overlay) { overlay in
       switch overlay {
       case .add:
-        AddExpenseSheet(store: store) {
+        ExpenseEditorSheet(store: store, mode: .create) {
           settingsPath.append(.settings)
         }
       case .recurring:
-        AddRecurringSheet(store: store)
+        if let id = store.recurringDraft.editingId {
+          ExpenseEditorSheet(store: store, mode: .recurring(id)) {
+            settingsPath.append(.settings)
+          }
+        }
       case .category:
         NewCategorySheet(store: store)
       case .lend:
@@ -100,7 +99,9 @@ struct MainTabShell: View {
       get: { store.detailId.map(DetailSheetItem.init) },
       set: { store.detailId = $0?.id }
     )) { item in
-      TxDetailSheet(store: store, transactionId: item.id)
+      ExpenseEditorSheet(store: store, mode: .transaction(item.id)) {
+        settingsPath.append(.settings)
+      }
     }
     .overlay(alignment: .top) {
       if let toast = store.toast {
@@ -125,14 +126,13 @@ struct MainTabShell: View {
   }
 
   private var showsFAB: Bool {
-    tab == .home || tab == .recurring || tab == .budgets || tab == .lending
+    tab == .home || tab == .budgets || tab == .lending
   }
 
   private var contextualAction: some View {
     Button {
       switch tab {
       case .home: store.openOverlay(.add)
-      case .recurring: store.openOverlay(.recurring)
       case .budgets: store.openOverlay(.category)
       case .lending: store.openOverlay(.lend)
       default: break
@@ -153,7 +153,6 @@ struct MainTabShell: View {
   private var fabTitle: String {
     switch tab {
     case .home: return "Add expense"
-    case .recurring: return "Add recurring"
     case .budgets: return "Add category"
     case .lending: return "Add lend"
     default: return "Add"
@@ -164,7 +163,6 @@ struct MainTabShell: View {
     switch tab {
     case .home: return .home
     case .stats: return .stats
-    case .recurring: return .recurring
     case .budgets: return .budgets
     case .lending: return .lending
     }
@@ -174,7 +172,7 @@ struct MainTabShell: View {
     switch view {
     case .home, .tx: return .home
     case .stats: return .stats
-    case .recurring: return .recurring
+    case .recurring: return .home
     case .budgets: return .budgets
     case .lending: return .lending
     case .settings, .account: return nil

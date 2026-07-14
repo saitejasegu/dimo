@@ -5,7 +5,6 @@ import { useAppActions } from "@/store/app-store";
 import { useTabPagerSwipe } from "@/hooks/useTabPagerSwipe";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
 import { StatsScreen } from "@/components/mobile/screens/StatsScreen";
-import { RecurringScreen } from "@/components/mobile/screens/RecurringScreen";
 import { BudgetsScreen } from "@/components/mobile/screens/BudgetsScreen";
 import { LendingScreen } from "@/components/mobile/screens/LendingScreen";
 import { MOBILE_TABS, mobileTabIndex, type MobileTabKey } from "@/components/mobile/tabs";
@@ -17,8 +16,6 @@ function TabScreen({ tab }: { tab: MobileTabKey }) {
       return <HomeScreen />;
     case "stats":
       return <StatsScreen />;
-    case "recurring":
-      return <RecurringScreen />;
     case "budgets":
       return <BudgetsScreen />;
     case "lending":

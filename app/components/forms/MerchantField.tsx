@@ -86,6 +86,7 @@ export function MerchantField({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
         onKeyDown={(event) => {
           if (!showList) {
             if (event.key === "ArrowDown" && suggestions.length > 0) {

@@ -33,11 +33,12 @@ import {
   saveEntities,
   setLastPaymentMethod,
 } from "@/data/repository";
-import { formatTransactionDay, formatTransactionTime, localDateKey, localDateTimeTimestamp, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel } from "@/lib/dates";
+import { formatTransactionDay, formatTransactionTime, localDateKey, localDateTimeTimestamp, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel, recurringTransactionDates } from "@/lib/dates";
 import {
   paymentMethodLabel,
   type CategoryName,
   type Currency,
+  type ExpenseSaveInput,
   type Frequency,
   type ID,
   type NotificationSettings,
@@ -45,6 +46,7 @@ import {
   type PaymentMethod,
   type PaymentMethodInput,
   type PaymentMethodOption,
+  type RecurringEditInput,
   type StatsRange,
   type ThemePreference,
   type TransactionEditInput,
@@ -87,7 +89,8 @@ export interface AppActions {
   setExpenseName: (name: string) => void; setExpenseDate: (date: string) => void;
   setExpenseTime: (time: string) => void;
   setExpenseCategory: (category: CategoryName) => void;
-  setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void; saveExpense: () => void;
+  setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void;
+  saveExpense: (input: ExpenseSaveInput) => void;
   managePaymentMethods: () => void; addPaymentMethod: (input: PaymentMethodInput) => void;
   editPaymentMethod: (id: ID, input: PaymentMethodInput) => void;
   setDefaultPaymentMethod: (id: ID) => void;
@@ -99,6 +102,7 @@ export interface AppActions {
   setRecurringCategory: (category: CategoryName) => void;
   setRecurringPaymentMethod: (paymentMethod: PaymentMethod) => void;
   saveRecurring: () => void;
+  saveRecurringEdits: (id: ID, input: RecurringEditInput) => void;
   deleteRecurring: () => void;
   setCategoryName: (name: string) => void; setCategoryEmoji: (emoji: string) => void;
   setCategoryLimit: (limit: string) => void;
@@ -264,16 +268,48 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setExpenseTime: (time) => dispatch({ type: "SET_EXPENSE_TIME", time }),
     setExpenseCategory: (category) => dispatch({ type: "SET_EXPENSE_CATEGORY", category }),
     setExpensePaymentMethod: (paymentMethod) => dispatch({ type: "SET_EXPENSE_PAYMENT_METHOD", paymentMethod }),
-    saveExpense: () => {
-      const state = getState(); const amount = Number(state.expenseDraft.amount); const category = state.categories.find((c) => c.name === state.expenseDraft.category);
-      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === state.expenseDraft.paymentMethod);
-      if (!(amount > 0) || !category) return;
-      const occurredAt = localDateTimeTimestamp(
-        state.expenseDraft.date,
-        state.expenseDraft.time,
-      );
-      const entity: TransactionEntity = { id: crypto.randomUUID(), name: state.expenseDraft.name.trim() || "New expense", amountMinor: Math.round(amount * 100), occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null };
-      persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => { dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" }); });
+    saveExpense: (input) => {
+      const state = getState();
+      const category = state.categories.find((c) => c.name === input.category);
+      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
+      if (!(input.amount > 0) || !category) return;
+      const name = input.name.trim() || "New expense";
+
+      if (!input.recurring) {
+        const entity: TransactionEntity = {
+          id: crypto.randomUUID(), name, amountMinor: Math.round(input.amount * 100),
+          occurredAt: localDateTimeTimestamp(input.date, input.time),
+          categoryId: category.id, paymentMethodId: method?.id ?? null,
+        };
+        persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => {
+          dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" });
+        });
+        return;
+      }
+
+      if (!input.name.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return;
+      const recurring: RecurringEntity = {
+        id: crypto.randomUUID(), name: input.name.trim(), amountMinor: Math.round(input.amount * 100),
+        categoryId: category.id, paymentMethodId: method?.id ?? null,
+        frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
+        anchorDate: input.date, paused: false,
+      };
+      const transactionDates = recurringTransactionDates(recurring, input.occurrenceSelection);
+      const entities: Parameters<typeof saveEntities>[0] = [
+        { entityType: "recurring", payload: recurring },
+        ...transactionDates.map((date): Parameters<typeof saveEntities>[0][number] => ({
+          entityType: "transaction",
+          payload: {
+            id: crypto.randomUUID(), name: recurring.name, amountMinor: recurring.amountMinor,
+            occurredAt: occurrenceTimestamp(date, input.time), categoryId: recurring.categoryId,
+            paymentMethodId: recurring.paymentMethodId,
+          } satisfies TransactionEntity,
+        })),
+      ];
+      persist(Promise.all([saveEntities(entities), setLastPaymentMethod(method?.id ?? null)]), () => {
+        dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" });
+        dispatch({ type: "SHOW_TOAST", message: transactionDates.length > 0 ? `${recurring.name} added · ${transactionDates.length} transaction${transactionDates.length === 1 ? "" : "s"}` : `${recurring.name} added` });
+      });
     },
     managePaymentMethods: () => {
       dispatch({ type: "MANAGE_PAYMENT_METHODS" });
@@ -309,6 +345,21 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),
     setRecurringFrequency: (frequency) => dispatch({ type: "SET_RECURRING_FREQUENCY", frequency }), setRecurringCategory: (category) => dispatch({ type: "SET_RECURRING_CATEGORY", category }),
     setRecurringPaymentMethod: (paymentMethod) => dispatch({ type: "SET_RECURRING_PAYMENT_METHOD", paymentMethod }),
+    saveRecurringEdits: (id, input) => {
+      const state = getState(); const current = state.recurring.find((item) => item.id === id);
+      const category = state.categories.find((c) => c.name === input.category);
+      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
+      if (!current || !category || !(input.amount > 0) || !input.name.trim() || input.anchorDate < localDateKey(new Date())) return;
+      const entity: RecurringEntity = {
+        id, name: input.name.trim(), amountMinor: Math.round(input.amount * 100),
+        categoryId: category.id, paymentMethodId: method?.id ?? null,
+        frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
+        anchorDate: input.anchorDate, paused: current.paused,
+      };
+      persist(saveEntity("recurring", entity), () => {
+        dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SHOW_TOAST", message: `${entity.name} updated` });
+      });
+    },
     saveRecurring: () => {
       const state = getState();
       const draft = state.recurringDraft;

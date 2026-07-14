@@ -10,8 +10,8 @@ export function monthlyRecurringTotal(recs: Recurring[]): number {
   return activeRecurring(recs).reduce((sum, r) => sum + (r.frequency === "yearly" ? r.amount / 12 : r.amount), 0);
 }
 
-function withNextDue(recs: Recurring[], now: Date): { rec: Recurring; due: Date }[] {
-  return activeRecurring(recs)
+function withNextDue(recs: Recurring[], now: Date, includePaused = false): { rec: Recurring; due: Date }[] {
+  return (includePaused ? recs : activeRecurring(recs))
     .flatMap((rec) => {
       if (!rec.anchorDate || !rec.frequency) return [];
       const due = nextOccurrence(
@@ -32,9 +32,9 @@ export function upcomingBills(recs: Recurring[], limit?: number, now = new Date(
   return limit == null ? dueThisMonth : dueThisMonth.slice(0, limit);
 }
 
-/** All active bills sorted by next due date (any month). */
+/** All bills, including paused bills, sorted by next due date (any month). */
 export function allUpcomingBills(recs: Recurring[], now = new Date()): Recurring[] {
-  return withNextDue(recs, now).map(({ rec }) => rec);
+  return withNextDue(recs, now, true).map(({ rec }) => rec);
 }
 
 export function recurringSubtitle(rec: Recurring): string {

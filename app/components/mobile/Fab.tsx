@@ -9,7 +9,6 @@ const FAB_BY_VIEW: Partial<
 > = {
   home: { overlay: "add", label: "Add expense" },
   tx: { overlay: "add", label: "Add expense" },
-  recurring: { overlay: "recurring", label: "Add recurring" },
   budgets: { overlay: "category", label: "New category" },
 };
 

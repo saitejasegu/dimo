@@ -8,6 +8,7 @@ interface SheetProps {
   onClose: () => void;
   title?: string;
   headerRight?: ReactNode;
+  titleAlignment?: "leading" | "center";
   children: ReactNode;
   className?: string;
 }
@@ -31,6 +32,7 @@ export function Sheet({
   onClose,
   title,
   headerRight,
+  titleAlignment = "leading",
   children,
   className,
 }: SheetProps) {
@@ -157,15 +159,29 @@ export function Sheet({
           <div className="h-1 w-10 shrink-0 rounded-full bg-hairline" />
         </div>
         {title || headerRight ? (
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div
+            className={cn(
+              "mb-4 flex items-center gap-3",
+              titleAlignment === "center" ? "relative justify-center" : "justify-between",
+            )}
+          >
             {title ? (
-              <h2 className="font-display text-lg font-semibold text-ink">
+              <h2
+                className={cn(
+                  "font-display text-lg font-semibold text-ink",
+                  titleAlignment === "center" && "px-12 text-center",
+                )}
+              >
                 {title}
               </h2>
             ) : (
               <span />
             )}
-            {headerRight}
+            {headerRight ? (
+              <div className={cn(titleAlignment === "center" && "absolute right-0")}>
+                {headerRight}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {children}

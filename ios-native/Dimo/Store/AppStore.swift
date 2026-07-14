@@ -147,7 +147,7 @@ final class AppStore {
   // MARK: - Navigation
 
   func setView(_ view: ViewKey) {
-    self.view = view == .tx ? .home : view
+    self.view = view == .tx || view == .recurring ? .home : view
   }
 
   func openAccount() {
@@ -206,6 +206,77 @@ final class AppStore {
     closeOverlay()
     setView(.home)
     showToast("Expense saved")
+  }
+
+  func saveExpense(
+    name: String,
+    amount: Double,
+    categoryName: String,
+    paymentMethodId: String?,
+    date: Date,
+    recurringFrequency: RecurringFrequency?,
+    occurrenceSelection: RecurringOccurrenceSelection = .selected
+  ) {
+    guard amount > 0,
+          let category = categories.first(where: { $0.name == categoryName }) else { return }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let amountMinor = Int((amount * 100).rounded())
+
+    guard let recurringFrequency else {
+      let transaction = TransactionEntity(
+        id: makeId(prefix: "tx_"),
+        name: trimmedName.isEmpty ? "Expense" : trimmedName,
+        amountMinor: amountMinor,
+        occurredAt: min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000)),
+        categoryId: category.id,
+        paymentMethodId: paymentMethodId
+      )
+      try? repository?.saveEntity(entityType: .transaction, payload: .transaction(transaction))
+      try? repository?.setLastPaymentMethod(paymentMethodId)
+      closeOverlay()
+      setView(.home)
+      showToast("Expense saved")
+      return
+    }
+
+    guard !trimmedName.isEmpty else { return }
+    let anchorDate = DateHelpers.localDateKey(date)
+    let recurring = RecurringEntity(
+      id: makeId(prefix: "rec_"),
+      name: trimmedName,
+      amountMinor: amountMinor,
+      categoryId: category.id,
+      paymentMethodId: paymentMethodId,
+      frequency: recurringFrequency,
+      anchorDate: anchorDate,
+      paused: false
+    )
+    let dates = DateHelpers.recurringTransactionDates(
+      anchorDate: anchorDate,
+      frequency: recurringFrequency,
+      selection: occurrenceSelection
+    )
+    var batch: [(EntityType, EntityPayload)] = [(.recurring, .recurring(recurring))]
+    batch.append(contentsOf: dates.map { occurrence in
+      let transaction = TransactionEntity(
+        id: makeId(prefix: "tx_"),
+        name: trimmedName,
+        amountMinor: amountMinor,
+        occurredAt: DateHelpers.occurrenceTimestamp(occurrence, time: date),
+        categoryId: category.id,
+        paymentMethodId: paymentMethodId
+      )
+      return (.transaction, .transaction(transaction))
+    })
+    try? repository?.saveEntities(batch)
+    try? repository?.setLastPaymentMethod(paymentMethodId)
+    closeOverlay()
+    setView(.home)
+    showToast(
+      dates.isEmpty
+        ? "Recurring expense added"
+        : "Recurring expense added · \(dates.count) transaction\(dates.count == 1 ? "" : "s")"
+    )
   }
 
   func saveLend() {

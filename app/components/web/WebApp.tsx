@@ -11,8 +11,6 @@ const loadSettingsScreen = () =>
   import("@/components/web/screens/SettingsScreen").then((m) => ({ default: m.SettingsScreen }));
 const loadStatsScreen = () =>
   import("@/components/web/screens/StatsScreen").then((m) => ({ default: m.StatsScreen }));
-const loadRecurringScreen = () =>
-  import("@/components/web/screens/RecurringScreen").then((m) => ({ default: m.RecurringScreen }));
 const loadBudgetsScreen = () =>
   import("@/components/web/screens/BudgetsScreen").then((m) => ({ default: m.BudgetsScreen }));
 const loadLendingScreen = () =>
@@ -30,7 +28,6 @@ const loadNewCategoryModal = () =>
 
 const SettingsScreen = lazy(loadSettingsScreen);
 const StatsScreen = lazy(loadStatsScreen);
-const RecurringScreen = lazy(loadRecurringScreen);
 const BudgetsScreen = lazy(loadBudgetsScreen);
 const LendingScreen = lazy(loadLendingScreen);
 const AccountScreen = lazy(loadAccountScreen);
@@ -42,7 +39,6 @@ const NewCategoryModal = lazy(loadNewCategoryModal);
 const PREFETCH = [
   loadSettingsScreen,
   loadStatsScreen,
-  loadRecurringScreen,
   loadBudgetsScreen,
   loadLendingScreen,
   loadAccountScreen,
@@ -66,7 +62,7 @@ function CurrentScreen() {
     case "stats":
       return <StatsScreen />;
     case "recurring":
-      return <RecurringScreen />;
+      return <OverviewScreen />;
     case "budgets":
       return <BudgetsScreen />;
     case "lending":

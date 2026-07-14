@@ -118,7 +118,7 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "SET_VIEW": {
-      const next = action.view === "tx" ? "home" : action.view;
+      const next = action.view === "tx" || action.view === "recurring" ? "home" : action.view;
       if (next === "account") {
         if (state.view === "account") return state;
         const from = state.view === "tx" ? "home" : state.view;

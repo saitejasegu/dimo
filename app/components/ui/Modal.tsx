@@ -8,6 +8,7 @@ interface ModalProps {
   width?: number;
   title?: string;
   headerRight?: ReactNode;
+  titleAlignment?: "leading" | "center";
   className?: string;
 }
 
@@ -18,6 +19,7 @@ export function Modal({
   width = 440,
   title,
   headerRight,
+  titleAlignment = "leading",
   className,
 }: ModalProps) {
   return (
@@ -37,15 +39,29 @@ export function Modal({
         )}
       >
         {title || headerRight ? (
-          <div className="mb-5 flex items-center justify-between gap-3">
+          <div
+            className={cn(
+              "mb-5 flex items-center gap-3",
+              titleAlignment === "center" ? "relative justify-center" : "justify-between",
+            )}
+          >
             {title ? (
-              <h2 className="font-display text-[19px] font-semibold text-ink">
+              <h2
+                className={cn(
+                  "font-display text-[19px] font-semibold text-ink",
+                  titleAlignment === "center" && "px-12 text-center",
+                )}
+              >
                 {title}
               </h2>
             ) : (
               <span />
             )}
-            {headerRight}
+            {headerRight ? (
+              <div className={cn(titleAlignment === "center" && "absolute right-0")}>
+                {headerRight}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {children}

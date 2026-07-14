@@ -130,7 +130,22 @@ export function occurrencesThrough(
   return dates;
 }
 
-export function occurrenceTimestamp(date: Date) {
+export type RecurringOccurrenceSelection = "all" | "selected";
+
+/** Transaction dates to create when saving a recurring schedule. */
+export function recurringTransactionDates(
+  recurring: Pick<RecurringEntity, "anchorDate" | "frequency">,
+  selection: RecurringOccurrenceSelection,
+  now = new Date(),
+): Date[] {
+  const anchor = parseLocalDate(recurring.anchorDate);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (anchor > today) return [];
+  return selection === "all" ? occurrencesThrough(recurring, now) : [anchor];
+}
+
+export function occurrenceTimestamp(date: Date, timeKey?: string, now = new Date()) {
+  if (timeKey) return localDateTimeTimestamp(localDateKey(date), timeKey, now);
   return new Date(
     date.getFullYear(),
     date.getMonth(),

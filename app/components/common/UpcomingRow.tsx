@@ -32,6 +32,10 @@ export function UpcomingRow({
         "flex w-full items-center gap-3 text-left transition-colors",
         !web &&
           "rounded-[14px] !border !border-line !bg-surface !px-3 !py-[11px] hover:!border-green",
+        recurring.paused &&
+          (web
+            ? "rounded-xl border border-dashed border-hairline bg-canvas-deep/70 px-2.5 py-2"
+            : "!border-dashed !border-hairline !bg-canvas-deep/70 hover:!border-hairline"),
       )}
     >
       <CategoryTint
@@ -39,23 +43,36 @@ export function UpcomingRow({
         emoji={emoji}
         size={web ? 36 : 38}
         radius={11}
+        className={cn(recurring.paused && "opacity-60 grayscale")}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-ink">
-          {recurring.name}
-        </span>
         <span
           className={cn(
-            "block truncate text-xs",
-            recurring.urgent ? "font-medium text-warn" : "text-muted",
+            "block truncate text-sm font-medium",
+            recurring.paused ? "text-muted" : "text-ink",
           )}
         >
-          {recurring.due}
+          {recurring.name}
         </span>
+        {recurring.paused ? (
+          <span className="mt-1 inline-flex items-center rounded-full border border-hairline bg-surface px-2 py-0.5 text-[10px] font-medium leading-none text-muted">
+            Paused
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "block truncate text-xs",
+              recurring.urgent ? "font-medium text-warn" : "text-muted",
+            )}
+          >
+            {recurring.due}
+          </span>
+        )}
       </span>
       <span
         className={cn(
-          "font-display font-semibold text-ink",
+          "font-display font-semibold",
+          recurring.paused ? "text-muted" : "text-ink",
           web ? "text-sm" : "text-[15px]",
         )}
       >
