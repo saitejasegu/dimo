@@ -11,13 +11,12 @@ enum RecurringSelectors {
     }
   }
 
-  static func upcomingBills(
+  private static func withNextDue(
     _ recs: [Recurring],
-    limit: Int? = nil,
-    now: Date = Date(),
-    calendar: Calendar = .current
-  ) -> [Recurring] {
-    let dueThisMonth = activeRecurring(recs)
+    now: Date,
+    calendar: Calendar
+  ) -> [(Recurring, Date)] {
+    activeRecurring(recs)
       .compactMap { rec -> (Recurring, Date)? in
         guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return nil }
         let due = DateHelpers.nextOccurrence(
@@ -26,16 +25,37 @@ enum RecurringSelectors {
           now: now,
           calendar: calendar
         )
-        let sameYear = calendar.component(.year, from: due) == calendar.component(.year, from: now)
-        let sameMonth = calendar.component(.month, from: due) == calendar.component(.month, from: now)
-        guard sameYear && sameMonth else { return nil }
         return (rec, due)
       }
       .sorted { $0.1 < $1.1 }
+  }
 
-    let upcoming = dueThisMonth.map(\.0)
-    guard let limit else { return upcoming }
-    return Array(upcoming.prefix(limit))
+  static func upcomingBills(
+    _ recs: [Recurring],
+    limit: Int? = nil,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Recurring] {
+    let dueThisMonth = withNextDue(recs, now: now, calendar: calendar)
+      .filter { pair in
+        let due = pair.1
+        let sameYear = calendar.component(.year, from: due) == calendar.component(.year, from: now)
+        let sameMonth = calendar.component(.month, from: due) == calendar.component(.month, from: now)
+        return sameYear && sameMonth
+      }
+      .map(\.0)
+
+    guard let limit else { return dueThisMonth }
+    return Array(dueThisMonth.prefix(limit))
+  }
+
+  /// All active bills sorted by next due date (any month).
+  static func allUpcomingBills(
+    _ recs: [Recurring],
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Recurring] {
+    withNextDue(recs, now: now, calendar: calendar).map(\.0)
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

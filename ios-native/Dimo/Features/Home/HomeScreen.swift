@@ -5,6 +5,7 @@ struct HomeScreen: View {
   var onOpenSettings: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @State private var filtersOpen = false
+  @State private var upcomingExpanded = false
   @State private var activeFilter = TransactionFilter()
   @State private var visibleLimit = TransactionSelectors.homePageSize
   @State private var selecting = false
@@ -152,49 +153,70 @@ struct HomeScreen: View {
   @ViewBuilder
   private var upcomingSection: some View {
     let upcoming = RecurringSelectors.upcomingBills(store.recurring)
-    if !upcoming.isEmpty {
-      let upcomingTotal = upcoming.reduce(0) { $0 + $1.amount }
-      HStack(alignment: .firstTextBaseline) {
-        Text("Upcoming")
-          .font(DimoFont.display(16, weight: .semibold))
-          .foregroundStyle(Theme.ink)
-        Spacer()
-        Button {
-          store.setView(.recurring)
-        } label: {
-          Text(Formatting.money(upcomingTotal, currency: store.currency))
-            .font(DimoFont.body(13, weight: .medium))
-            .foregroundStyle(Theme.muted)
-        }
-        .buttonStyle(.plain)
-      }
-      .padding(.bottom, 10)
-
-      VStack(spacing: 8) {
-        ForEach(upcoming) { rec in
-          Button {
-            store.setView(.recurring)
-          } label: {
-            HStack(spacing: 12) {
-              CategoryTintView(green: rec.green, emoji: store.categoryEmoji(explicit: rec.emoji, categoryId: rec.categoryId, category: rec.category))
-              VStack(alignment: .leading, spacing: 2) {
-                Text(rec.name)
-                  .font(DimoFont.body(14, weight: .medium))
-                  .foregroundStyle(Theme.ink)
-                  .lineLimit(1)
-                Text(rec.due)
-                  .font(DimoFont.body(12, weight: rec.urgent == true ? .medium : .regular))
-                  .foregroundStyle(rec.urgent == true ? Theme.warn : Theme.muted)
-                  .lineLimit(1)
-              }
-              Spacer()
-              Text(Formatting.money(rec.amount, currency: store.currency))
-                .font(DimoFont.display(15, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-            }
-            .cardRow()
+    let allUpcoming = RecurringSelectors.allUpcomingBills(store.recurring)
+    if !allUpcoming.isEmpty {
+      let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
+      let canShowAll = allUpcoming.count > upcoming.count
+      let upcomingTotal = visibleUpcoming.reduce(0) { $0 + $1.amount }
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          Text(upcomingExpanded ? "Upcoming" : "Upcoming this month")
+            .font(DimoFont.display(16, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+          Spacer()
+          if !visibleUpcoming.isEmpty {
+            Text(Formatting.money(upcomingTotal, currency: store.currency))
+              .font(DimoFont.body(13, weight: .medium))
+              .foregroundStyle(Theme.muted)
           }
-          .buttonStyle(.plain)
+          if canShowAll || upcomingExpanded {
+            Button {
+              upcomingExpanded.toggle()
+            } label: {
+              Text(upcomingExpanded ? "This month" : "Show all (\(allUpcoming.count))")
+                .font(DimoFont.body(12, weight: .medium))
+                .foregroundStyle(Theme.green)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+        .padding(.bottom, 10)
+
+        if visibleUpcoming.isEmpty {
+          Text("None")
+            .font(DimoFont.body(14))
+            .foregroundStyle(Theme.faint)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 7)
+            .cardRow()
+        } else {
+          VStack(spacing: 8) {
+            ForEach(visibleUpcoming) { rec in
+              Button {
+                store.openEditRecurring(rec.id)
+              } label: {
+                HStack(spacing: 12) {
+                  CategoryTintView(green: rec.green, emoji: store.categoryEmoji(explicit: rec.emoji, categoryId: rec.categoryId, category: rec.category))
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(rec.name)
+                      .font(DimoFont.body(14, weight: .medium))
+                      .foregroundStyle(Theme.ink)
+                      .lineLimit(1)
+                    Text(rec.due)
+                      .font(DimoFont.body(12, weight: rec.urgent == true ? .medium : .regular))
+                      .foregroundStyle(rec.urgent == true ? Theme.warn : Theme.muted)
+                      .lineLimit(1)
+                  }
+                  Spacer()
+                  Text(Formatting.money(rec.amount, currency: store.currency))
+                    .font(DimoFont.display(15, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                }
+                .cardRow()
+              }
+              .buttonStyle(.plain)
+            }
+          }
         }
       }
       .padding(.bottom, 22)

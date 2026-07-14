@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Recurring } from "@/lib/types";
-import { upcomingBills } from "@/features/recurring/selectors";
+import { allUpcomingBills, upcomingBills } from "@/features/recurring/selectors";
 
 function recurring(id: string, anchorDate: string, paused = false): Recurring {
   return {
@@ -53,5 +53,22 @@ describe("upcomingBills", () => {
       now,
     );
     expect(result.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+});
+
+describe("allUpcomingBills", () => {
+  it("returns every active bill sorted by next due date", () => {
+    const now = new Date(2026, 6, 12);
+    const result = allUpcomingBills(
+      [
+        recurring("next-month", "2026-08-01"),
+        recurring("first", "2026-07-13"),
+        recurring("paused", "2026-07-14", true),
+        recurring("second", "2026-07-15"),
+      ],
+      now,
+    );
+
+    expect(result.map((item) => item.id)).toEqual(["first", "second", "next-month"]);
   });
 });

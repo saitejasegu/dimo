@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { money } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
@@ -11,18 +12,23 @@ import { WebScreen } from "@/components/web/WebScreen";
 import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
+  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
   const { profile, currency } = useAppState();
   const actions = useAppActions();
   const {
     totals,
     upcoming,
+    allUpcoming,
     topCategories,
     transactionCount,
   } = useOverview();
 
   const firstName = profile.name.split(" ")[0];
   const monthSub = `${transactionCount} transactions`;
-  const upcomingTotal = upcoming.reduce((total, item) => total + item.amount, 0);
+  const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
+  const canShowAll = allUpcoming.length > upcoming.length;
+  const showUpcomingSection = allUpcoming.length > 0;
+  const upcomingTotal = visibleUpcoming.reduce((total, item) => total + item.amount, 0);
 
   return (
     <WebScreen>
@@ -61,27 +67,48 @@ export function OverviewScreen() {
 
       <div
         className={`mb-[26px] grid gap-[18px] ${
-          upcoming.length > 0 ? "grid-cols-2" : "grid-cols-1"
+          showUpcomingSection ? "grid-cols-2" : "grid-cols-1"
         }`}
       >
-        {upcoming.length > 0 && (
+        {showUpcomingSection && (
           <Card className="h-full p-[22px]">
-            <div className="mb-3.5 flex items-baseline justify-between">
+            <div className="mb-3.5 flex items-baseline justify-between gap-3">
               <span className="font-display text-[17px] font-semibold text-ink">
-                Upcoming
+                {upcomingExpanded ? "Upcoming" : "Upcoming this month"}
               </span>
-              <span className="text-[13px] font-medium text-muted">{money(upcomingTotal, currency)}</span>
+              <div className="flex shrink-0 items-baseline gap-3">
+                {visibleUpcoming.length > 0 ? (
+                  <span className="text-[13px] font-medium text-muted">
+                    {money(upcomingTotal, currency)}
+                  </span>
+                ) : null}
+                {canShowAll || upcomingExpanded ? (
+                  <button
+                    type="button"
+                    onClick={() => setUpcomingExpanded((open) => !open)}
+                    className="text-xs font-medium text-green"
+                  >
+                    {upcomingExpanded ? "This month" : `Show all (${allUpcoming.length})`}
+                  </button>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col gap-3.5">
-              {upcoming.map((rec) => (
-                <UpcomingRow
-                  key={rec.id}
-                  recurring={rec}
-                  currency={currency}
-                  onClick={() => actions.setView("recurring")}
-                  size="web"
-                />
-              ))}
+              {visibleUpcoming.length === 0 ? (
+                <div className="rounded-[14px] border border-line bg-surface px-3 py-[18px] text-center text-sm text-faint">
+                  None
+                </div>
+              ) : (
+                visibleUpcoming.map((rec) => (
+                  <UpcomingRow
+                    key={rec.id}
+                    recurring={rec}
+                    currency={currency}
+                    onClick={() => actions.openEditRecurring(rec.id)}
+                    size="web"
+                  />
+                ))
+              )}
             </div>
           </Card>
         )}

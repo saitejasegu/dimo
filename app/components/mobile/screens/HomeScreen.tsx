@@ -21,16 +21,18 @@ import { FilterIcon } from "@/components/ui/icons";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { Button } from "@/components/ui/Button";
 import { UpcomingRow } from "@/components/common/UpcomingRow";
-import { MobileScreen, MobileTopBar, SectionHeader } from "@/components/mobile/MobileScreen";
+import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
   const [pagination, setPagination] = useState({ key: "", limit: HOME_TRANSACTION_PAGE_SIZE });
   const { profile, currency, query, categories } = useAppState();
   const actions = useAppActions();
   const {
     totals,
     upcoming,
+    allUpcoming,
     transactionCount,
   } = useOverview();
   const { options, filter, paymentFilter, paymentOptions, filtered } = useActivity();
@@ -41,10 +43,13 @@ export function HomeScreen() {
   const groups = groupByDay(visible);
   const emojiByName = new Map(categories.map((category) => [category.name, category.emoji]));
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
+  const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
+  const canShowAll = allUpcoming.length > upcoming.length;
+  const showUpcomingSection = allUpcoming.length > 0;
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
-  const upcomingTotal = upcoming.reduce((total, item) => total + item.amount, 0);
+  const upcomingTotal = visibleUpcoming.reduce((total, item) => total + item.amount, 0);
 
   return (
     <MobileScreen
@@ -75,22 +80,44 @@ export function HomeScreen() {
         </>
       }
     >
-      {upcoming.length > 0 && (
+      {showUpcomingSection && (
         <>
-          <SectionHeader
-            title="Upcoming"
-            actionLabel={money(upcomingTotal, currency)}
-            onAction={() => actions.setView("recurring")}
-          />
+          <div className="mb-2.5 flex items-baseline justify-between gap-3">
+            <span className="font-display text-base font-semibold text-ink">
+              {upcomingExpanded ? "Upcoming" : "Upcoming this month"}
+            </span>
+            <div className="flex shrink-0 items-baseline gap-3">
+              {visibleUpcoming.length > 0 ? (
+                <span className="text-[13px] font-medium text-muted">
+                  {money(upcomingTotal, currency)}
+                </span>
+              ) : null}
+              {canShowAll || upcomingExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => setUpcomingExpanded((open) => !open)}
+                  className="text-xs font-medium text-green"
+                >
+                  {upcomingExpanded ? "This month" : `Show all (${allUpcoming.length})`}
+                </button>
+              ) : null}
+            </div>
+          </div>
           <div className="mb-[22px] flex flex-col gap-2">
-            {upcoming.map((rec) => (
-              <UpcomingRow
-                key={rec.id}
-                recurring={rec}
-                currency={currency}
-                onClick={() => actions.setView("recurring")}
-              />
-            ))}
+            {visibleUpcoming.length === 0 ? (
+              <div className="rounded-[14px] border border-line bg-surface px-3 py-[18px] text-center text-sm text-faint">
+                None
+              </div>
+            ) : (
+              visibleUpcoming.map((rec) => (
+                <UpcomingRow
+                  key={rec.id}
+                  recurring={rec}
+                  currency={currency}
+                  onClick={() => actions.openEditRecurring(rec.id)}
+                />
+              ))
+            )}
           </div>
         </>
       )}

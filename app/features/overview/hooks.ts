@@ -3,6 +3,7 @@ import { useAppState } from "@/store/app-store";
 import { budgetTotals, topCategories } from "@/features/budgets/selectors";
 import {
   activeRecurring,
+  allUpcomingBills,
   monthlyRecurringTotal,
   upcomingBills,
 } from "@/features/recurring/selectors";
@@ -27,6 +28,7 @@ export function useOverview() {
       activeCount: active.length,
       recent: transactions,
       upcoming: upcomingBills(recurring),
+      allUpcoming: allUpcomingBills(recurring),
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,
     };
