@@ -6,7 +6,6 @@ import { CURRENCY_OPTIONS } from "@/features/account/constants";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { Slider } from "@/components/ui/Slider";
 import { PaymentMethodsManager } from "@/components/forms/PaymentMethodsManager";
 import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
 import { ThemeDropdown } from "@/components/common/ThemeDropdown";
@@ -18,7 +17,7 @@ function Row({ label, description, control }: { label: string; description: stri
 }
 
 export function SettingsScreen() {
-  const { profile, currency, theme, navGlassOpacity, defaultStatsRange } = useAppState();
+  const { profile, currency, theme, defaultStatsRange } = useAppState();
   const actions = useAppActions();
   const initial = profile.name.charAt(0).toUpperCase();
   return <WebScreen>
@@ -32,19 +31,6 @@ export function SettingsScreen() {
     <Card className="mb-[18px] p-[22px]"><h2 className="mb-[18px] font-display text-[17px] font-semibold text-ink">Preferences</h2><div className="flex flex-col gap-[18px]">
       <Row label="Appearance" description="Defaults to Light" control={<ThemeDropdown value={theme} onChange={actions.setTheme} />} /><div className="h-px bg-line-soft" />
       <div id="stats-defaults"><Row label="Default stats range" description="Range selected when you open Stats" control={<StatsRangeDropdown value={defaultStatsRange} onChange={actions.setDefaultStatsRange} />} /></div><div className="h-px bg-line-soft" />
-      <div>
-        <div className="mb-1 text-sm font-medium text-ink">Nav glass opacity</div>
-        <div className="mb-3 text-xs text-muted">Transparency of the mobile navigation bar</div>
-        <Slider
-          valueLabel={`${navGlassOpacity}%`}
-          value={navGlassOpacity}
-          min={40}
-          max={100}
-          onChange={(value) => actions.setNavGlassOpacity(value, { persist: false })}
-          onCommit={(value) => actions.setNavGlassOpacity(value)}
-        />
-      </div>
-      <div className="h-px bg-line-soft" />
       <Row label="Currency" description="Used across the whole app" control={<SegmentedControl options={CURRENCY_OPTIONS} value={currency} onChange={actions.setCurrency} fill={false} />} />
     </div></Card>
     <Card className="mb-[18px] p-[22px]"><PaymentMethodsManager /></Card>

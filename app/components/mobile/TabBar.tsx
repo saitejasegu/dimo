@@ -33,7 +33,7 @@ function indicatorForProgress(pills: PillBox[], progress: number): PillBox | nul
 }
 
 export function TabBar() {
-  const { view, accountReturnView, navGlassOpacity } = useAppState();
+  const { view, accountReturnView } = useAppState();
   const { setView } = useAppActions();
   const { progress, interactive } = useTabSwipeProgress();
   const activeView = view === "account" ? (accountReturnView ?? view) : view;
@@ -77,7 +77,7 @@ export function TabBar() {
     <nav
       aria-label="Primary navigation"
       className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] px-3.5 pb-[max(0.55rem,env(safe-area-inset-bottom,0px))] pt-10"
-      style={{ "--nav-glass-opacity": String(navGlassOpacity / 100) } as CSSProperties}
+      style={{ "--nav-glass-opacity": "0.4" } as CSSProperties}
     >
       <div
         aria-hidden
