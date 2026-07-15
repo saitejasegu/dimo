@@ -1,6 +1,7 @@
 package app.dimo.android.design
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,16 +48,13 @@ fun ProgressBar(progress: Float, modifier: Modifier = Modifier, over: Boolean = 
       .background(MaterialTheme.colorScheme.secondary),
   ) {
     Box(
-      Box.Modifier
+      Modifier
         .fillMaxWidth(clamped)
         .height(8.dp)
         .background(if (over) Color(0xFFB42318) else DimoColors.green),
     )
   }
 }
-
-// helper to silence Box.modifier typo — use Modifier.align pattern via fill
-private val Box.modifier get() = Modifier
 
 @Composable
 fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -84,12 +82,13 @@ fun ActionButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifi
 }
 
 @Composable
-fun Avatar(initials: String, modifier: Modifier = Modifier) {
+fun Avatar(initials: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
   Box(
     modifier
       .size(40.dp)
       .clip(CircleShape)
-      .background(DimoColors.greenSoft),
+      .background(DimoColors.greenSoft)
+      .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     contentAlignment = Alignment.Center,
   ) {
     Text(initials.take(2).uppercase(), color = DimoColors.green)

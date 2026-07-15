@@ -29,6 +29,7 @@ import app.dimo.android.data.model.LendKind
 import app.dimo.android.design.ActionButton
 import app.dimo.android.design.Chip
 import app.dimo.android.design.DimoColors
+import app.dimo.android.features.lending.rememberContactPicker
 import app.dimo.android.store.AppStore
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -178,6 +179,11 @@ fun LendEditorSheet(store: AppStore) {
   val state by store.state.collectAsStateWithLifecycle()
   val draft = state.lendDraft
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  val pickContact = rememberContactPicker { picked ->
+    store.updateLendDraft {
+      it.copy(contactId = picked.contactId, contactName = picked.displayName)
+    }
+  }
 
   ModalBottomSheet(
     onDismissRequest = { store.showOverlay(null) },
@@ -198,12 +204,12 @@ fun LendEditorSheet(store: AppStore) {
         style = MaterialTheme.typography.titleLarge,
       )
 
-      // Contact picker stub: manual TextFields until READ_CONTACTS + system picker is added.
       Text(
-        "Contact (manual entry for now — READ_CONTACTS picker later)",
+        "Contacts: photos stay on-device and are never synced.",
         style = MaterialTheme.typography.labelLarge,
         color = DimoColors.mutedLight,
       )
+      ActionButton(label = "Pick from contacts", onClick = pickContact)
       OutlinedTextField(
         value = draft.contactName,
         onValueChange = { value -> store.updateLendDraft { it.copy(contactName = value) } },
@@ -218,7 +224,7 @@ fun LendEditorSheet(store: AppStore) {
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         supportingText = {
-          Text("Use a stable ID when available; name alone is not the grouping key.")
+          Text("Grouped by contactId, never display name alone.")
         },
       )
       OutlinedTextField(

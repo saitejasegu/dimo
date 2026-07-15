@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Dimo</string>
+  <string name="contacts_permission_rationale">Dimo uses contacts to link lending to the right person. Contact photos stay on this device and are never synced.</string>
+</resources>

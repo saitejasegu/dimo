@@ -49,7 +49,7 @@ fun LendingScreen(store: AppStore) {
 
   LazyColumn(
     modifier = Modifier.fillMaxSize(),
-    contentPadding = PaddingValues(horizontal = 22.dp, top = 16.dp, bottom = 96.dp),
+    contentPadding = PaddingValues(start = 22.dp, top = 16.dp, end = 22.dp, bottom = 96.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     item(key = "header") {

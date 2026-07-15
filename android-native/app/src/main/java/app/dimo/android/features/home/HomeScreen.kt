@@ -106,7 +106,7 @@ fun HomeScreen(store: AppStore) {
 
     LazyColumn(
       modifier = Modifier.fillMaxSize(),
-      contentPadding = PaddingValues(horizontal = 22.dp, bottom = 96.dp),
+      contentPadding = PaddingValues(start = 22.dp, end = 22.dp, bottom = 96.dp),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       if (upcoming.isNotEmpty()) {
