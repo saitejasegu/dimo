@@ -194,7 +194,7 @@ final class AppStore {
     let entity = TransactionEntity(
       id: id,
       name: expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        ? "Expense" : expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines),
+        ? category.name : expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines),
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: Int(expenseDraft.date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
@@ -225,7 +225,7 @@ final class AppStore {
     guard let recurringFrequency else {
       let transaction = TransactionEntity(
         id: makeId(prefix: "tx_"),
-        name: trimmedName.isEmpty ? "Expense" : trimmedName,
+        name: trimmedName.isEmpty ? category.name : trimmedName,
         amountMinor: amountMinor,
         occurredAt: min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000)),
         categoryId: category.id,

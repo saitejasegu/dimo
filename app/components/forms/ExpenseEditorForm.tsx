@@ -261,7 +261,7 @@ export function ExpenseEditorForm({
     if (!valid) return;
     if (mode === "transaction" && transaction) {
       actions.saveTransactionEdits(transaction.id, {
-        name: name.trim() || "New expense",
+        name: name.trim() || category,
         amount: amountValue,
         category,
         paymentMethod,

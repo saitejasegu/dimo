@@ -71,7 +71,7 @@ export function EditExpenseForm({
   const save = () => {
     if (!valid) return;
     actions.saveTransactionEdits(transaction.id, {
-      name: name.trim() || "New expense",
+      name: name.trim() || category,
       amount: amountValue,
       category,
       paymentMethod,

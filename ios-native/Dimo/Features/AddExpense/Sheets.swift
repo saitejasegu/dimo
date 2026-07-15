@@ -434,7 +434,7 @@ struct ExpenseEditorSheet: View {
       }
     case .transaction(let id):
       store.saveTransactionEdits(
-        id: id, name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Expense" : name,
+        id: id, name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? category : name,
         amount: value, categoryName: category, paymentMethodId: paymentMethodId, date: date
       )
     case .recurring(let id):
@@ -1328,7 +1328,7 @@ struct TxDetailSheet: View {
           guard let value = Double(amount) else { return }
           store.saveTransactionEdits(
             id: transactionId,
-            name: name,
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? category : name,
             amount: value,
             categoryName: category,
             paymentMethodId: paymentMethodId,

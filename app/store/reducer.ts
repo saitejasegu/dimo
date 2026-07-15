@@ -353,7 +353,7 @@ export function reducer(state: AppState, action: Action): AppState {
       if (!(amount > 0)) return state;
       const tx: Transaction = {
         id: nextId("t"),
-        name: state.expenseDraft.name.trim() || "New expense",
+        name: state.expenseDraft.name.trim() || state.expenseDraft.category,
         category: state.expenseDraft.category,
         time: "Just now",
         day: "Today",

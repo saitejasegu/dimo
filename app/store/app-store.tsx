@@ -273,7 +273,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const category = state.categories.find((c) => c.name === input.category);
       const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!(input.amount > 0) || !category) return;
-      const name = input.name.trim() || "New expense";
+      const name = input.name.trim() || input.category;
 
       if (!input.recurring) {
         const entity: TransactionEntity = {
