@@ -87,7 +87,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const fallbackCategory = action.data.categories[0]?.name ?? "";
       const expenseCategory = categoryNames.has(state.expenseDraft.category)
         ? state.expenseDraft.category
-        : fallbackCategory;
+        : "";
       const recurringCategory = categoryNames.has(state.recurringDraft.category)
         ? state.recurringDraft.category
         : fallbackCategory;

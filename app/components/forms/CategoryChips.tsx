@@ -68,8 +68,12 @@ export function CategoryChips({
           open && "border-green ring-2 ring-green/10",
         )}
       >
-        <span className="truncate font-medium">
-          {selectedEmoji ? `${selectedEmoji} ${value}` : value}
+        <span className={cn("truncate font-medium", !value && "text-faint")}>
+          {value
+            ? selectedEmoji
+              ? `${selectedEmoji} ${value}`
+              : value
+            : "Select category"}
         </span>
         <span aria-hidden className={cn("ml-3 text-xs text-muted transition-transform", open && "rotate-180")}>▾</span>
       </button>

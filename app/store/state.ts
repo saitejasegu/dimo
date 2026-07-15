@@ -117,7 +117,7 @@ export const EMPTY_EXPENSE_DRAFT: ExpenseDraft = {
   name: "",
   date: "",
   time: "",
-  category: "Dining",
+  category: "",
   paymentMethod: "UPI · HDFC Debit · ••42",
 };
 
