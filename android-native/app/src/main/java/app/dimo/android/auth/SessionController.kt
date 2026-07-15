@@ -27,13 +27,13 @@ sealed class SessionPhase {
 class SessionController(
   private val appContext: Context,
   private val api: WorkOSAPI = WorkOSAPI(),
-  private val tokenStore: TokenStore = TokenStore(appContext),
 ) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private val mutex = Mutex()
   private val _phase = MutableStateFlow<SessionPhase>(SessionPhase.Loading)
   val phase: StateFlow<SessionPhase> = _phase.asStateFlow()
 
+  private var tokenStore: TokenStore? = null
   private var pendingVerifier: String? = null
   private var pendingState: String? = null
   private var refresherJob: Job? = null
@@ -74,7 +74,7 @@ class SessionController(
       if (!force && current != null && current.expiresAtEpochSeconds - now > 60) {
         return@withLock current
       }
-      val refresh = current?.refreshToken ?: tokenStore.refreshToken
+      val refresh = current?.refreshToken ?: store().refreshToken
         ?: throw IllegalStateException("Not signed in")
       val session = withContext(Dispatchers.IO) { api.refresh(refresh) }
       persist(session)
@@ -88,9 +88,9 @@ class SessionController(
       refresherJob?.cancel()
       val signedIn = _phase.value as? SessionPhase.SignedIn
       signedIn?.store?.tearDown()
-      tokenStore.clear()
+      store().clear()
       cached = null
-      AppDatabase.deleteAllLocalDatabases(appContext)
+      withContext(Dispatchers.IO) { AppDatabase.deleteAllLocalDatabases(appContext) }
       _phase.value = SessionPhase.SignedOut
     }
   }
@@ -101,16 +101,17 @@ class SessionController(
       signedIn.store.clearCloudWorkspace()
       refresherJob?.cancel()
       signedIn.store.tearDown()
-      tokenStore.clear()
+      store().clear()
       cached = null
-      AppDatabase.deleteAllLocalDatabases(appContext)
+      withContext(Dispatchers.IO) { AppDatabase.deleteAllLocalDatabases(appContext) }
       _phase.value = SessionPhase.SignedOut
     }
   }
 
   private suspend fun restore() {
-    val refresh = tokenStore.refreshToken
-    val userJson = tokenStore.userJson
+    val store = withContext(Dispatchers.IO) { store() }
+    val refresh = store.refreshToken
+    val userJson = store.userJson
     if (refresh == null || userJson == null) {
       _phase.value = SessionPhase.SignedOut
       return
@@ -120,21 +121,28 @@ class SessionController(
       persist(session)
       enterSignedIn(session)
     } catch (_: Exception) {
-      tokenStore.clear()
+      store.clear()
       _phase.value = SessionPhase.SignedOut
     }
   }
 
+  private fun store(): TokenStore {
+    tokenStore?.let { return it }
+    return TokenStore(appContext).also { tokenStore = it }
+  }
+
   private fun persist(session: WorkOSSession) {
     cached = session
-    tokenStore.refreshToken = session.refreshToken
-    tokenStore.userJson = WorkOSJson.json.encodeToString(WorkOSUser.serializer(), session.user)
+    val store = store()
+    store.refreshToken = session.refreshToken
+    store.userJson = WorkOSJson.json.encodeToString(WorkOSUser.serializer(), session.user)
   }
 
   private suspend fun enterSignedIn(session: WorkOSSession) {
-    val store = AppStore(appContext, session) { refreshIfNeeded(it) }
-    store.start()
-    _phase.value = SessionPhase.SignedIn(session, store)
+    val appStore = withContext(Dispatchers.IO) {
+      AppStore(appContext, session) { refreshIfNeeded(it) }.also { it.start() }
+    }
+    _phase.value = SessionPhase.SignedIn(session, appStore)
     startRefresher()
   }
 
