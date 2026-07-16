@@ -8,6 +8,7 @@ import {
   compareVersions,
   entityKey,
   type CategoryEntity,
+  type EmailMessageEntity,
   type EntityPayload,
   type EntityPayloadMap,
   type EntityType,
@@ -139,6 +140,62 @@ export function sanitizePayload<T extends EntityType>(
         occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
         comment: String(value.comment ?? ""),
         kind: value.kind === "repaid" ? "repaid" : "lent",
+      } as EntityPayloadMap[T];
+    }
+    case "emailMessage": {
+      const value = payload as EmailMessageEntity;
+      const states = [
+        "added",
+        "dismissed",
+        "refundApplied",
+        "pendingPurchase",
+        "pendingRefund",
+      ] as const;
+      const state = states.includes(value.state as (typeof states)[number])
+        ? value.state
+        : "dismissed";
+      const optionalString = (raw: unknown) => {
+        if (raw == null) return null;
+        const text = String(raw).trim();
+        return text ? text : null;
+      };
+      const optionalNumber = (raw: unknown) => {
+        if (raw == null || raw === "") return null;
+        const number = Math.round(Number(raw));
+        return Number.isFinite(number) ? number : null;
+      };
+      return {
+        id: String(value.id ?? ""),
+        accountId: String(value.accountId ?? ""),
+        accountEmail: String(value.accountEmail ?? ""),
+        gmailMessageId: String(value.gmailMessageId ?? ""),
+        threadId: String(value.threadId ?? ""),
+        rfcMessageId: optionalString(value.rfcMessageId),
+        senderName: optionalString(value.senderName),
+        senderAddress: String(value.senderAddress ?? ""),
+        subject: String(value.subject ?? ""),
+        snippet: String(value.snippet ?? ""),
+        internalDate: Math.round(Number(value.internalDate) || 0),
+        normalizedBodyText:
+          value.normalizedBodyText == null ? null : String(value.normalizedBodyText),
+        analyzerType: optionalString(value.analyzerType),
+        modelVersion: optionalString(value.modelVersion),
+        promptVersion: optionalNumber(value.promptVersion),
+        classification: optionalString(value.classification),
+        merchant: optionalString(value.merchant),
+        amount: optionalString(value.amount),
+        currency: optionalString(value.currency),
+        occurredAt: optionalNumber(value.occurredAt),
+        categoryId: optionalString(value.categoryId),
+        paymentMethodId: optionalString(value.paymentMethodId),
+        paymentLastFour: optionalString(value.paymentLastFour),
+        reference: optionalString(value.reference),
+        state,
+        linkedTransactionId: optionalString(value.linkedTransactionId),
+        analyzedAt: optionalNumber(value.analyzedAt),
+        reviewedAt: optionalNumber(value.reviewedAt),
+        createdAt: Math.round(Number(value.createdAt) || 0),
+        updatedAt: Math.round(Number(value.updatedAt) || 0),
       } as EntityPayloadMap[T];
     }
     case "preferences": {

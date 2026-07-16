@@ -309,7 +309,11 @@ struct AccountScreen: View {
     .confirmationDialog("Sign out?", isPresented: $confirmSignOut) {
       Button("Sign out", role: .destructive) {
         Task {
-          await environment.session.signOut()
+          do {
+            try await environment.session.signOut()
+          } catch {
+            store.showToast("Could not remove local account data: \(error.localizedDescription)")
+          }
         }
       }
     }

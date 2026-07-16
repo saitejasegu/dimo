@@ -125,6 +125,7 @@ enum ExpenseEditorMode: Equatable {
   case create
   case transaction(String)
   case recurring(String)
+  case emailSuggestion(String)
 }
 
 private struct ExpenseEditorSnapshot: Equatable {
@@ -155,15 +156,26 @@ struct ExpenseEditorSheet: View {
   @State private var merchantSuggestions: [MerchantSuggestion] = []
   @State private var selectedMerchantSuggestion: String?
   @State private var fieldRowWidth: CGFloat = 0
+  @State private var sourceEmail: EmailUIEmailDetail?
+  @State private var presentedSourceEmail: EmailUIEmailDetail?
+  @State private var duplicateMatches: [EmailDuplicateTransactionMatch] = []
   @FocusState private var merchantFieldFocused: Bool
 
   var body: some View {
     SheetContainer(
       title: title,
       onClose: close,
-      titleHorizontalOffset: mode == .create ? 0 : 18
+      titleHorizontalOffset: mode.showsDeleteButton ? 18 : 0
     ) {
       VStack(alignment: .leading, spacing: 12) {
+        if let emailDraft {
+          emailSuggestionContext(emailDraft)
+        }
+
+        if let sourceEmail {
+          sourceEmailRow(sourceEmail)
+        }
+
         Text(Formatting.currencySymbol(store.currency) + (amount.isEmpty ? "0" : amount))
           .font(DimoFont.display(44, weight: .bold))
           .foregroundStyle(amount.isEmpty ? Theme.faint : Theme.ink)
@@ -202,7 +214,7 @@ struct ExpenseEditorSheet: View {
               categories: store.categories,
               selected: category,
               onSelect: { category = $0 },
-              onAdd: { store.openOverlay(.category) },
+              onAdd: openCategoryCreator,
               flyoutWidth: fieldRowWidth > 0 ? fieldRowWidth : nil
             )
           }
@@ -257,7 +269,7 @@ struct ExpenseEditorSheet: View {
     }
     .presentationBackground(Theme.surface)
     .overlay(alignment: .topTrailing) {
-      if mode != .create {
+      if mode.showsDeleteButton {
         Button { confirmDelete = true } label: {
           Image(systemName: "trash")
             .font(.system(size: 17, weight: .semibold))
@@ -288,6 +300,24 @@ struct ExpenseEditorSheet: View {
       Button("Delete", role: .destructive) { deleteRecord() }
       Button("Cancel", role: .cancel) {}
     }
+    .sheet(item: $presentedSourceEmail) { detail in
+      EmailDetailSheet(detail: detail) { presentedSourceEmail = nil }
+    }
+    .alert(
+      "Already added?",
+      isPresented: Binding(
+        get: { !duplicateMatches.isEmpty },
+        set: { if !$0 { duplicateMatches = [] } }
+      )
+    ) {
+      ForEach(duplicateMatches) { match in
+        Button("Link to \(match.name)") { linkToExistingTransaction(match) }
+      }
+      Button("Add as a new expense") { acceptEmailDraft() }
+      Button("Cancel", role: .cancel) { duplicateMatches = [] }
+    } message: {
+      Text(duplicateDialogMessage)
+    }
   }
 
   private var title: String {
@@ -295,6 +325,7 @@ struct ExpenseEditorSheet: View {
     case .create: return "Add expense"
     case .transaction: return "Edit expense"
     case .recurring: return "Edit recurring expense"
+    case .emailSuggestion: return "Review email suggestion"
     }
   }
 
@@ -302,8 +333,86 @@ struct ExpenseEditorSheet: View {
     switch mode {
     case .transaction: return "Delete this expense?"
     case .recurring: return "Delete this recurring expense?"
-    case .create: return "Delete?"
+    case .create, .emailSuggestion: return "Delete?"
     }
+  }
+
+  private var emailDraft: EmailUIPurchaseReviewDraft? {
+    guard case .emailSuggestion(let id) = mode,
+          store.emailFeatureStore.purchaseReview?.suggestionID == id else { return nil }
+    return store.emailFeatureStore.purchaseReview
+  }
+
+  private func emailSuggestionContext(_ draft: EmailUIPurchaseReviewDraft) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Label(draft.accountEmail, systemImage: "envelope.fill")
+        Spacer(minLength: 8)
+        Label(
+          draft.analyzer.title,
+          systemImage: draft.analyzer == .gemma ? "sparkles" : "text.magnifyingglass"
+        )
+      }
+      .font(DimoFont.body(11, weight: .medium))
+      .foregroundStyle(Theme.muted)
+
+      if let warning = draft.currencyWarning, !warning.isEmpty {
+        Label(warning, systemImage: "exclamationmark.triangle.fill")
+          .font(DimoFont.body(11, weight: .medium))
+          .foregroundStyle(Theme.warn)
+      }
+      if !draft.possibleDuplicateDescriptions.isEmpty {
+        VStack(alignment: .leading, spacing: 3) {
+          Label("Possible duplicate", systemImage: "doc.on.doc.fill")
+            .font(DimoFont.body(11, weight: .semibold))
+            .foregroundStyle(Theme.warn)
+          ForEach(Array(draft.possibleDuplicateDescriptions.prefix(3).enumerated()), id: \.offset) { _, row in
+            Text("• \(row)")
+              .font(DimoFont.body(10))
+              .foregroundStyle(Theme.muted)
+          }
+        }
+      }
+    }
+    .padding(12)
+    .background(Theme.canvas)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+  }
+
+  private func sourceEmailRow(_ detail: EmailUIEmailDetail) -> some View {
+    Button { presentedSourceEmail = detail } label: {
+      HStack(spacing: 10) {
+        Image(systemName: "envelope.fill")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Theme.green)
+          .frame(width: 30, height: 30)
+          .background(Theme.greenSoft)
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Added from email")
+            .font(DimoFont.body(11, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+          Text(detail.subject.isEmpty ? detail.sender : detail.subject)
+            .font(DimoFont.body(11))
+            .foregroundStyle(Theme.muted)
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(Theme.faint)
+      }
+      .padding(10)
+      .background(Theme.canvas)
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+      .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("View the source email for this expense")
   }
 
   private var availablePaymentMethods: [PaymentMethodOption] {
@@ -329,7 +438,7 @@ struct ExpenseEditorSheet: View {
   private var recurringControls: some View {
     HStack(spacing: 12) {
       Button {
-        guard mode == .create else { return }
+        guard mode.canToggleRecurring else { return }
         isRecurring.toggle()
       } label: {
         HStack(spacing: 12) {
@@ -342,8 +451,8 @@ struct ExpenseEditorSheet: View {
         }
       }
       .buttonStyle(.plain)
-      .disabled(mode != .create)
-      .opacity(mode == .create ? 1 : 0.72)
+      .disabled(!mode.canToggleRecurring)
+      .opacity(mode.canToggleRecurring ? 1 : 0.72)
       .accessibilityLabel("Recurring")
       .accessibilityValue(isRecurring ? "Checked" : "Unchecked")
 
@@ -399,6 +508,7 @@ struct ExpenseEditorSheet: View {
     case .create: return isRecurring ? "Save recurring expense" : "Save expense"
     case .transaction: return "Save expense"
     case .recurring: return hasChanges ? "Save recurring" : (paused ? "Resume" : "Pause")
+    case .emailSuggestion: return isRecurring ? "Save recurring expense" : "Save expense"
     }
   }
 
@@ -454,7 +564,62 @@ struct ExpenseEditorSheet: View {
         store.toggleRecurring(id)
         store.closeOverlay()
       }
+    case .emailSuggestion:
+      guard var draft = emailDraft else { return }
+      draft.merchant = name
+      draft.amount = amount
+      draft.occurredAt = date
+      draft.categoryID = store.categories.first(where: { $0.name == category })?.id
+      draft.paymentMethodID = paymentMethodId
+      draft.isRecurring = isRecurring
+      draft.recurringFrequency = frequency
+      store.emailFeatureStore.purchaseReview = draft
+
+      let matches = existingTransactionMatches(amount: value)
+      if matches.isEmpty {
+        acceptEmailDraft()
+      } else {
+        duplicateMatches = matches
+      }
     }
+  }
+
+  /// Same amount on the same day as an expense the user already has means the
+  /// email probably describes a purchase they entered by hand. Linking is only
+  /// offered for a plain expense: a recurring schedule has to be created here,
+  /// and linking to an existing transaction would silently drop it.
+  private func existingTransactionMatches(amount value: Double) -> [EmailDuplicateTransactionMatch] {
+    guard !isRecurring else { return [] }
+    return EmailSuggestionSelectors.duplicateTransactionMatches(
+      amountMinor: Int((value * 100).rounded()),
+      dayKey: DateHelpers.localDateKey(date),
+      merchant: name,
+      transactions: store.transactions
+    )
+  }
+
+  private func acceptEmailDraft() {
+    duplicateMatches = []
+    guard let draft = emailDraft else { return }
+    store.emailFeatureStore.acceptPurchase(draft)
+  }
+
+  private func linkToExistingTransaction(_ match: EmailDuplicateTransactionMatch) {
+    guard case .emailSuggestion(let id) = mode else { return }
+    duplicateMatches = []
+    store.emailFeatureStore.linkPurchaseToTransaction(
+      suggestionID: id,
+      transactionID: match.transactionId
+    )
+  }
+
+  private var duplicateDialogMessage: String {
+    let day = date.formatted(date: .abbreviated, time: .omitted)
+    let amountText = Formatting.currencySymbol(store.currency) + amount
+    guard duplicateMatches.count == 1, let match = duplicateMatches.first else {
+      return "\(duplicateMatches.count) expenses are already recorded for \(amountText) on \(day). Link this email to one of them, or add it as a separate expense."
+    }
+    return "\(match.name) · \(match.categoryName) is already recorded for \(amountText) on \(day). Link this email to it, or add it as a separate expense."
   }
 
   private func saveNew(selection: RecurringOccurrenceSelection) {
@@ -474,6 +639,19 @@ struct ExpenseEditorSheet: View {
     switch mode {
     case .transaction: store.closeDetail()
     case .create, .recurring: store.closeOverlay()
+    case .emailSuggestion: store.emailFeatureStore.purchaseReview = nil
+    }
+  }
+
+  private func openCategoryCreator() {
+    if case .emailSuggestion = mode {
+      store.emailFeatureStore.purchaseReview = nil
+      Task { @MainActor in
+        await Task.yield()
+        store.openOverlay(.category)
+      }
+    } else {
+      store.openOverlay(.category)
     }
   }
 
@@ -481,7 +659,7 @@ struct ExpenseEditorSheet: View {
     switch mode {
     case .transaction(let id): store.deleteTransaction(id)
     case .recurring(let id): store.deleteRecurring(id)
-    case .create: break
+    case .create, .emailSuggestion: break
     }
   }
 
@@ -504,6 +682,7 @@ struct ExpenseEditorSheet: View {
         date = Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
       }
       isRecurring = false
+      sourceEmail = store.sourceEmail(forTransactionId: id)
     case .recurring(let id):
       guard let item = store.recurring.first(where: { $0.id == id }) else { return }
       name = item.name
@@ -514,6 +693,17 @@ struct ExpenseEditorSheet: View {
       date = DateHelpers.parseLocalDate(item.anchorDate ?? DateHelpers.localDateKey(Date()))
       paused = item.paused
       isRecurring = true
+    case .emailSuggestion:
+      guard let draft = emailDraft else { return }
+      name = draft.merchant
+      amount = draft.amount
+      category = draft.categoryID.flatMap { id in
+        store.categories.first(where: { $0.id == id })?.name
+      } ?? ""
+      paymentMethodId = draft.paymentMethodID
+      date = min(draft.occurredAt, Date())
+      frequency = draft.recurringFrequency
+      isRecurring = draft.isRecurring
     }
     original = currentSnapshot
   }
@@ -552,6 +742,20 @@ private extension ExpenseEditorMode {
   var isRecurringEdit: Bool {
     if case .recurring = self { return true }
     return false
+  }
+
+  var canToggleRecurring: Bool {
+    switch self {
+    case .create, .emailSuggestion: return true
+    case .transaction, .recurring: return false
+    }
+  }
+
+  var showsDeleteButton: Bool {
+    switch self {
+    case .transaction, .recurring: return true
+    case .create, .emailSuggestion: return false
+    }
   }
 }
 

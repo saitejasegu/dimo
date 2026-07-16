@@ -196,6 +196,66 @@ describe("Convex sync protocol", () => {
     expect(result.latestRevision).toBe(2);
   });
 
+  it("preserves native-owned emailMessage rows when clearing web-owned types", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    await t.mutation(push, { workspaceId: "global", operations: [operation] });
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "email-1",
+        workspaceId: "global",
+        entityType: "emailMessage",
+        entityId: "10:accountsubmsg-1",
+        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+        payload: {
+          id: "10:accountsubmsg-1",
+          accountId: "accountsub",
+          accountEmail: "user@example.com",
+          gmailMessageId: "msg-1",
+          threadId: "thread-1",
+          senderAddress: "store@example.com",
+          subject: "Receipt",
+          snippet: "Paid 10.00",
+          internalDate: 100,
+          normalizedBodyText: "Full receipt body with every line of the email.",
+          classification: "purchase",
+          merchant: "Store",
+          amount: "10.00",
+          currency: "INR",
+          state: "added",
+          linkedTransactionId: "tx-1",
+          reviewedAt: 100,
+          createdAt: 100,
+          updatedAt: 100,
+        },
+        deleted: false,
+      }],
+    });
+
+    const cleared = await t.mutation(clearWorkspace, {
+      workspaceId: "global",
+      entityTypes: ["transaction", "category", "paymentMethod", "recurring", "preferences"],
+    });
+    expect(cleared.deleted).toBe(1);
+    expect(cleared.hasMore).toBe(false);
+
+    const result = await t.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(result.entities).toHaveLength(1);
+    expect(result.entities[0].entityType).toBe("emailMessage");
+    expect(result.entities[0].payload).toMatchObject({
+      state: "added",
+      linkedTransactionId: "tx-1",
+      normalizedBodyText: "Full receipt body with every line of the email.",
+    });
+    expect(result.latestRevision).toBe(2);
+  });
+
   it("stores name and email on the workspace from auth and preferences", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",

@@ -67,6 +67,39 @@ struct WireLend: Codable, Sendable {
   var kind: String?
 }
 
+struct WireEmailMessage: Codable, Sendable {
+  var id: String
+  var accountId: String
+  var accountEmail: String
+  var gmailMessageId: String
+  var threadId: String
+  var rfcMessageId: String?
+  var senderName: String?
+  var senderAddress: String
+  var subject: String
+  var snippet: String
+  var internalDate: Double
+  var normalizedBodyText: String?
+  var analyzerType: String?
+  var modelVersion: String?
+  var promptVersion: Double?
+  var classification: String?
+  var merchant: String?
+  var amount: String?
+  var currency: String?
+  var occurredAt: Double?
+  var categoryId: String?
+  var paymentMethodId: String?
+  var paymentLastFour: String?
+  var reference: String?
+  var state: String
+  var linkedTransactionId: String?
+  var analyzedAt: Double?
+  var reviewedAt: Double?
+  var createdAt: Double
+  var updatedAt: Double
+}
+
 struct WireNotifications: Codable, Sendable {
   var bills: Bool
   var budget: Bool
@@ -138,6 +171,39 @@ enum WirePayload {
         "occurredAt": Double(e.occurredAt),
         "comment": e.comment,
         "kind": (e.kind ?? .lent).rawValue,
+      ]
+    case .emailMessage(let e):
+      return [
+        "id": e.id,
+        "accountId": e.accountId,
+        "accountEmail": e.accountEmail,
+        "gmailMessageId": e.gmailMessageId,
+        "threadId": e.threadId,
+        "rfcMessageId": e.rfcMessageId as Any? ?? NSNull(),
+        "senderName": e.senderName as Any? ?? NSNull(),
+        "senderAddress": e.senderAddress,
+        "subject": e.subject,
+        "snippet": e.snippet,
+        "internalDate": Double(e.internalDate),
+        "normalizedBodyText": e.normalizedBodyText as Any? ?? NSNull(),
+        "analyzerType": e.analyzerType as Any? ?? NSNull(),
+        "modelVersion": e.modelVersion as Any? ?? NSNull(),
+        "promptVersion": e.promptVersion.map { Double($0) as Any } ?? NSNull(),
+        "classification": e.classification as Any? ?? NSNull(),
+        "merchant": e.merchant as Any? ?? NSNull(),
+        "amount": e.amount as Any? ?? NSNull(),
+        "currency": e.currency as Any? ?? NSNull(),
+        "occurredAt": e.occurredAt.map { Double($0) as Any } ?? NSNull(),
+        "categoryId": e.categoryId as Any? ?? NSNull(),
+        "paymentMethodId": e.paymentMethodId as Any? ?? NSNull(),
+        "paymentLastFour": e.paymentLastFour as Any? ?? NSNull(),
+        "reference": e.reference as Any? ?? NSNull(),
+        "state": e.state,
+        "linkedTransactionId": e.linkedTransactionId as Any? ?? NSNull(),
+        "analyzedAt": e.analyzedAt.map { Double($0) as Any } ?? NSNull(),
+        "reviewedAt": e.reviewedAt.map { Double($0) as Any } ?? NSNull(),
+        "createdAt": Double(e.createdAt),
+        "updatedAt": Double(e.updatedAt),
       ]
     case .preferences(let e):
       return [
@@ -218,6 +284,40 @@ enum WirePayload {
         occurredAt: Int(wire.occurredAt),
         comment: wire.comment,
         kind: wire.kind.flatMap(LendKind.init) ?? .lent
+      ))
+    case .emailMessage:
+      let wire = try JSONDecoder().decode(WireEmailMessage.self, from: data)
+      return .emailMessage(EmailMessageEntity(
+        id: wire.id,
+        accountId: wire.accountId,
+        accountEmail: wire.accountEmail,
+        gmailMessageId: wire.gmailMessageId,
+        threadId: wire.threadId,
+        rfcMessageId: wire.rfcMessageId,
+        senderName: wire.senderName,
+        senderAddress: wire.senderAddress,
+        subject: wire.subject,
+        snippet: wire.snippet,
+        internalDate: Int(wire.internalDate),
+        normalizedBodyText: wire.normalizedBodyText,
+        analyzerType: wire.analyzerType,
+        modelVersion: wire.modelVersion,
+        promptVersion: wire.promptVersion.map { Int($0) },
+        classification: wire.classification,
+        merchant: wire.merchant,
+        amount: wire.amount,
+        currency: wire.currency,
+        occurredAt: wire.occurredAt.map { Int($0) },
+        categoryId: wire.categoryId,
+        paymentMethodId: wire.paymentMethodId,
+        paymentLastFour: wire.paymentLastFour,
+        reference: wire.reference,
+        state: wire.state,
+        linkedTransactionId: wire.linkedTransactionId,
+        analyzedAt: wire.analyzedAt.map { Int($0) },
+        reviewedAt: wire.reviewedAt.map { Int($0) },
+        createdAt: Int(wire.createdAt),
+        updatedAt: Int(wire.updatedAt)
       ))
     case .preferences:
       let wire = try JSONDecoder().decode(WirePreferences.self, from: data)

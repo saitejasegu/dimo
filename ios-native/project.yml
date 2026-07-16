@@ -17,6 +17,7 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     IPHONEOS_DEPLOYMENT_TARGET: "26.0"
     ENABLE_USER_SCRIPT_SANDBOXING: false
+    "CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]": false
   configs:
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
@@ -30,6 +31,8 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     from: "7.0.0"
+  LiteRTLM:
+    path: Packages/LiteRTLM
 
 targets:
   Dimo:
@@ -56,13 +59,17 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        # DEVELOPMENT_TEAM comes from Config/Secrets.xcconfig (gitignored).
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 1.0.0
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: false
         SWIFT_EMIT_LOC_STRINGS: YES
+        # Upstream LiteRT-LM v0.13.0 places this in SwiftPM unsafeFlags,
+        # which Xcode rejects for a remote application dependency. The local
+        # exact-tag packaging shim keeps the flag under Dimo's control.
+        OTHER_LDFLAGS: "$(inherited) -all_load"
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
@@ -73,6 +80,8 @@ targets:
       - package: ConvexMobile
       - package: GRDB
         product: GRDB
+      - package: LiteRTLM
+        product: LiteRTLM
     scheme:
       testTargets:
         - DimoTests
@@ -87,7 +96,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.dimo.ios.tests
         GENERATE_INFOPLIST_FILE: true
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        # DEVELOPMENT_TEAM comes from Config/Secrets.xcconfig (gitignored).
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Dimo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Dimo"
         BUNDLE_LOADER: "$(TEST_HOST)"
     dependencies:

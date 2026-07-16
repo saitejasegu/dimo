@@ -1,0 +1,12 @@
+{
+  "modelName": "Gemma 3 270M IT",
+  "modelVersion": "2026.04.04-270m-q8",
+  "runtimeFormatVersion": "LiteRT-LM 0.13.0",
+  "downloadURL": "https://huggingface.co/Illusionist5302/gemma-270/resolve/291265b77dd18818644f18f08c1b1417dd439734/gemma3-270m-it-q8.litertlm",
+  "exactByteCount": 304005120,
+  "sha256": "757e9119fa5bd667a2774fb470ac4afcd3190a21c677f8e69a5d6bc908abdd63",
+  "minimumFreeStorageBytes": 1073741824,
+  "promptSchemaVersion": 1,
+  "termsURL": "https://ai.google.dev/gemma/terms",
+  "attributionURL": "https://huggingface.co/litert-community/gemma-3-270m-it"
+}
