@@ -55,7 +55,8 @@ private enum EmailDeterministicEvidenceExtractor {
   static func deterministicEvidence(in source: String) -> EmailDeterministicEvidence {
     var amounts: [EmailDeterministicEvidence.Amount] = []
     let patterns: [(String, Currency)] = [
-      (#"(?:₹|\bINR\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"#, .INR),
+      // Indian receipts commonly use "Rs." / "Rs" / "INR" / ₹ before the amount.
+      (#"(?:₹|\bINR\s*|\bRs\.?\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"#, .INR),
       (#"(?:US\$|\bUSD\s*|\$)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"#, .USD),
       (#"(?:€|\bEUR\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"#, .EUR),
     ]
@@ -200,14 +201,25 @@ enum EmailStructuredOutputValidator {
       confidence = .medium
     }
 
+    // Merchant evidence may live only in the From display name (common for
+    // BookMyShow / Amazon / bank alerts) rather than the body text.
+    let merchantEvidenceSource = [
+      request.senderName,
+      request.senderAddress,
+      request.subject,
+      request.normalizedBody,
+    ]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
     let modelMerchant = evidencedText(
       output.merchant,
-      source: source,
+      source: merchantEvidenceSource,
       maximumLength: 100
     )
     let merchant = modelMerchant ?? evidencedText(
       deterministic.merchant,
-      source: source,
+      source: merchantEvidenceSource,
       maximumLength: 100
     )
     if output.merchant != nil, modelMerchant == nil { correctedOutput = true }
@@ -424,16 +436,18 @@ enum EmailStructuredOutputValidator {
     let canonical = NSDecimalNumber(decimal: amount).stringValue
     let escaped = NSRegularExpression.escapedPattern(for: canonical)
     let pattern: String
+    // Look behind only digits — not `.` — so "Rs.512.48" / "$12.00" still count
+    // as evidence. Trailing guards still prevent matching inside a larger number.
     if let decimalSeparator = canonical.firstIndex(of: ".") {
       let fractionLength = canonical.distance(
         from: canonical.index(after: decimalSeparator),
         to: canonical.endIndex
       )
       let optionalTrailingZero = fractionLength == 1 ? "0?" : ""
-      pattern = #"(?<![0-9.])"# + escaped + optionalTrailingZero
+      pattern = #"(?<![0-9])"# + escaped + optionalTrailingZero
         + #"(?![0-9]|\.[0-9])"#
     } else {
-      pattern = #"(?<![0-9.])"# + escaped + #"(?:\.0{1,2})?(?![0-9]|\.[0-9])"#
+      pattern = #"(?<![0-9])"# + escaped + #"(?:\.0{1,2})?(?![0-9]|\.[0-9])"#
     }
     return ungroupedSource.range(of: pattern, options: .regularExpression) != nil
   }

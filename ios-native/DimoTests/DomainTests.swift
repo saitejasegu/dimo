@@ -882,6 +882,58 @@ final class EmailStructuredOutputValidatorTests: XCTestCase {
     XCTAssertEqual(result.confidence, .high)
   }
 
+  func testKeepsBookMyShowMerchantAndRsAmountPaid() throws {
+    // OpenRouter returned the correct JSON, but the validator used to drop both
+    // fields: merchant only appeared in From:, and "Rs.512.48" failed the
+    // amount lookbehind because of the period in "Rs.".
+    let response = #"{"schemaVersion":1,"kind":"purchase","merchant":"BookMyShow","amount":"512.48","currency":"INR","occurredAt":"2026-07-16T19:40:00Z","categoryId":"978ec30d-35d2-41ea-ad6b-ea2a63e9d91d","paymentMethodId":null,"paymentLastFour":null,"reference":"T9A9HCT"}"#
+    let receivedAt = date("2026-07-16T14:10:52Z")
+    let movies = "978ec30d-35d2-41ea-ad6b-ea2a63e9d91d"
+    let request = EmailAnalysisRequest(
+      messageId: "bookmyshow-tickets",
+      accountSubject: "gmail-subject",
+      senderName: "BookMyShow",
+      senderAddress: "tickets@bookmyshow.email",
+      subject: "Your Tickets",
+      receivedAt: receivedAt,
+      normalizedBody: """
+      Your booking is confirmed!
+      Booking ID T9A9HCT
+      The Odyssey (A)
+      ORDER SUMMARY
+      TICKET AMOUNT
+      Rs.470.00
+      Convenience fees
+      Rs.42.48
+      AMOUNT PAID
+      Rs.512.48
+      Booking Date & Time
+      Thu, 16 Jul, 2026 | 07:40pm
+      Payment Type
+      UPI
+      """,
+      categories: [EmailCategoryOption(id: movies, name: "Movies")],
+      paymentMethods: [],
+      merchantHistory: [EmailMerchantCategoryHint(merchant: "Movies", categoryId: movies)],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: request,
+      analyzer: .openRouter,
+      now: date("2026-07-17T03:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .purchase)
+    XCTAssertEqual(result.merchant, "BookMyShow")
+    XCTAssertEqual(result.amount, Decimal(string: "512.48"))
+    XCTAssertEqual(result.currency, .INR)
+    XCTAssertEqual(result.categoryId, movies)
+    XCTAssertEqual(result.reference, "T9A9HCT")
+    XCTAssertEqual(result.analyzer, .openRouter)
+  }
+
   private func request() -> EmailAnalysisRequest {
     EmailAnalysisRequest(
       messageId: "message-1",
@@ -1873,6 +1925,110 @@ final class OpenRouterPolicyTests: XCTestCase {
     XCTAssertTrue(model.isFree)
     XCTAssertTrue(model.supports("structured_outputs"))
     XCTAssertFalse(model.hasZDREndpoint)
+  }
+
+  func testStructuredOutputSchemaIsGeminiCompatible() throws {
+    // Google Gemini rejects `enum` on non-string types (HTTP 400:
+    // "enum: only allowed for STRING type"). Keep only string enums here.
+    let responseFormat = OpenRouterClient.responseFormat
+    let jsonSchema = try XCTUnwrap(responseFormat["json_schema"] as? [String: Any])
+    let schema = try XCTUnwrap(jsonSchema["schema"] as? [String: Any])
+    let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+
+    let schemaVersion = try XCTUnwrap(properties["schemaVersion"] as? [String: Any])
+    XCTAssertEqual(schemaVersion["type"] as? String, "integer")
+    XCTAssertNil(schemaVersion["enum"])
+
+    let kind = try XCTUnwrap(properties["kind"] as? [String: Any])
+    XCTAssertEqual(kind["type"] as? String, "string")
+    XCTAssertNotNil(kind["enum"])
+
+    let currency = try XCTUnwrap(properties["currency"] as? [String: Any])
+    XCTAssertNil(currency["enum"])
+    XCTAssertEqual(currency["type"] as? [String], ["string", "null"])
+
+    // Ensure the payload still serializes (NSNull mixed enums used to appear here).
+    XCTAssertTrue(JSONSerialization.isValidJSONObject(responseFormat))
+    _ = try JSONSerialization.data(withJSONObject: responseFormat)
+  }
+
+  func testGeminiAnalysisOmitsTemperatureAndRaisesReasoningTokenBudget() async throws {
+    let client = OpenRouterClient(session: Self.stubbedSession { request in
+      let body = try XCTUnwrap(Self.bodyData(from: request))
+      let payload = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: body) as? [String: Any]
+      )
+      XCTAssertEqual(payload["max_tokens"] as? Int, 4_096)
+      XCTAssertNil(payload["temperature"])
+      let reasoning = try XCTUnwrap(payload["reasoning"] as? [String: Any])
+      XCTAssertEqual(reasoning["effort"] as? String, "low")
+      XCTAssertEqual(reasoning["exclude"] as? Bool, true)
+
+      let analysis = #"{"schemaVersion":1,"kind":"irrelevant","merchant":null,"amount":null,"currency":null,"occurredAt":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}"#
+      let data = try JSONSerialization.data(withJSONObject: [
+        "id": "gemini-1",
+        "model": "google/gemini-3.5-flash",
+        "choices": [["message": ["content": analysis]]],
+      ])
+      return (
+        try XCTUnwrap(HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )),
+        data
+      )
+    })
+    let model = OpenRouterModel(
+      id: "google/gemini-3.5-flash",
+      name: "Gemini 3.5 Flash",
+      contextLength: 1_048_576,
+      pricing: .init(prompt: "0.000001", completion: "0.000002"),
+      supportedParameters: [
+        "structured_outputs", "response_format", "max_tokens", "temperature", "reasoning",
+      ],
+      hasZDREndpoint: false
+    )
+    let request = EmailAnalysisRequest(
+      messageId: "message",
+      accountSubject: "account",
+      senderAddress: "newsletter@example.com",
+      subject: "Weekly newsletter",
+      receivedAt: .now,
+      normalizedBody: "This is a newsletter without a transaction.",
+      categories: [],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let envelope = try await client.analyze(
+      request,
+      model: model,
+      privacyMode: .allowNonZDR,
+      apiKey: "secret-test-key"
+    )
+    XCTAssertEqual(envelope.modelID, "google/gemini-3.5-flash")
+  }
+
+  func testProviderReturnedErrorSurfacesNestedGoogleMessage() {
+    let data = Data("""
+      {
+        "error": {
+          "message": "Provider returned error",
+          "code": 400,
+          "metadata": {
+            "provider_name": "Google",
+            "raw": "{\\"error\\":{\\"message\\":\\"Temperature 0 is not supported for this model\\",\\"status\\":\\"INVALID_ARGUMENT\\"}}"
+          }
+        }
+      }
+      """.utf8)
+    XCTAssertEqual(
+      OpenRouterClient.apiErrorDiagnostic(from: data),
+      "[Google] Temperature 0 is not supported for this model"
+    )
   }
 
   func testCatalogKeepsStructuredModelsAndAddsLiveZDRAvailability() async throws {

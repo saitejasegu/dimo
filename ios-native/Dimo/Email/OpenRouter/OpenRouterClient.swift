@@ -212,17 +212,27 @@ actor OpenRouterClient {
     let routeParameters = Set(
       privacyMode == .zdrOnly ? model.zdrSupportedParameters : model.supportedParameters
     )
+    let usesReasoning = routeParameters.contains("reasoning")
+    let resolvedOutputLimit = Self.resolvedOutputTokenLimit(
+      requested: outputTokenLimit,
+      modelID: model.id,
+      usesReasoning: usesReasoning
+    )
     if routeParameters.contains("max_tokens") {
-      payload["max_tokens"] = outputTokenLimit
+      payload["max_tokens"] = resolvedOutputLimit
     } else if routeParameters.contains("max_completion_tokens") {
-      payload["max_completion_tokens"] = outputTokenLimit
+      payload["max_completion_tokens"] = resolvedOutputLimit
     }
-    if routeParameters.contains("temperature") { payload["temperature"] = 0 }
-    if routeParameters.contains("reasoning") {
+    // Gemini 3.x thinking models are optimized for the default temperature (1.0).
+    // Forcing 0 often yields Google 400 "Provider returned error" via OpenRouter.
+    if routeParameters.contains("temperature"), !Self.isGoogleGeminiModel(model.id) {
+      payload["temperature"] = 0
+    }
+    if usesReasoning {
       payload["reasoning"] = ["effort": "low", "exclude": true]
     }
     openRouterLogger.notice(
-      "OpenRouter analysis starting; message: \(analysisRequest.messageId, privacy: .private(mask: .hash)); model: \(model.id, privacy: .public); privacy: \(privacyMode.rawValue, privacy: .public); output token limit: \(outputTokenLimit, privacy: .public); prompt characters: \(prompt.count, privacy: .public); route parameters: \(routeParameters.sorted().joined(separator: ","), privacy: .public)"
+      "OpenRouter analysis starting; message: \(analysisRequest.messageId, privacy: .private(mask: .hash)); model: \(model.id, privacy: .public); privacy: \(privacyMode.rawValue, privacy: .public); output token limit: \(resolvedOutputLimit, privacy: .public); prompt characters: \(prompt.count, privacy: .public); route parameters: \(routeParameters.sorted().joined(separator: ","), privacy: .public)"
     )
     guard JSONSerialization.isValidJSONObject(payload) else {
       openRouterLogger.error(
@@ -321,7 +331,7 @@ actor OpenRouterClient {
     }
     guard (200..<300).contains(response.statusCode) else {
       let requestID = decodedRequestID(response: response) ?? "none"
-      let apiMessage = (try? JSONDecoder().decode(APIErrorEnvelope.self, from: data))?.error.message
+      let apiMessage = Self.apiErrorDiagnostic(from: data)
       openRouterLogger.error(
         "OpenRouter HTTP failure; path: \(path, privacy: .public); status: \(response.statusCode, privacy: .public); request ID: \(requestID, privacy: .public); response bytes: \(data.count, privacy: .public); API error: \(Self.safeDiagnostic(apiMessage), privacy: .public)"
       )
@@ -332,20 +342,19 @@ actor OpenRouterClient {
 
   private static func error(for response: HTTPURLResponse, data: Data) -> OpenRouterClientError {
     let retryAfter = parseRetryAfter(response.value(forHTTPHeaderField: "Retry-After"))
-    let apiMessage = (try? JSONDecoder().decode(APIErrorEnvelope.self, from: data))?.error.message
+    let apiMessage = apiErrorDiagnostic(from: data)
     switch response.statusCode {
     case 400:
-      let message = apiMessage ?? "OpenRouter rejected the selected model or request."
-      if message.localizedCaseInsensitiveContains("context") {
+      if apiMessage.localizedCaseInsensitiveContains("context") {
         return .invalidRequest("The selected model context is too small for this email.")
       }
-      let normalized = message.lowercased()
+      let normalized = apiMessage.lowercased()
       if normalized.contains("no endpoint")
         || normalized.contains("model not found")
         || normalized.contains("model is unavailable") {
         return .modelUnavailable
       }
-      return .invalidRequest(message)
+      return .invalidRequest(apiMessage)
     case 401: return .invalidKey
     case 402: return .insufficientCredits
     case 403: return .forbidden
@@ -355,8 +364,81 @@ actor OpenRouterClient {
     case 502, 503: return .temporarilyUnavailable(status: response.statusCode, retryAfter: retryAfter)
     default:
       return .invalidRequest(
-        apiMessage ?? "OpenRouter rejected this analysis request (HTTP \(response.statusCode))."
+        apiMessage.isEmpty
+          ? "OpenRouter rejected this analysis request (HTTP \(response.statusCode))."
+          : apiMessage
       )
+    }
+  }
+
+  /// Gemini 3 thinking shares the completion budget; 512 is too small and
+  /// temperature 0 is rejected/unstable. Keep non-Gemini deterministic at 0.
+  static func resolvedOutputTokenLimit(
+    requested: Int,
+    modelID: String,
+    usesReasoning: Bool
+  ) -> Int {
+    guard usesReasoning else { return requested }
+    if isGoogleGeminiModel(modelID) {
+      return max(requested, 4_096)
+    }
+    return max(requested, incompleteOutputRetryTokenLimit)
+  }
+
+  static func isGoogleGeminiModel(_ modelID: String) -> Bool {
+    modelID.lowercased().hasPrefix("google/gemini")
+  }
+
+  /// OpenRouter often wraps upstream failures as "Provider returned error" with
+  /// the real Google/OpenAI message in `error.metadata.raw`.
+  static func apiErrorDiagnostic(from data: Data) -> String {
+    guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = root["error"] as? [String: Any] else {
+      return String(data: data, encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .nilIfEmpty
+        ?? "OpenRouter rejected the selected model or request."
+    }
+    let topMessage = (error["message"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .nilIfEmpty
+      ?? "OpenRouter rejected the selected model or request."
+    let metadata = error["metadata"] as? [String: Any]
+    let provider = (metadata?["provider_name"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .nilIfEmpty
+    let rawMessage = extractProviderRawMessage(metadata?["raw"])?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .nilIfEmpty
+
+    var parts: [String] = []
+    if let provider { parts.append("[\(provider)]") }
+    if let rawMessage, rawMessage.caseInsensitiveCompare(topMessage) != .orderedSame {
+      parts.append(rawMessage)
+    } else {
+      parts.append(topMessage)
+    }
+    return parts.joined(separator: " ")
+  }
+
+  private static func extractProviderRawMessage(_ raw: Any?) -> String? {
+    switch raw {
+    case let text as String:
+      if let data = text.data(using: .utf8),
+         let nested = try? JSONSerialization.jsonObject(with: data) {
+        return extractProviderRawMessage(nested) ?? text
+      }
+      return text
+    case let dictionary as [String: Any]:
+      if let error = dictionary["error"] as? [String: Any],
+         let message = error["message"] as? String {
+        return message
+      }
+      if let error = dictionary["error"] as? String { return error }
+      if let message = dictionary["message"] as? String { return message }
+      return nil
+    default:
+      return nil
     }
   }
 
@@ -405,7 +487,9 @@ actor OpenRouterClient {
     }.joined(separator: ",")
   }
 
-  private static let responseFormat: [String: Any] = [
+  /// Exposed for tests. Keep Gemini-compatible: Google only allows `enum` on
+  /// string types, so never put `enum` on integers / mixed null enums here.
+  static let responseFormat: [String: Any] = [
     "type": "json_schema",
     "json_schema": [
       "name": "email_analysis",
@@ -418,11 +502,13 @@ actor OpenRouterClient {
           "categoryId", "paymentMethodId", "paymentLastFour", "reference",
         ],
         "properties": [
-          "schemaVersion": ["type": "integer", "enum": [1]],
+          // Client still rejects anything other than schemaVersion == 1.
+          "schemaVersion": ["type": "integer"],
           "kind": ["type": "string", "enum": ["purchase", "debit", "refund", "irrelevant"]],
           "merchant": nullableString,
           "amount": nullableString,
-          "currency": ["type": ["string", "null"], "enum": ["INR", "USD", "EUR", NSNull()]],
+          // Currency membership is validated in EmailStructuredOutputValidator.
+          "currency": nullableString,
           "occurredAt": nullableString,
           "categoryId": nullableString,
           "paymentMethodId": nullableString,
@@ -434,6 +520,10 @@ actor OpenRouterClient {
   ]
 
   private static let nullableString: [String: Any] = ["type": ["string", "null"]]
+}
+
+private extension String {
+  var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 private struct DataEnvelope<T: Decodable>: Decodable { var data: T }
@@ -448,11 +538,6 @@ private struct ZDREndpointEnvelope: Decodable {
     }
   }
   var data: [Endpoint]
-}
-
-private struct APIErrorEnvelope: Decodable {
-  struct APIError: Decodable { var message: String }
-  var error: APIError
 }
 
 private struct ChatCompletionResponse: Decodable {
