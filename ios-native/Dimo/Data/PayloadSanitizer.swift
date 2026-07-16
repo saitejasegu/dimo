@@ -73,6 +73,52 @@ enum PayloadSanitizer {
         kind: value.kind ?? .lent
       ))
 
+    case .emailMessage:
+      guard case .emailMessage(let value) = payload else { return payload }
+      let allowedStates: Set<String> = [
+        EmailSuggestionState.added.rawValue,
+        EmailSuggestionState.dismissed.rawValue,
+        EmailSuggestionState.refundApplied.rawValue,
+        EmailSuggestionState.pendingPurchase.rawValue,
+        EmailSuggestionState.pendingRefund.rawValue,
+      ]
+      let nonempty: (String?) -> String? = { raw in
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
+      }
+      return .emailMessage(EmailMessageEntity(
+        id: value.id,
+        accountId: value.accountId.trimmingCharacters(in: .whitespacesAndNewlines),
+        accountEmail: value.accountEmail.trimmingCharacters(in: .whitespacesAndNewlines),
+        gmailMessageId: value.gmailMessageId.trimmingCharacters(in: .whitespacesAndNewlines),
+        threadId: value.threadId.trimmingCharacters(in: .whitespacesAndNewlines),
+        rfcMessageId: nonempty(value.rfcMessageId),
+        senderName: nonempty(value.senderName),
+        senderAddress: value.senderAddress.trimmingCharacters(in: .whitespacesAndNewlines),
+        subject: value.subject,
+        snippet: value.snippet,
+        internalDate: Int(Double(value.internalDate).rounded()),
+        normalizedBodyText: value.normalizedBodyText,
+        analyzerType: nonempty(value.analyzerType),
+        modelVersion: nonempty(value.modelVersion),
+        promptVersion: value.promptVersion.map { Int(Double($0).rounded()) },
+        classification: nonempty(value.classification),
+        merchant: nonempty(value.merchant),
+        amount: nonempty(value.amount),
+        currency: nonempty(value.currency),
+        occurredAt: value.occurredAt.map { Int(Double($0).rounded()) },
+        categoryId: nonempty(value.categoryId),
+        paymentMethodId: nonempty(value.paymentMethodId),
+        paymentLastFour: nonempty(value.paymentLastFour),
+        reference: nonempty(value.reference),
+        state: allowedStates.contains(value.state) ? value.state : EmailSuggestionState.dismissed.rawValue,
+        linkedTransactionId: nonempty(value.linkedTransactionId),
+        analyzedAt: value.analyzedAt.map { Int(Double($0).rounded()) },
+        reviewedAt: value.reviewedAt.map { Int(Double($0).rounded()) },
+        createdAt: Int(Double(value.createdAt).rounded()),
+        updatedAt: Int(Double(value.updatedAt).rounded())
+      ))
+
     case .preferences:
       guard case .preferences(let value) = payload else { return payload }
       let allowedRanges: Set<StatsRange> = [.oneWeek, .month, .threeMonths, .sixMonths, .oneYear, .twoYears]

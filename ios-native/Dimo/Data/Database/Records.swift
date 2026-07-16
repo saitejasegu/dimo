@@ -21,6 +21,7 @@ enum PayloadCodec {
     case .transaction(let value): return try encoder.encode(value)
     case .recurring(let value): return try encoder.encode(value)
     case .lend(let value): return try encoder.encode(value)
+    case .emailMessage(let value): return try encoder.encode(value)
     case .preferences(let value): return try encoder.encode(value)
     }
   }
@@ -32,6 +33,7 @@ enum PayloadCodec {
     case .transaction: return .transaction(try decoder.decode(TransactionEntity.self, from: data))
     case .recurring: return .recurring(try decoder.decode(RecurringEntity.self, from: data))
     case .lend: return .lend(try decoder.decode(LendEntity.self, from: data))
+    case .emailMessage: return .emailMessage(try decoder.decode(EmailMessageEntity.self, from: data))
     case .preferences: return .preferences(try decoder.decode(PreferencesEntity.self, from: data))
     }
   }

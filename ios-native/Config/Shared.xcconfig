@@ -1,8 +1,16 @@
 // Shared non-environment settings.
 // Do not put secrets here — mobile OAuth uses PKCE with no client secret.
 // CONVEX_URL / WORKOS_CLIENT_ID live in Debug.xcconfig and Release.xcconfig.
+// DEVELOPMENT_TEAM lives in optional gitignored Secrets.xcconfig.
+
+#include? "Secrets.xcconfig"
 
 PRODUCT_BUNDLE_IDENTIFIER = app.dimo.ios
 PRODUCT_NAME = Dimo
 MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 1
+
+// Public Google iOS OAuth client configuration. Replace these placeholders
+// with the iOS client from Google Cloud before enabling Gmail connections.
+GMAIL_OAUTH_CLIENT_ID = 1044207380521-bapg9rvuvbn8f6pqs90t36utchja8b9t.apps.googleusercontent.com
+GMAIL_OAUTH_REDIRECT_SCHEME = com.googleusercontent.apps.1044207380521-bapg9rvuvbn8f6pqs90t36utchja8b9t

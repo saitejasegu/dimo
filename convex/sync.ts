@@ -40,6 +40,13 @@ function payloadMatches(type: string, payload: Record<string, unknown>) {
       return "anchorDate" in payload && "frequency" in payload;
     case "lend":
       return "contactName" in payload && "occurredAt" in payload;
+    case "emailMessage":
+      return (
+        "accountId" in payload &&
+        "gmailMessageId" in payload &&
+        "internalDate" in payload &&
+        "state" in payload
+      );
     case "preferences":
       return payload.id === "preferences";
     default:

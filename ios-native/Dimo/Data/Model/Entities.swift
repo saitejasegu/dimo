@@ -6,6 +6,7 @@ enum EntityType: String, Codable, CaseIterable, Sendable {
   case transaction
   case recurring
   case lend
+  case emailMessage
   case preferences
 }
 
@@ -71,7 +72,7 @@ enum StatsRange: String, Codable, CaseIterable, Sendable {
 }
 
 enum ViewKey: String, Codable, CaseIterable, Sendable {
-  case home, tx, stats, recurring, budgets, lending, settings, account
+  case home, tx, stats, recurring, budgets, lending, email, settings, account
 }
 
 struct NotificationSettings: Codable, Hashable, Sendable {
@@ -185,12 +186,48 @@ struct PreferencesEntity: Codable, Hashable, Sendable, Identifiable {
   var defaultPaymentMethodId: String
 }
 
+/// Synced reviewed Gmail suggestion, including the full normalized body text.
+struct EmailMessageEntity: Codable, Hashable, Sendable, Identifiable {
+  var id: String
+  var accountId: String
+  var accountEmail: String
+  var gmailMessageId: String
+  var threadId: String
+  var rfcMessageId: String?
+  var senderName: String?
+  var senderAddress: String
+  var subject: String
+  var snippet: String
+  var internalDate: Int
+  var normalizedBodyText: String?
+  var analyzerType: String?
+  var modelVersion: String?
+  var promptVersion: Int?
+  var classification: String?
+  var merchant: String?
+  var amount: String?
+  var currency: String?
+  var occurredAt: Int?
+  var categoryId: String?
+  var paymentMethodId: String?
+  var paymentLastFour: String?
+  var reference: String?
+  /// Wire values: added, dismissed, refundApplied, pendingPurchase, pendingRefund.
+  var state: String
+  var linkedTransactionId: String?
+  var analyzedAt: Int?
+  var reviewedAt: Int?
+  var createdAt: Int
+  var updatedAt: Int
+}
+
 enum EntityPayload: Codable, Hashable, Sendable {
   case category(CategoryEntity)
   case paymentMethod(PaymentMethodEntity)
   case transaction(TransactionEntity)
   case recurring(RecurringEntity)
   case lend(LendEntity)
+  case emailMessage(EmailMessageEntity)
   case preferences(PreferencesEntity)
 
   var id: String {
@@ -200,6 +237,7 @@ enum EntityPayload: Codable, Hashable, Sendable {
     case .transaction(let e): return e.id
     case .recurring(let e): return e.id
     case .lend(let e): return e.id
+    case .emailMessage(let e): return e.id
     case .preferences(let e): return e.id
     }
   }
@@ -211,6 +249,7 @@ enum EntityPayload: Codable, Hashable, Sendable {
     case .transaction: return .transaction
     case .recurring: return .recurring
     case .lend: return .lend
+    case .emailMessage: return .emailMessage
     case .preferences: return .preferences
     }
   }

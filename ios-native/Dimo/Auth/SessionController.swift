@@ -37,13 +37,17 @@ final class SessionController {
     await enterSignedIn(session: session)
   }
 
-  func signOut() async {
+  func signOut() async throws {
     tokenRefresher?.stop()
     tokenRefresher = nil
-    appStore?.tearDown()
-    appStore = nil
+    await appStore?.tearDown()
+    if let userId {
+      try await GmailCredentialVault().removeAll(dimoUserId: userId)
+      try await OpenRouterCredentialVault().remove(dimoUserId: userId)
+    }
+    try AppDatabase.deleteAllLocalDatabases()
     await authProvider.signOut()
-    try? AppDatabase.deleteAllLocalDatabases()
+    appStore = nil
     userId = nil
     profileName = nil
     profileEmail = nil
@@ -53,7 +57,7 @@ final class SessionController {
   func deleteAccount() async throws {
     guard let store = appStore else { return }
     try await store.clearCloudWorkspace()
-    await signOut()
+    try await signOut()
   }
 
   private func enterSignedIn(session: WorkOSSession) async {

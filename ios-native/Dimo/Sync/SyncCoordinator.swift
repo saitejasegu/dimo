@@ -135,6 +135,8 @@ actor SyncCoordinator {
           email: profileEmail
         )
         if replace {
+          // Ensure reviewed email rows exist as entities before the full upload.
+          try repository.enqueueUnsyncedEmailMessages()
           try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
           try repository.updateSyncMeta { $0.lastPulledRevision = 0 }
           try repository.enqueueFullUpload(entityTypes: Array(EntityType.allCases))
@@ -145,6 +147,7 @@ actor SyncCoordinator {
           // Upload bootstrap defaults only if pull left them unsynced (empty
           // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           try repository.enqueueUnsyncedDefaults()
+          try repository.enqueueUnsyncedEmailMessages()
           try await pushAll()
           try await pullAll()
         }
@@ -392,6 +395,39 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "occurredAt": Double(e.occurredAt),
         "comment": e.comment,
         "kind": (e.kind ?? .lent).rawValue,
+      ]
+    case .emailMessage(let e):
+      return [
+        "id": e.id,
+        "accountId": e.accountId,
+        "accountEmail": e.accountEmail,
+        "gmailMessageId": e.gmailMessageId,
+        "threadId": e.threadId,
+        "rfcMessageId": e.rfcMessageId,
+        "senderName": e.senderName,
+        "senderAddress": e.senderAddress,
+        "subject": e.subject,
+        "snippet": e.snippet,
+        "internalDate": Double(e.internalDate),
+        "normalizedBodyText": e.normalizedBodyText,
+        "analyzerType": e.analyzerType,
+        "modelVersion": e.modelVersion,
+        "promptVersion": e.promptVersion.map { Double($0) },
+        "classification": e.classification,
+        "merchant": e.merchant,
+        "amount": e.amount,
+        "currency": e.currency,
+        "occurredAt": e.occurredAt.map { Double($0) },
+        "categoryId": e.categoryId,
+        "paymentMethodId": e.paymentMethodId,
+        "paymentLastFour": e.paymentLastFour,
+        "reference": e.reference,
+        "state": e.state,
+        "linkedTransactionId": e.linkedTransactionId,
+        "analyzedAt": e.analyzedAt.map { Double($0) },
+        "reviewedAt": e.reviewedAt.map { Double($0) },
+        "createdAt": Double(e.createdAt),
+        "updatedAt": Double(e.updatedAt),
       ]
     case .preferences(let e):
       return [

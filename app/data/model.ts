@@ -16,11 +16,14 @@ export type EntityType =
   | "transaction"
   | "recurring"
   | "lend"
+  | "emailMessage"
   | "preferences";
 
-export type WebOwnedEntityType = Exclude<EntityType, "lend">;
+/** Native-owned types the web client must not hard-replace on Sync now. */
+export type WebOwnedEntityType = Exclude<EntityType, "lend" | "emailMessage">;
 
-/** Entity types this web app owns and replaces on Sync now. Lending is read-only. */
+/** Entity types this web app owns and replaces on Sync now. Lending and email
+ * suggestions are native-owned and read-only on web. */
 export const OWNED_ENTITY_TYPES: readonly WebOwnedEntityType[] = [
   "category",
   "paymentMethod",
@@ -31,7 +34,7 @@ export const OWNED_ENTITY_TYPES: readonly WebOwnedEntityType[] = [
 
 /**
  * Every entity type the sync server accepts. Used for account wipe so cloud
- * rows from other clients (e.g. iOS lending) are not left behind.
+ * rows from other clients (e.g. iOS lending / email) are not left behind.
  */
 export const ALL_CLOUD_ENTITY_TYPES = [
   "category",
@@ -39,6 +42,7 @@ export const ALL_CLOUD_ENTITY_TYPES = [
   "transaction",
   "recurring",
   "lend",
+  "emailMessage",
   "preferences",
 ] as const;
 
@@ -104,6 +108,41 @@ export interface LendEntity {
   kind?: "lent" | "repaid";
 }
 
+/** Native-owned reviewed Gmail suggestion, including full normalized body. */
+export interface EmailMessageEntity {
+  id: string;
+  accountId: string;
+  accountEmail: string;
+  gmailMessageId: string;
+  threadId: string;
+  rfcMessageId?: string | null;
+  senderName?: string | null;
+  senderAddress: string;
+  subject: string;
+  snippet: string;
+  internalDate: number;
+  /** Full normalized plain-text body. Optional for legacy cloud rows. */
+  normalizedBodyText?: string | null;
+  analyzerType?: string | null;
+  modelVersion?: string | null;
+  promptVersion?: number | null;
+  classification?: string | null;
+  merchant?: string | null;
+  amount?: string | null;
+  currency?: string | null;
+  occurredAt?: number | null;
+  categoryId?: string | null;
+  paymentMethodId?: string | null;
+  paymentLastFour?: string | null;
+  reference?: string | null;
+  state: "added" | "dismissed" | "refundApplied" | "pendingPurchase" | "pendingRefund";
+  linkedTransactionId?: string | null;
+  analyzedAt?: number | null;
+  reviewedAt?: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface PreferencesEntity {
   id: "preferences";
   profileName: string;
@@ -125,6 +164,7 @@ export interface EntityPayloadMap {
   transaction: TransactionEntity;
   recurring: RecurringEntity;
   lend: LendEntity;
+  emailMessage: EmailMessageEntity;
   preferences: PreferencesEntity;
 }
 

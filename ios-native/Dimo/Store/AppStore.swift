@@ -41,6 +41,7 @@ final class AppStore {
   var pendingCount = 0
   var blockedCount = 0
   var deletingHistory = false
+  var emailFeatureStore = EmailFeatureStore()
 
   var expenseDraft = ExpenseDraft()
   var recurringDraft = RecurringDraft()
@@ -50,6 +51,7 @@ final class AppStore {
   private let authProvider: WorkOSAuthProvider
   private var repository: Repository?
   private var coordinator: SyncCoordinator?
+  private var emailController: EmailFeatureController?
   private var convexClient: ConvexClientWithAuth<WorkOSSession>?
   private var entityObservation: DatabaseCancellable?
   private var syncObservation: DatabaseCancellable?
@@ -112,23 +114,38 @@ final class AppStore {
       }
       let entities = try repo.allEntities()
       hydrate(entities: entities)
+      let emailController = EmailFeatureController(
+        userId: userId,
+        repository: repo,
+        store: emailFeatureStore
+      )
+      self.emailController = emailController
+      await emailController.start(
+        categories: categories,
+        paymentMethods: paymentMethods,
+        transactions: transactions,
+        currency: currency
+      )
       dataReady = true
     } catch {
       showToast(error.localizedDescription)
     }
   }
 
-  func tearDown() {
+  func tearDown() async {
+    await emailController?.tearDown()
+    emailController = nil
     entityObservation?.cancel()
     syncObservation?.cancel()
     if let writeListener { repository?.removeLocalWriteListener(writeListener) }
-    Task { await coordinator?.stop() }
+    await coordinator?.stop()
     coordinator = nil
     repository = nil
     convexClient = nil
   }
 
   func sceneBecameActive() {
+    emailController?.sceneBecameActive()
     Task { await coordinator?.request() }
   }
 
@@ -353,6 +370,12 @@ final class AppStore {
       return Int(Date().timeIntervalSince1970 * 1000)
     }
     return DateHelpers.occurrenceTimestamp(date)
+  }
+
+  /// The retained source email for a transaction added from an email
+  /// suggestion, used by the expense editor's reference row.
+  func sourceEmail(forTransactionId id: String) -> EmailUIEmailDetail? {
+    emailController?.sourceEmailDetail(forTransactionId: id)
   }
 
   func deleteTransaction(_ id: String) {
@@ -700,6 +723,9 @@ final class AppStore {
       case .transaction(let t): nextTransactions.append(t)
       case .recurring(let r): nextRecurring.append(r)
       case .lend(let l): nextLends.append(l)
+      case .emailMessage:
+        // Projected into emailMessages by Repository.mergeRemotePage; not UI-hydrated here.
+        break
       case .preferences(let p): prefs = p
       }
     }
@@ -798,6 +824,12 @@ final class AppStore {
     )
     profileName = profileName.isEmpty ? prefs.profileName : profileName
     profileEmail = profileEmail.isEmpty ? prefs.profileEmail : profileEmail
+    emailController?.updateDomain(
+      categories: categories,
+      paymentMethods: paymentMethods,
+      transactions: transactions,
+      currency: currency
+    )
     dataReady = true
   }
 

@@ -28,11 +28,28 @@
 				<string>dimo</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Google Gmail OAuth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GMAIL_OAUTH_REDIRECT_SCHEME)</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ConvexURL</key>
 	<string>$(CONVEX_URL)</string>
+	<key>GmailOAuthClientID</key>
+	<string>$(GMAIL_OAUTH_CLIENT_ID)</string>
+	<key>GmailOAuthRedirectScheme</key>
+	<string>$(GMAIL_OAUTH_REDIRECT_SCHEME)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>app.dimo.ios.email-refresh</string>
+		<string>app.dimo.ios.email-analysis</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSContactsUsageDescription</key>
@@ -45,6 +62,11 @@
 		<string>IBMPlexSans-Regular.ttf</string>
 		<string>IBMPlexSans-Medium.ttf</string>
 		<string>IBMPlexSans-SemiBold.ttf</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

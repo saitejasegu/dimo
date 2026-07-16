@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
-  case home, stats, budgets, lending
+  case home, stats, budgets, lending, email
 
   var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "Stats"
     case .budgets: return "Budgets"
     case .lending: return "Lending"
+    case .email: return "Email"
     }
   }
 
@@ -20,6 +21,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case .stats: return "chart.bar.fill"
     case .budgets: return "target"
     case .lending: return "person.2.fill"
+    case .email: return "envelope.fill"
     }
   }
 }
@@ -66,6 +68,9 @@ struct MainTabShell: View {
       Tab(AppTab.lending.title, systemImage: AppTab.lending.systemImage, value: .lending) {
         LendingScreen(store: store)
       }
+      Tab(AppTab.email.title, systemImage: AppTab.email.systemImage, value: .email) {
+        EmailScreen(store: store.emailFeatureStore)
+      }
     }
     .tint(Theme.green)
     .tabBarMinimizeBehavior(.never)
@@ -100,6 +105,11 @@ struct MainTabShell: View {
       set: { store.detailId = $0?.id }
     )) { item in
       ExpenseEditorSheet(store: store, mode: .transaction(item.id)) {
+        settingsPath.append(.settings)
+      }
+    }
+    .sheet(item: $store.emailFeatureStore.purchaseReview) { draft in
+      ExpenseEditorSheet(store: store, mode: .emailSuggestion(draft.suggestionID)) {
         settingsPath.append(.settings)
       }
     }
@@ -165,6 +175,7 @@ struct MainTabShell: View {
     case .stats: return .stats
     case .budgets: return .budgets
     case .lending: return .lending
+    case .email: return .email
     }
   }
 
@@ -175,6 +186,7 @@ struct MainTabShell: View {
     case .recurring: return .home
     case .budgets: return .budgets
     case .lending: return .lending
+    case .email: return .email
     case .settings, .account: return nil
     }
   }

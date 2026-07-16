@@ -37,10 +37,16 @@ enum AppDatabase {
     let dir = try applicationSupportDirectory()
     let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
     for file in files where file.lastPathComponent.hasPrefix("dimo-") && file.pathExtension == "sqlite" {
-      try? FileManager.default.removeItem(at: file)
-      try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + "-wal"))
-      try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + "-shm"))
+      try removeIfPresent(file)
+      try removeIfPresent(URL(fileURLWithPath: file.path + "-wal"))
+      try removeIfPresent(URL(fileURLWithPath: file.path + "-shm"))
+      try removeIfPresent(URL(fileURLWithPath: file.path + "-journal"))
     }
+  }
+
+  private static func removeIfPresent(_ url: URL) throws {
+    guard FileManager.default.fileExists(atPath: url.path) else { return }
+    try FileManager.default.removeItem(at: url)
   }
 
   private static func openUnconfigured() throws -> DatabaseQueue {
@@ -74,6 +80,14 @@ enum AppDatabase {
       create: true
     ).appendingPathComponent("Dimo", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    try FileManager.default.setAttributes(
+      [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+      ofItemAtPath: url.path
+    )
+    var excludedURL = url
+    var resourceValues = URLResourceValues()
+    resourceValues.isExcludedFromBackup = true
+    try excludedURL.setResourceValues(resourceValues)
     return url
   }
 
@@ -133,6 +147,108 @@ enum AppDatabase {
         t.column("clockCounter", .integer).notNull().defaults(to: 0)
         t.column("bootstrapVersion", .integer).notNull().defaults(to: 0)
         t.column("lastPaymentMethodId", .text)
+      }
+    }
+
+    // Working Gmail fetch/analysis tables. Reviewed suggestions are also
+    // dual-written into the synced `emailMessage` entity/outbox path. These
+    // local tables live in the account-scoped database and are removed with
+    // it on sign-out.
+    migrator.registerMigration("v2-email-local") { db in
+      try db.create(table: "emailAccounts") { t in
+        // Google's OpenID `sub` claim is stable even when the address changes.
+        t.column("id", .text).primaryKey()
+        t.column("emailAddress", .text).notNull()
+        t.column("historyId", .text)
+        t.column("backfillPageToken", .text)
+        t.column("backfillCompletedAt", .integer)
+        t.column("lastAttemptAt", .integer)
+        t.column("lastSuccessfulSyncAt", .integer)
+        t.column("syncState", .text).notNull()
+        t.column("lastError", .text)
+        t.column("createdAt", .integer).notNull()
+        t.column("updatedAt", .integer).notNull()
+      }
+      try db.create(index: "email_accounts_address", on: "emailAccounts", columns: ["emailAddress"])
+
+      try db.create(table: "emailMessages") { t in
+        t.column("key", .text).primaryKey()
+        t.column("accountId", .text)
+          .notNull()
+          .references("emailAccounts", column: "id", onDelete: .cascade)
+        t.column("gmailMessageId", .text).notNull()
+        t.column("threadId", .text).notNull()
+        t.column("rfcMessageId", .text)
+        t.column("senderName", .text)
+        t.column("senderAddress", .text).notNull()
+        t.column("subject", .text).notNull()
+        t.column("snippet", .text).notNull()
+        t.column("internalDate", .integer).notNull()
+        t.column("normalizedBodyText", .text)
+        t.column("analyzerType", .text)
+        t.column("modelVersion", .text)
+        t.column("promptVersion", .integer)
+        t.column("classification", .text)
+        t.column("merchant", .text)
+        // Keep a canonical decimal string. Converting email amounts to a
+        // binary floating-point column would make exact refund checks unsafe.
+        t.column("amount", .text)
+        t.column("currency", .text)
+        t.column("occurredAt", .integer)
+        t.column("categoryId", .text)
+        t.column("paymentMethodId", .text)
+        t.column("paymentLastFour", .text)
+        t.column("reference", .text)
+        t.column("state", .text).notNull()
+        t.column("linkedTransactionId", .text)
+        t.column("analyzedAt", .integer)
+        t.column("reviewedAt", .integer)
+        t.column("createdAt", .integer).notNull()
+        t.column("updatedAt", .integer).notNull()
+        t.uniqueKey(["accountId", "gmailMessageId"])
+      }
+      try db.create(
+        index: "email_messages_account_date",
+        on: "emailMessages",
+        columns: ["accountId", "internalDate"]
+      )
+      try db.create(
+        index: "email_messages_state_date",
+        on: "emailMessages",
+        columns: ["state", "internalDate"]
+      )
+      try db.create(
+        index: "email_messages_analysis_queue",
+        on: "emailMessages",
+        columns: ["analyzerType", "state", "internalDate"]
+      )
+    }
+    migrator.registerMigration("v3-email-analysis-providers") { db in
+      try db.alter(table: "emailMessages") { t in
+        t.add(column: "analysisProviderOverride", .text)
+      }
+      try db.create(table: "emailAnalysisSettings") { t in
+        t.column("id", .text).primaryKey()
+        t.column("selectedProvider", .text)
+        t.column("openRouterModelID", .text)
+        t.column("openRouterPrivacyMode", .text).notNull().defaults(to: "zdrOnly")
+        t.column("nonZDRConsentVersion", .integer)
+        t.column("updatedAt", .integer).notNull()
+      }
+      try db.create(table: "emailAnalysisRetry") { t in
+        t.column("id", .text).primaryKey()
+        t.column("attempt", .integer).notNull().defaults(to: 0)
+        t.column("notBefore", .integer)
+        t.column("reason", .text)
+        t.column("lastHTTPStatus", .integer)
+        t.column("updatedAt", .integer).notNull()
+      }
+    }
+    migrator.registerMigration("v4-email-sync-window") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "syncWindow", .text)
+          .notNull()
+          .defaults(to: EmailSyncWindow.defaultValue.rawValue)
       }
     }
     return migrator

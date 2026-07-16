@@ -6,6 +6,7 @@ export const entityTypeValidator = v.union(
   v.literal("transaction"),
   v.literal("recurring"),
   v.literal("lend"),
+  v.literal("emailMessage"),
   v.literal("preferences"),
 );
 
@@ -82,6 +83,48 @@ export const lendValidator = v.object({
   kind: v.optional(v.union(v.literal("lent"), v.literal("repaid"))),
 });
 
+/** Native-owned reviewed Gmail suggestion. Includes the full normalized body
+ * text. OAuth credentials are never included. `normalizedBodyText` is optional
+ * so rows written before body sync still validate. */
+export const emailMessageValidator = v.object({
+  id: v.string(),
+  accountId: v.string(),
+  accountEmail: v.string(),
+  gmailMessageId: v.string(),
+  threadId: v.string(),
+  rfcMessageId: v.optional(v.union(v.string(), v.null())),
+  senderName: v.optional(v.union(v.string(), v.null())),
+  senderAddress: v.string(),
+  subject: v.string(),
+  snippet: v.string(),
+  internalDate: v.number(),
+  normalizedBodyText: v.optional(v.union(v.string(), v.null())),
+  analyzerType: v.optional(v.union(v.string(), v.null())),
+  modelVersion: v.optional(v.union(v.string(), v.null())),
+  promptVersion: v.optional(v.union(v.number(), v.null())),
+  classification: v.optional(v.union(v.string(), v.null())),
+  merchant: v.optional(v.union(v.string(), v.null())),
+  amount: v.optional(v.union(v.string(), v.null())),
+  currency: v.optional(v.union(v.string(), v.null())),
+  occurredAt: v.optional(v.union(v.number(), v.null())),
+  categoryId: v.optional(v.union(v.string(), v.null())),
+  paymentMethodId: v.optional(v.union(v.string(), v.null())),
+  paymentLastFour: v.optional(v.union(v.string(), v.null())),
+  reference: v.optional(v.union(v.string(), v.null())),
+  state: v.union(
+    v.literal("added"),
+    v.literal("dismissed"),
+    v.literal("refundApplied"),
+    v.literal("pendingPurchase"),
+    v.literal("pendingRefund"),
+  ),
+  linkedTransactionId: v.optional(v.union(v.string(), v.null())),
+  analyzedAt: v.optional(v.union(v.number(), v.null())),
+  reviewedAt: v.optional(v.union(v.number(), v.null())),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
 export const preferencesValidator = v.object({
   id: v.literal("preferences"),
   profileName: v.string(),
@@ -124,6 +167,7 @@ export const payloadValidator = v.union(
   transactionValidator,
   recurringValidator,
   lendValidator,
+  emailMessageValidator,
   preferencesValidator,
 );
 
