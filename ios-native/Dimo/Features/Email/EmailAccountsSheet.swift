@@ -39,7 +39,9 @@ struct EmailAccountsSheet: View {
       OpenRouterModelPicker(store: store)
     }
     .onAppear {
-      if case .connected = store.openRouterConnectionState {
+      // Avoid a full catalog refetch every time settings opens; that stalls the
+      // model switcher. Refresh only when connected with an empty local catalog.
+      if case .connected = store.openRouterConnectionState, store.openRouterModels.isEmpty {
         store.refreshOpenRouterModels()
       }
     }
@@ -99,7 +101,7 @@ struct EmailAccountsSheet: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("OpenRouter or the selected provider may retain email content under its own policy.")
+      Text("OpenRouter or the selected provider may retain email content under its own policy. Analyzed suggestions, including email text, still sync through Dimo for restore.")
     }
   }
 
@@ -113,7 +115,7 @@ struct EmailAccountsSheet: View {
             Text("Sync email from")
               .font(DimoFont.body(13, weight: .semibold))
               .foregroundStyle(Theme.ink)
-            Text("Choose how far back Dimo reads and keeps Gmail messages on this iPhone.")
+            Text("Choose how far back Dimo reads Gmail on this iPhone. Analyzed suggestions still sync through Dimo for restore.")
               .font(DimoFont.body(11))
               .foregroundStyle(Theme.muted)
               .fixedSize(horizontal: false, vertical: true)
@@ -246,7 +248,7 @@ struct EmailAccountsSheet: View {
 
       if store.selectedProvider == nil {
         Label(
-          "Email analysis is not configured. Choose Local Gemma or OpenRouter. Synced emails will wait safely on this iPhone.",
+          "Email analysis is not configured. Choose Local Gemma or OpenRouter. Fetched emails wait on this iPhone until analyzed; analyzed suggestions then sync through Dimo for restore.",
           systemImage: "exclamationmark.triangle.fill"
         )
         .font(DimoFont.body(12))
@@ -291,7 +293,7 @@ struct EmailAccountsSheet: View {
           Text("Local Gemma")
             .font(DimoFont.body(14, weight: .semibold))
             .foregroundStyle(Theme.ink)
-          Text("Gemma 3 270M IT · 8-bit · Runs privately on this iPhone")
+          Text("Gemma 3 270M IT · 8-bit · Analyzes on this iPhone · suggestions sync through Dimo")
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.muted)
         }
@@ -341,7 +343,7 @@ struct EmailAccountsSheet: View {
           Text("OpenRouter")
             .font(DimoFont.body(14, weight: .semibold))
             .foregroundStyle(Theme.ink)
-          Text("Bring your own key · Cloud analysis")
+          Text("Bring your own key · Analysis via OpenRouter · suggestions sync through Dimo")
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.muted)
         }
@@ -358,7 +360,7 @@ struct EmailAccountsSheet: View {
           .padding(12)
           .background(Theme.canvasDeep)
           .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        Text("Use a dedicated, revocable OpenRouter key with a spending limit. It stays in this iPhone's device-only Keychain.")
+        Text("Use a dedicated, revocable OpenRouter key with a spending limit. The key stays in this iPhone's Keychain. Analysis goes to OpenRouter; analyzed suggestions sync through Dimo.")
           .font(DimoFont.body(10))
           .foregroundStyle(Theme.muted)
         ActionButton(title: "Validate and save key", variant: .accent, enabled: !store.openRouterAPIKeyInput.isEmpty) {
@@ -411,13 +413,21 @@ struct EmailAccountsSheet: View {
         }
 
         if store.openRouterPrivacyMode == .allowNonZDR {
-          Label("Non-ZDR enabled for the selected model", systemImage: "exclamationmark.shield.fill")
+          Label(
+            "Non-ZDR enabled for analysis. Analyzed suggestions still sync through Dimo with their email text.",
+            systemImage: "exclamationmark.shield.fill"
+          )
             .font(DimoFont.body(10, weight: .medium))
             .foregroundStyle(Theme.danger)
+            .fixedSize(horizontal: false, vertical: true)
         } else {
-          Label("Zero-data-retention routes only", systemImage: "lock.shield.fill")
+          Label(
+            "Zero-data-retention routes for analysis. Analyzed suggestions still sync through Dimo with their email text.",
+            systemImage: "lock.shield.fill"
+          )
             .font(DimoFont.body(10, weight: .medium))
             .foregroundStyle(Theme.green)
+            .fixedSize(horizontal: false, vertical: true)
         }
 
         if let selectedModel = store.selectedOpenRouterModel {
@@ -551,11 +561,11 @@ struct EmailAccountsSheet: View {
   private var privacyDescription: String {
     switch store.selectedProvider {
     case .gemma:
-      return "Email analysis runs locally on this iPhone. Email content is not sent to an AI provider or Dimo sync."
+      return "Local Gemma analyzes email on this iPhone. Gmail credentials never leave the device. Analyzed suggestions, including the full email text, sync through Dimo so they restore across your signed-in devices."
     case .openRouter:
-      return "Selected email content is sent directly from this iPhone to OpenRouter and the chosen model provider. It is never sent through Dimo's Convex backend."
+      return "Selected email content is sent from this iPhone to OpenRouter and the chosen model provider for analysis. Analyzed suggestions, including the full email text, then sync through Dimo. OpenRouter keys stay in this iPhone's Keychain."
     case nil:
-      return "Gmail is contacted directly from this iPhone. Email content stays pending locally until you choose an analyzer."
+      return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you choose an analyzer; analyzed suggestions later sync through Dimo for restore."
     }
   }
 
@@ -612,7 +622,7 @@ struct EmailAccountsSheet: View {
         return detail
       }
       return store.isGemmaAnalyzerAvailable
-        ? "Gemma is ready and analyzes one message at a time on this iPhone."
+        ? "Gemma is ready and analyzes one message at a time on this iPhone. Analyzed suggestions sync through Dimo for restore."
         : "The model file is installed. Tap Retry Gemma analysis to initialize it and retry failed emails."
     case .failed(let message), .unavailable(let message):
       return message

@@ -1,24 +1,26 @@
 # Dimo
 
-Personal spending tracker — expenses, budgets, recurring bills, lending, and stats. Local-first on every platform, with optional cloud sync through Convex and WorkOS AuthKit.
+Personal spending tracker — expenses, budgets, recurring bills, lending, and stats. Local-first on every platform, with cloud sync through Convex and WorkOS AuthKit.
 
 | Surface | Stack | Notes |
 | --- | --- | --- |
 | Web | Next.js 16, React 19, Dexie / IndexedDB | Static export to `out/` |
 | Desktop | Electron wrapping the same export | `electron/` |
 | iOS | SwiftUI + GRDB SQLite | `app.dimo.ios` · `ios-native/` |
+| Android | Kotlin + Jetpack Compose + Room | `app.dimo.android` · `android-native/` |
 
-Web, desktop, and native iOS share the same Convex backend and WorkOS account. Lending records are created and managed in native iOS, then shown read-only on web and desktop.
+Web, desktop, iOS, and Android share the same Convex backend and WorkOS account. Lending records are created and managed on native iOS and Android, then shown read-only on web and desktop.
 
 ## Features
 
 - Log expenses with categories (emoji + optional monthly budget) and payment methods
 - Budgets overview and category management
-- Recurring monthly / yearly bills
-- Activity list, stats ranges, and CSV export
+- Recurring monthly / yearly bills (clients + daily Convex cron materialization)
+- Activity list, stats ranges, and CSV import / export
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
 - Read-only lending summary and activity on web, desktop, and responsive mobile web
-- **Native iOS:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device. Liquid Glass tab UI requires iOS 26+.
+- **Native iOS & Android:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
+- **Native iOS:** Liquid Glass tab UI (iOS 26+); optional Gmail → AI expense / refund suggestions (on-device Local Gemma or user-supplied OpenRouter)
 
 ## Architecture
 
@@ -26,10 +28,11 @@ Web, desktop, and native iOS share the same Convex backend and WorkOS account. L
 
 | Client | Store |
 | --- | --- |
-| Web / Electron | IndexedDB via Dexie (`dimo-expenses`, scoped per WorkOS user) |
+| Web / Electron | IndexedDB via Dexie (`dimo-expenses:{WorkOS userId}`) |
 | Native iOS | SQLite via GRDB (`dimo-{userId}.sqlite`) |
+| Native Android | SQLite via Room (`dimo-{userId}.db`) |
 
-Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS owns lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The app works fully offline; sync runs when a Convex deployment and auth are configured.
+Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS and Android own lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The web app requires WorkOS + Convex configuration and authentication; native clients remain usable offline and sync when configured.
 
 ### Sync
 
@@ -41,7 +44,7 @@ When Convex is linked, the sync coordinator:
 4. Pushes pending outbox ops in idempotent batches
 5. Pulls once more to confirm canonical state
 
-Triggers include local writes, reconnect, focus / visibility, and Convex revision notifications. Account → **Sync now** clears this app’s owned cloud entity types and re-uploads the local snapshot (web leaves native-only types like `lend` alone unless you wipe the full account).
+Triggers include local writes, reconnect, focus / visibility / foreground, retry timers, and Convex revision notifications. Account → **Sync now** on web clears this app’s owned cloud entity types and re-uploads the local snapshot (web leaves native-only types like `lend` alone unless you wipe the full account). Native **Sync now** is an ordinary sync; full replacement is a separate explicit action.
 
 WorkOS AuthKit authenticates every cloud call. Convex derives ownership from the verified token; each user has an isolated revision stream, a `workspaces` row (revision + profile name/email), and a separate local database.
 
@@ -50,12 +53,13 @@ The empty D1 / Drizzle / worker stubs under `db/`, `drizzle/`, and `worker/` are
 ### Repo layout
 
 ```
-app/           Next.js UI, features, IndexedDB data layer, sync coordinator
-convex/        Schema, sync pull/push, WorkOS JWT config
-electron/      Desktop shell
-ios-native/    SwiftUI iOS app (see ios-native/README.md)
-store/         App Store listing copy and submission notes
-public/        Static assets
+app/             Next.js UI, features, IndexedDB data layer, sync coordinator
+convex/          Schema, sync pull/push, WorkOS JWT config
+electron/        Desktop shell
+ios-native/      SwiftUI iOS app (see ios-native/README.md)
+android-native/  Kotlin/Compose Android app (see android-native/README.md)
+store/           App Store listing copy and submission notes
+public/          Static assets
 ```
 
 ## Prerequisites
@@ -64,6 +68,7 @@ public/        Static assets
 - Convex account (cloud sync)
 - WorkOS AuthKit with Google and Apple social login
 - For native iOS: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen), iOS 26 SDK
+- For native Android: Android SDK (API 35) and NDK for ConvexMobile
 
 ## Local development (web)
 
@@ -134,13 +139,26 @@ Config: `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist (`ConvexURL`
 
 App Store listing copy and submission steps: [store/SUBMIT.md](store/SUBMIT.md), `store/listing.json`.
 
+## Native Android (`android-native/`)
+
+Kotlin / Compose client with iOS feature parity (Home, Stats, Budgets, Lending; Recurring from Home / expense editor). Full setup: [android-native/README.md](android-native/README.md). Testing notes: [android-native/TESTING.md](android-native/TESTING.md).
+
+```bash
+cd android-native
+# create local.properties with sdk.dir=/path/to/Android/sdk
+./gradlew :app:assembleProdDebug
+./gradlew :app:testProdDebugUnitTest
+```
+
+Product flavors `prod` / `dev` set `CONVEX_URL` and `WORKOS_CLIENT_ID`. Register `dimo://callback` on the WorkOS public client used for Android.
+
 ## Fresh install
 
 A new local database seeds Cash as the default payment method and default preferences only — no starter categories, transactions, or recurring rows. Users add categories themselves (budgets are optional on each category).
 
 Bootstrap defaults are written locally first and only uploaded after the first pull, so a fresh device cannot overwrite existing cloud category budgets with empty seeds.
 
-Clear the `dimo-expenses` IndexedDB database in browser tools to simulate a fresh install. Reloading preserves local records and pending sync work.
+Clear the `dimo-expenses:*` IndexedDB database in browser tools to simulate a fresh install. Reloading preserves local records and pending sync work.
 
 ## Sync troubleshooting
 
@@ -154,4 +172,4 @@ Tombstones are retained indefinitely so a long-offline device cannot resurrect d
 
 ## Platform notes
 
-Electron ships the static `out/` export. Sync runs while the process is open; suspended iOS background execution is not included. Prefer separate WorkOS application records per surface (web, desktop, mobile) so each can use the right client ID, redirect URI, and session policy.
+Electron ships the static `out/` export. Sync runs while the process is open; suspended iOS / Android background execution is not included. Prefer separate WorkOS application records per surface (web, desktop, mobile) so each can use the right client ID, redirect URI, and session policy.

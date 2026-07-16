@@ -150,15 +150,18 @@ struct EmailSuggestionCard: View {
       .foregroundStyle(Theme.muted)
     } else {
       HStack(spacing: 10) {
-        Button("Dismiss", action: onDismiss)
-          .font(DimoFont.body(14, weight: .medium))
-          .foregroundStyle(Theme.muted)
-          .frame(maxWidth: .infinity)
-          .frame(height: 44)
-          .background(Theme.canvas)
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-          .buttonStyle(.plain)
+        Button(action: onDismiss) {
+          Text("Dismiss")
+            .font(DimoFont.body(14, weight: .medium))
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Theme.canvas)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
 
         Button(action: onReview) {
           Text(suggestion.kind == .refund ? "Review refund" : "Review")
@@ -168,6 +171,7 @@ struct EmailSuggestionCard: View {
             .frame(height: 44)
             .background(Theme.green)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
       }

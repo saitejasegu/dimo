@@ -842,13 +842,37 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     if !model.hasZDREndpoint, !allowNonZDR {
       throw EmailFeatureControllerError.nonZDRConsentRequired
     }
+
+    let privacyMode: OpenRouterPrivacyMode =
+      model.hasZDREndpoint && !allowNonZDR ? .zdrOnly : .allowNonZDR
+    let consentVersion: Int? = allowNonZDR ? 1 : nil
+    let alreadyOnOpenRouter = analysisSettings.selectedProvider == .openRouter
+    let unchanged =
+      alreadyOnOpenRouter
+      && analysisSettings.openRouterModelID == model.id
+      && analysisSettings.openRouterPrivacyMode == privacyMode
+      && analysisSettings.nonZDRConsentVersion == consentVersion
+
     analysisSettings.openRouterModelID = model.id
-    analysisSettings.openRouterPrivacyMode = model.hasZDREndpoint && !allowNonZDR
-      ? .zdrOnly
-      : .allowNonZDR
-    analysisSettings.nonZDRConsentVersion = allowNonZDR ? 1 : nil
-    try saveAnalysisSettings()
-    try await switchProvider(to: .openRouter, forceRestart: true)
+    analysisSettings.openRouterPrivacyMode = privacyMode
+    analysisSettings.nonZDRConsentVersion = consentVersion
+
+    // Same OpenRouter selection: skip teardown. Changing model/privacy while
+    // already on OpenRouter only persists settings — the next analysis rebuilds
+    // the analyzer from analysisSettings. Avoid cancelling in-flight work
+    // (forceRestart made the picker feel stuck).
+    if unchanged {
+      publishAnalysisSettings()
+      return
+    }
+    if alreadyOnOpenRouter {
+      try saveAnalysisSettings()
+      publishAnalysisSettings()
+      await analysisCoordinator.set(nil, for: .openRouter)
+      return
+    }
+
+    try await switchProvider(to: .openRouter)
   }
 
   private func selectGemma() async throws {
@@ -893,11 +917,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
-  private func switchProvider(
-    to provider: EmailAnalysisProvider?,
-    forceRestart: Bool = false
-  ) async throws {
-    if analysisSettings.selectedProvider == provider, !forceRestart { return }
+  private func switchProvider(to provider: EmailAnalysisProvider?) async throws {
+    if analysisSettings.selectedProvider == provider { return }
     if let pendingAnalysisTask {
       pendingAnalysisTask.cancel()
       _ = try? await pendingAnalysisTask.value

@@ -341,8 +341,6 @@ final class EmailFeatureStore {
   var openRouterPrivacyMode: OpenRouterPrivacyMode = .zdrOnly
   var syncWindow: EmailSyncWindow = .defaultValue
   var openRouterAPIKeyInput = ""
-  var openRouterModelSearch = ""
-  var openRouterModelFilter: OpenRouterModelFilter = .all
   var isRefreshingOpenRouterModels = false
   var isUpdatingSyncWindow = false
   var analysisStatusDetail = "Email analysis is not configured. Choose Local Gemma or OpenRouter in Email settings."
@@ -434,21 +432,6 @@ final class EmailFeatureStore {
     case .gemma: return "Local Gemma"
     case .openRouter: return "OpenRouter"
     case nil: return "Analysis not configured"
-    }
-  }
-
-  var filteredOpenRouterModels: [OpenRouterModel] {
-    let query = openRouterModelSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-    return openRouterModels.filter { model in
-      let matchesFilter: Bool
-      switch openRouterModelFilter {
-      case .all: matchesFilter = true
-      case .free: matchesFilter = model.isFree
-      case .zdr: matchesFilter = model.hasZDREndpoint
-      }
-      return matchesFilter && (query.isEmpty
-        || model.name.localizedCaseInsensitiveContains(query)
-        || model.id.localizedCaseInsensitiveContains(query))
     }
   }
 

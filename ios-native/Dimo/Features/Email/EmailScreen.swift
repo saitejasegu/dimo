@@ -168,7 +168,7 @@ struct EmailScreen: View {
         .font(DimoFont.display(20, weight: .semibold))
         .foregroundStyle(Theme.ink)
 
-      Text("Connect one or more Gmail accounts. Dimo reads the latest \(store.syncWindow.title) directly on this iPhone. You choose private Local Gemma or optional OpenRouter cloud analysis in settings.")
+      Text("Connect one or more Gmail accounts. Dimo reads the latest \(store.syncWindow.title) directly on this iPhone. You choose Local Gemma or OpenRouter for analysis; analyzed suggestions sync through Dimo for restore.")
         .font(DimoFont.body(14))
         .foregroundStyle(Theme.body)
         .fixedSize(horizontal: false, vertical: true)
@@ -177,7 +177,7 @@ struct EmailScreen: View {
         store.connectAccount()
       }
 
-      Text("Read-only Gmail access. You approve every transaction change.")
+      Text("Read-only Gmail access. Gmail credentials stay on this iPhone. You approve every transaction change.")
         .font(DimoFont.body(11))
         .foregroundStyle(Theme.muted)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -410,11 +410,11 @@ struct EmailScreen: View {
   private var privacyNoteText: String {
     switch store.selectedProvider {
     case .gemma:
-      return "Email analysis stays on this iPhone. Only transactions you explicitly approve use Dimo sync."
+      return "Local Gemma analyzes email on this iPhone. Gmail credentials stay on-device. Analyzed suggestions and their email text sync through Dimo so they restore across your devices. You still approve every transaction change."
     case .openRouter:
-      return "Email content goes directly to OpenRouter and the selected provider, never through Dimo sync. You still approve every transaction change."
+      return "Analysis goes from this iPhone to OpenRouter and the selected provider. Analyzed suggestions and their email text then sync through Dimo so they restore across your devices. You still approve every transaction change."
     case nil:
-      return "Email content remains pending on this iPhone until you configure an analyzer."
+      return "Gmail credentials and pending email content stay on this iPhone until you configure an analyzer. Analyzed suggestions later sync through Dimo for restore."
     }
   }
 

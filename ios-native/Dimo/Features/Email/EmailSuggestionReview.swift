@@ -25,7 +25,7 @@ struct EmailSuggestionReview: View {
           duplicateWarning
           recurrenceControls
 
-          Text("Nothing is added until you tap Save expense. The retained email body is then removed from Dimo's local database.")
+          Text("Nothing is added until you tap Save expense. The suggestion and its email text then sync through Dimo so they restore across your devices.")
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.muted)
             .fixedSize(horizontal: false, vertical: true)

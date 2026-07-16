@@ -235,7 +235,7 @@ struct RefundReviewSheet: View {
 
   private var privacyFootnote: some View {
     Label(
-      "Confirming writes the normal Dimo transaction deletion and sync operation. Gmail identifiers and email content are never attached to the transaction.",
+      "Confirming deletes the selected transaction through Dimo's normal sync. The linked email suggestion stays in sync with its email text for restore. Gmail credentials never leave this iPhone.",
       systemImage: "lock.shield.fill"
     )
     .font(DimoFont.body(11))

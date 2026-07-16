@@ -1,6 +1,14 @@
 # Dimo Android
 
-Local-first native Android client with feature parity to `ios-native/`.
+Local-first native Android client with feature parity to `ios-native/` (minus iOS-only Email / Gmail suggestions).
+
+## Features
+
+- Primary tabs: Home, Stats, Budgets, Lending (plus Settings / Account overlays)
+- Recurring bills are reached from Home / the expense editor (not a fifth tab)
+- Local-first Room store with Convex sync and WorkOS PKCE sign-in
+- Lending writer: address-book contacts, repayments capped to outstanding, shareable unsettled-cycle summaries
+- CSV import / export compatible with web and iOS
 
 ## Stack
 
@@ -46,6 +54,8 @@ cd android-native
 ./gradlew :app:testProdDebugUnitTest
 ```
 
+Manual emulator / device checks: [TESTING.md](TESTING.md).
+
 ## Sync contract
 
 Uses existing Convex functions only (no backend changes):
@@ -63,4 +73,6 @@ Numeric wire fields are encoded as floating JSON numbers (same constraint as iOS
 - Android is a lending writer (like iOS). Contacts group by `contactId`; photos never sync.
 - Category delete tombstones linked transactions only (native parity).
 - Fresh DB seeds Cash + preferences at logical version zero.
+- Native **Sync now** is ordinary sync; full cloud replacement is a separate explicit action.
 - Sign-out deletes all local `dimo-*.db` files.
+- Domain unit tests live under `app/src/test/java/app/dimo/android/domain/`.

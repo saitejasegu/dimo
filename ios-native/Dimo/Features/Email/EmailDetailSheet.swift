@@ -104,7 +104,7 @@ struct EmailDetailSheet: View {
 
       if !detail.isBodyRetained {
         Label(
-          "Only the Gmail snippet is shown. The retained email body was removed after review or retention cleanup.",
+          "Only the Gmail snippet is shown. The full email text is unavailable for this message (for example after retention cleanup).",
           systemImage: "lock.shield.fill"
         )
         .font(DimoFont.body(11))

@@ -3,28 +3,30 @@ import SwiftUI
 struct OpenRouterModelPicker: View {
   @Bindable var store: EmailFeatureStore
   @Environment(\.dismiss) private var dismiss
+  @State private var search = ""
+  @State private var filter: OpenRouterModelFilter = .all
   @State private var paidCandidate: OpenRouterModel?
   @State private var nonZDRCandidate: OpenRouterModel?
 
   var body: some View {
     NavigationStack {
       VStack(spacing: 12) {
-        Picker("Model filter", selection: $store.openRouterModelFilter) {
-          ForEach(OpenRouterModelFilter.allCases) { filter in
-            Text(filter.title).tag(filter)
+        Picker("Model filter", selection: $filter) {
+          ForEach(OpenRouterModelFilter.allCases) { option in
+            Text(option.title).tag(option)
           }
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
 
-        if store.filteredOpenRouterModels.isEmpty {
+        if filteredModels.isEmpty {
           ContentUnavailableView(
             "No matching models",
             systemImage: "magnifyingglass",
             description: Text("Refresh the catalog or change the search and privacy filters.")
           )
         } else {
-          List(store.filteredOpenRouterModels) { model in
+          List(filteredModels) { model in
             Button {
               beginSelection(model)
             } label: {
@@ -38,7 +40,7 @@ struct OpenRouterModelPicker: View {
       .background(Theme.canvas.ignoresSafeArea())
       .navigationTitle("OpenRouter model")
       .navigationBarTitleDisplayMode(.inline)
-      .searchable(text: $store.openRouterModelSearch, prompt: "Search models")
+      .searchable(text: $search, prompt: "Search models")
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -89,7 +91,24 @@ struct OpenRouterModelPicker: View {
       }
       Button("Cancel", role: .cancel) { nonZDRCandidate = nil }
     } message: {
-      Text("This model currently has no zero-data-retention route. The provider may retain email content under its own policy.")
+      Text("This model currently has no zero-data-retention route. The provider may retain email content under its own policy. Analyzed suggestions, including email text, still sync through Dimo for restore.")
+    }
+  }
+
+  private var filteredModels: [OpenRouterModel] {
+    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    let queryEmpty = query.isEmpty
+    return store.openRouterModels.filter { model in
+      let matchesFilter: Bool
+      switch filter {
+      case .all: matchesFilter = true
+      case .free: matchesFilter = model.isFree
+      case .zdr: matchesFilter = model.hasZDREndpoint
+      }
+      guard matchesFilter else { return false }
+      guard !queryEmpty else { return true }
+      return model.name.localizedCaseInsensitiveContains(query)
+        || model.id.localizedCaseInsensitiveContains(query)
     }
   }
 
@@ -104,7 +123,7 @@ struct OpenRouterModelPicker: View {
         Text(model.id)
           .font(DimoFont.body(10))
           .foregroundStyle(Theme.muted)
-          .textSelection(.enabled)
+          .lineLimit(1)
         HStack(spacing: 6) {
           badge(model.isFree ? "Free" : "Paid", green: model.isFree)
           badge(model.hasZDREndpoint ? "ZDR" : "Non-ZDR", green: model.hasZDREndpoint)
@@ -116,6 +135,7 @@ struct OpenRouterModelPicker: View {
           Text(priceDisclosure(model))
             .font(DimoFont.body(9))
             .foregroundStyle(Theme.muted)
+            .lineLimit(2)
         }
       }
       Spacer(minLength: 0)
