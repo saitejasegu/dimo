@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct OpenRouterModelPicker: View {
@@ -5,8 +6,11 @@ struct OpenRouterModelPicker: View {
   @Environment(\.dismiss) private var dismiss
   @State private var search = ""
   @State private var filter: OpenRouterModelFilter = .all
-  @State private var paidCandidate: OpenRouterModel?
-  @State private var nonZDRCandidate: OpenRouterModel?
+  @State private var catalogRows: [OpenRouterModelPickerRow] = []
+  @State private var visibleRows: [OpenRouterModelPickerRow] = []
+  @State private var catalogGeneration = 0
+  @State private var isPreparingCatalog = true
+  @State private var confirmationCandidate: OpenRouterModel?
 
   var body: some View {
     NavigationStack {
@@ -19,18 +23,21 @@ struct OpenRouterModelPicker: View {
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
 
-        if filteredModels.isEmpty {
+        if isPreparingCatalog, visibleRows.isEmpty {
+          ProgressView("Preparing models…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if visibleRows.isEmpty {
           ContentUnavailableView(
             "No matching models",
             systemImage: "magnifyingglass",
             description: Text("Refresh the catalog or change the search and privacy filters.")
           )
         } else {
-          List(filteredModels) { model in
+          List(visibleRows) { row in
             Button {
-              beginSelection(model)
+              beginSelection(row.model)
             } label: {
-              modelRow(model)
+              modelRow(row)
             }
             .buttonStyle(.plain)
           }
@@ -60,60 +67,119 @@ struct OpenRouterModelPicker: View {
         }
       }
     }
-    .alert(
-      "Use a paid OpenRouter model?",
-      isPresented: Binding(
-        get: { paidCandidate != nil },
-        set: { if !$0 { paidCandidate = nil } }
-      )
-    ) {
-      Button("Confirm model pricing") {
-        guard let model = paidCandidate else { return }
-        paidCandidate = nil
-        continueAfterPriceConfirmation(model)
-      }
-      Button("Cancel", role: .cancel) { paidCandidate = nil }
-    } message: {
-      Text(paidCandidate.map(priceDisclosure) ?? "OpenRouter usage charges may apply.")
+    .task {
+      await rebuildCatalog()
+    }
+    .task(id: filterRequest) {
+      await updateVisibleRows()
+    }
+    .onChange(of: store.isRefreshingOpenRouterModels) { wasRefreshing, isRefreshing in
+      guard wasRefreshing, !isRefreshing else { return }
+      Task { await rebuildCatalog() }
     }
     .alert(
-      "Allow non-ZDR analysis?",
+      confirmationTitle,
       isPresented: Binding(
-        get: { nonZDRCandidate != nil },
-        set: { if !$0 { nonZDRCandidate = nil } }
+        get: { confirmationCandidate != nil },
+        set: { if !$0 { confirmationCandidate = nil } }
       )
     ) {
-      Button("Allow non-ZDR and use model") {
-        guard let model = nonZDRCandidate else { return }
-        nonZDRCandidate = nil
-        store.selectOpenRouterModel(model.id, allowNonZDR: true)
-        dismiss()
+      Button(confirmationActionTitle) {
+        guard let model = confirmationCandidate else { return }
+        confirmationCandidate = nil
+        select(model)
       }
-      Button("Cancel", role: .cancel) { nonZDRCandidate = nil }
+      Button("Cancel", role: .cancel) { confirmationCandidate = nil }
     } message: {
-      Text("This model currently has no zero-data-retention route. The provider may retain email content under its own policy. Analyzed suggestions, including email text, still sync through Dimo for restore.")
+      Text(confirmationMessage)
     }
   }
 
-  private var filteredModels: [OpenRouterModel] {
-    let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-    let queryEmpty = query.isEmpty
-    return store.openRouterModels.filter { model in
-      let matchesFilter: Bool
-      switch filter {
-      case .all: matchesFilter = true
-      case .free: matchesFilter = model.isFree
-      case .zdr: matchesFilter = model.hasZDREndpoint
-      }
-      guard matchesFilter else { return false }
-      guard !queryEmpty else { return true }
-      return model.name.localizedCaseInsensitiveContains(query)
-        || model.id.localizedCaseInsensitiveContains(query)
-    }
+  private var filterRequest: OpenRouterModelFilterRequest {
+    OpenRouterModelFilterRequest(
+      search: search,
+      filter: filter,
+      catalogGeneration: catalogGeneration
+    )
   }
 
-  private func modelRow(_ model: OpenRouterModel) -> some View {
-    HStack(alignment: .top, spacing: 12) {
+  private var confirmationTitle: String {
+    guard let model = confirmationCandidate else { return "Confirm OpenRouter model" }
+    if model.requiresPriceConfirmation, !model.hasZDREndpoint {
+      return "Use a paid non-ZDR model?"
+    }
+    if model.requiresPriceConfirmation {
+      return "Use a paid OpenRouter model?"
+    }
+    return "Allow non-ZDR analysis?"
+  }
+
+  private var confirmationActionTitle: String {
+    guard let model = confirmationCandidate else { return "Use model" }
+    if model.requiresPriceConfirmation, !model.hasZDREndpoint {
+      return "Confirm pricing and non-ZDR use"
+    }
+    if model.requiresPriceConfirmation {
+      return "Confirm model pricing"
+    }
+    return "Allow non-ZDR and use model"
+  }
+
+  private var confirmationMessage: String {
+    guard let model = confirmationCandidate else { return "OpenRouter usage charges may apply." }
+    let privacyDisclosure =
+      "This model currently has no zero-data-retention route. The provider may retain email content under its own policy. Analyzed suggestions, including email text, still sync through Dimo for restore."
+    if model.requiresPriceConfirmation, !model.hasZDREndpoint {
+      return "\(OpenRouterModelPickerRow.priceDisclosure(model))\n\n\(privacyDisclosure)"
+    }
+    if model.requiresPriceConfirmation {
+      return OpenRouterModelPickerRow.priceDisclosure(model)
+    }
+    return privacyDisclosure
+  }
+
+  private func rebuildCatalog() async {
+    let models = store.openRouterModels
+    if catalogRows.isEmpty {
+      isPreparingCatalog = true
+    }
+    let rows = await Task.detached(priority: .userInitiated) {
+      models.map(OpenRouterModelPickerRow.init)
+    }.value
+    guard !Task.isCancelled else { return }
+    catalogRows = rows
+    catalogGeneration &+= 1
+    isPreparingCatalog = false
+  }
+
+  private func updateVisibleRows() async {
+    // Let the search field and keyboard render first, and coalesce rapid
+    // keystrokes before searching the full catalog.
+    if !search.isEmpty {
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+    guard !Task.isCancelled else { return }
+
+    let rows = catalogRows
+    let query = OpenRouterModelPickerRow.normalized(search)
+    let selectedFilter = filter
+    let matches = await Task.detached(priority: .userInitiated) {
+      rows.filter { row in
+        switch selectedFilter {
+        case .all: break
+        case .free: guard row.model.isFree else { return false }
+        case .zdr: guard row.model.hasZDREndpoint else { return false }
+        }
+        return query.isEmpty || row.searchText.contains(query)
+      }
+    }.value
+    guard !Task.isCancelled else { return }
+    visibleRows = matches
+  }
+
+  private func modelRow(_ row: OpenRouterModelPickerRow) -> some View {
+    let model = row.model
+    return HStack(alignment: .top, spacing: 12) {
       Image(systemName: store.selectedOpenRouterModelID == model.id ? "checkmark.circle.fill" : "circle")
         .foregroundStyle(store.selectedOpenRouterModelID == model.id ? Theme.green : Theme.faint)
       VStack(alignment: .leading, spacing: 5) {
@@ -127,12 +193,12 @@ struct OpenRouterModelPicker: View {
         HStack(spacing: 6) {
           badge(model.isFree ? "Free" : "Paid", green: model.isFree)
           badge(model.hasZDREndpoint ? "ZDR" : "Non-ZDR", green: model.hasZDREndpoint)
-          Text("\(model.contextLength.formatted()) ctx")
+          Text(row.contextDescription)
             .font(DimoFont.body(9))
             .foregroundStyle(Theme.faint)
         }
-        if !model.isFree {
-          Text(priceDisclosure(model))
+        if let priceDescription = row.priceDescription {
+          Text(priceDescription)
             .font(DimoFont.body(9))
             .foregroundStyle(Theme.muted)
             .lineLimit(2)
@@ -154,27 +220,57 @@ struct OpenRouterModelPicker: View {
   }
 
   private func beginSelection(_ model: OpenRouterModel) {
-    if !model.isFree || !model.hasKnownPrice {
-      paidCandidate = model
+    if model.requiresPriceConfirmation || !model.hasZDREndpoint {
+      confirmationCandidate = model
     } else {
-      continueAfterPriceConfirmation(model)
+      select(model)
     }
   }
 
-  private func continueAfterPriceConfirmation(_ model: OpenRouterModel) {
-    if model.hasZDREndpoint {
-      store.selectOpenRouterModel(model.id, allowNonZDR: false)
-      dismiss()
-    } else {
-      nonZDRCandidate = model
-    }
+  private func select(_ model: OpenRouterModel) {
+    store.selectOpenRouterModel(model.id, allowNonZDR: !model.hasZDREndpoint)
+    dismiss()
+  }
+}
+
+private struct OpenRouterModelFilterRequest: Hashable {
+  var search: String
+  var filter: OpenRouterModelFilter
+  var catalogGeneration: Int
+}
+
+private struct OpenRouterModelPickerRow: Identifiable, Sendable {
+  let model: OpenRouterModel
+  let searchText: String
+  let contextDescription: String
+  let priceDescription: String?
+
+  var id: String { model.id }
+
+  init(model: OpenRouterModel) {
+    self.model = model
+    searchText = Self.normalized("\(model.name)\n\(model.id)")
+    contextDescription = "\(model.contextLength.formatted()) ctx"
+    priceDescription = model.isFree ? nil : Self.priceDisclosure(model)
   }
 
-  private func priceDisclosure(_ model: OpenRouterModel) -> String {
+  static func normalized(_ value: String) -> String {
+    value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+  }
+
+  static func priceDisclosure(_ model: OpenRouterModel) -> String {
     guard let input = model.inputPricePerMillion,
           let output = model.outputPricePerMillion else {
       return "Pricing is unknown. OpenRouter charges may apply."
     }
     return "Input $\(input.formatted(.number.precision(.fractionLength(0...4)))) / 1M · Output $\(output.formatted(.number.precision(.fractionLength(0...4)))) / 1M tokens"
+  }
+}
+
+private extension OpenRouterModel {
+  var requiresPriceConfirmation: Bool {
+    !isFree || !hasKnownPrice
   }
 }

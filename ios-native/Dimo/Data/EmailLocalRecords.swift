@@ -189,6 +189,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
 
   var id: String
   var selectedProvider: String?
+  var gemmaModelVariant: String?
   var openRouterModelID: String?
   var openRouterPrivacyMode: String
   var nonZDRConsentVersion: Int?
@@ -202,6 +203,14 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
       }
       return value
     }
+    let gemmaVariant: EmailGemmaModelVariant
+    if let gemmaModelVariant,
+       let value = EmailGemmaModelVariant(rawValue: gemmaModelVariant) {
+      gemmaVariant = value
+    } else {
+      // Unknown / removed variants (e.g. former gemma3-4b) fall back to default.
+      gemmaVariant = .defaultValue
+    }
     guard let privacyMode = OpenRouterPrivacyMode(rawValue: openRouterPrivacyMode) else {
       throw EmailRepositoryError.invalidAnalysis
     }
@@ -210,6 +219,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
     }
     return EmailAnalysisSettings(
       selectedProvider: provider,
+      gemmaModelVariant: gemmaVariant,
       openRouterModelID: openRouterModelID,
       openRouterPrivacyMode: privacyMode,
       nonZDRConsentVersion: nonZDRConsentVersion,
@@ -222,6 +232,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
     EmailAnalysisSettingsRecord(
       id: EmailAnalysisSettings.singletonID,
       selectedProvider: value.selectedProvider?.rawValue,
+      gemmaModelVariant: value.gemmaModelVariant.rawValue,
       openRouterModelID: value.openRouterModelID,
       openRouterPrivacyMode: value.openRouterPrivacyMode.rawValue,
       nonZDRConsentVersion: value.nonZDRConsentVersion,

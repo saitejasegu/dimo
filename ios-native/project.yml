@@ -31,8 +31,8 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     from: "7.0.0"
-  LiteRTLM:
-    path: Packages/LiteRTLM
+  LlamaCpp:
+    path: Packages/LlamaCpp
 
 targets:
   Dimo:
@@ -66,10 +66,6 @@ targets:
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: false
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: false
         SWIFT_EMIT_LOC_STRINGS: YES
-        # Upstream LiteRT-LM v0.13.0 places this in SwiftPM unsafeFlags,
-        # which Xcode rejects for a remote application dependency. The local
-        # exact-tag packaging shim keeps the flag under Dimo's control.
-        OTHER_LDFLAGS: "$(inherited) -all_load"
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
@@ -80,8 +76,8 @@ targets:
       - package: ConvexMobile
       - package: GRDB
         product: GRDB
-      - package: LiteRTLM
-        product: LiteRTLM
+      - package: LlamaCpp
+        product: LlamaCpp
     scheme:
       testTargets:
         - DimoTests

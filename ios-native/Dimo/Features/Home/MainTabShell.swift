@@ -37,8 +37,8 @@ struct MainTabShell: View {
       tabShell
         .navigationDestination(for: SettingsRoute.self) { route in
           switch route {
-          case .settings:
-            SettingsScreen(store: store) {
+          case .settings(let initialSection):
+            SettingsScreen(store: store, initialSection: initialSection) {
               settingsPath.append(.account)
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -56,7 +56,7 @@ struct MainTabShell: View {
     TabView(selection: $tab) {
       Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
         HomeScreen(store: store) {
-          settingsPath.append(.settings)
+          openSettings()
         }
       }
       Tab(AppTab.stats.title, systemImage: AppTab.stats.systemImage, value: .stats) {
@@ -69,7 +69,9 @@ struct MainTabShell: View {
         LendingScreen(store: store)
       }
       Tab(AppTab.email.title, systemImage: AppTab.email.systemImage, value: .email) {
-        EmailScreen(store: store.emailFeatureStore)
+        EmailScreen(store: store.emailFeatureStore) {
+          openSettings(.email)
+        }
       }
     }
     .tint(Theme.green)
@@ -86,12 +88,12 @@ struct MainTabShell: View {
       switch overlay {
       case .add:
         ExpenseEditorSheet(store: store, mode: .create) {
-          settingsPath.append(.settings)
+          openSettings()
         }
       case .recurring:
         if let id = store.recurringDraft.editingId {
           ExpenseEditorSheet(store: store, mode: .recurring(id)) {
-            settingsPath.append(.settings)
+            openSettings()
           }
         }
       case .category:
@@ -105,12 +107,12 @@ struct MainTabShell: View {
       set: { store.detailId = $0?.id }
     )) { item in
       ExpenseEditorSheet(store: store, mode: .transaction(item.id)) {
-        settingsPath.append(.settings)
+        openSettings()
       }
     }
     .sheet(item: $store.emailFeatureStore.purchaseReview) { draft in
       ExpenseEditorSheet(store: store, mode: .emailSuggestion(draft.suggestionID)) {
-        settingsPath.append(.settings)
+        openSettings()
       }
     }
     .overlay(alignment: .top) {
@@ -137,6 +139,10 @@ struct MainTabShell: View {
 
   private var showsFAB: Bool {
     tab == .home || tab == .budgets || tab == .lending
+  }
+
+  private func openSettings(_ section: SettingsSection = .preferences) {
+    settingsPath.append(.settings(section))
   }
 
   private var contextualAction: some View {
@@ -193,7 +199,7 @@ struct MainTabShell: View {
 }
 
 private enum SettingsRoute: Hashable {
-  case settings, account
+  case settings(SettingsSection), account
 }
 
 private struct DetailSheetItem: Identifiable {

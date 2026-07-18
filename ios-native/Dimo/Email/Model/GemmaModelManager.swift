@@ -254,10 +254,11 @@ private final class GemmaDownloadDelegate: NSObject, URLSessionDownloadDelegate,
 actor GemmaModelManager: GemmaDownloadEventSink {
   typealias ModelInitializer = @Sendable (_ modelURL: URL, _ cacheURL: URL) async throws -> Void
 
-  static let backgroundSessionIdentifier = "app.dimo.ios.gemma3-270m-model-download"
-  private static let modelFamilyDirectoryName = "Gemma3-270M"
-  private static let legacyModelFamilyDirectoryNames = ["Gemma3-1B"]
-  private let manifest: GemmaModelManifest
+  static let installedModelFileName = "model.gguf"
+  private static let legacyInstalledModelFileName = "model.litertlm"
+
+  nonisolated let manifest: GemmaModelManifest
+
   private let rootURL: URL
   private let fileManager: FileManager
   private let delegate = GemmaDownloadDelegate()
@@ -271,7 +272,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
 
   private lazy var session: URLSession = {
     let configuration = URLSessionConfiguration.background(
-      withIdentifier: Self.backgroundSessionIdentifier
+      withIdentifier: manifest.backgroundSessionIdentifier
     )
     configuration.sessionSendsLaunchEvents = true
     configuration.isDiscretionary = false
@@ -295,7 +296,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
     delegate.setFallbackStagingURL(
       resolvedRootURL
         .appending(path: ".staging", directoryHint: .isDirectory)
-        .appending(path: Self.modelFamilyDirectoryName, directoryHint: .isDirectory)
+        .appending(path: manifest.familyDirectoryName, directoryHint: .isDirectory)
         .appending(path: "model.download")
     )
   }
@@ -313,7 +314,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
 
   func refreshState() async {
     setState(.checking)
-    try? removeLegacyModelFamilies()
+    try? removeLegacyLiteRTInstalls()
     let modelURL = installedModelURL
     guard fileManager.fileExists(atPath: modelURL.path),
           fileSize(at: modelURL) == manifest.exactByteCount else {
@@ -453,7 +454,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
         path: ".candidate-\(UUID().uuidString)",
         directoryHint: .isDirectory
       )
-      let candidateModel = candidateDirectory.appending(path: "model.litertlm")
+      let candidateModel = candidateDirectory.appending(path: Self.installedModelFileName)
       let candidateCache = candidateDirectory.appending(path: "cache", directoryHint: .isDirectory)
       try fileManager.createDirectory(at: candidateDirectory, withIntermediateDirectories: true)
       try fileManager.moveItem(at: url, to: candidateModel)
@@ -472,7 +473,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
         try fileManager.moveItem(at: candidateDirectory, to: destination)
       }
       try removeObsoleteVersions(except: manifest.version)
-      try removeLegacyModelFamilies()
+      try removeLegacyLiteRTInstalls()
       setState(.installed(version: manifest.version, modelURL: installedModelURL))
     } catch {
       try? fileManager.removeItem(at: url)
@@ -567,11 +568,20 @@ actor GemmaModelManager: GemmaDownloadEventSink {
     }
   }
 
-  private func removeLegacyModelFamilies() throws {
-    for name in Self.legacyModelFamilyDirectoryNames {
-      let legacyURL = rootURL.appending(path: name, directoryHint: .isDirectory)
-      if fileManager.fileExists(atPath: legacyURL.path) {
-        try fileManager.removeItem(at: legacyURL)
+  /// Removes LiteRT `.litertlm` installs left from previous app versions so they
+  /// cannot be mistaken for the current GGUF artifact.
+  private func removeLegacyLiteRTInstalls() throws {
+    guard fileManager.fileExists(atPath: modelFamilyURL.path) else { return }
+    let children = try fileManager.contentsOfDirectory(
+      at: modelFamilyURL,
+      includingPropertiesForKeys: nil
+    )
+    for child in children {
+      let legacyModel = child.appending(path: Self.legacyInstalledModelFileName)
+      let ggufModel = child.appending(path: Self.installedModelFileName)
+      if fileManager.fileExists(atPath: legacyModel.path),
+         !fileManager.fileExists(atPath: ggufModel.path) {
+        try fileManager.removeItem(at: child)
       }
     }
   }
@@ -600,7 +610,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
   }
 
   private var modelFamilyURL: URL {
-    rootURL.appending(path: Self.modelFamilyDirectoryName, directoryHint: .isDirectory)
+    rootURL.appending(path: manifest.familyDirectoryName, directoryHint: .isDirectory)
   }
 
   private var installedVersionURL: URL {
@@ -608,7 +618,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
   }
 
   private var installedModelURL: URL {
-    installedVersionURL.appending(path: "model.litertlm")
+    installedVersionURL.appending(path: Self.installedModelFileName)
   }
 
   private var installedCacheURL: URL {
@@ -618,7 +628,7 @@ actor GemmaModelManager: GemmaDownloadEventSink {
   private var stagingDirectoryURL: URL {
     rootURL
       .appending(path: ".staging", directoryHint: .isDirectory)
-      .appending(path: Self.modelFamilyDirectoryName, directoryHint: .isDirectory)
+      .appending(path: manifest.familyDirectoryName, directoryHint: .isDirectory)
   }
 
   private var stagedDownloadURL: URL {
@@ -631,13 +641,30 @@ actor GemmaModelManager: GemmaDownloadEventSink {
 }
 
 struct GemmaModelServices: Sendable {
-  let manifest: GemmaModelManifest
-  let manager: GemmaModelManager
+  let manifests: [EmailGemmaModelVariant: GemmaModelManifest]
+  let managers: [EmailGemmaModelVariant: GemmaModelManager]
+
+  func manifest(for variant: EmailGemmaModelVariant) -> GemmaModelManifest? {
+    manifests[variant]
+  }
+
+  func manager(for variant: EmailGemmaModelVariant) -> GemmaModelManager? {
+    managers[variant]
+  }
+
+  func manager(forBackgroundSessionIdentifier identifier: String) -> GemmaModelManager? {
+    guard let variant = manifests.first(where: {
+      $0.value.backgroundSessionIdentifier == identifier
+    })?.key else {
+      return nil
+    }
+    return managers[variant]
+  }
 }
 
-/// One process-wide background URLSession owner. The app delegate can recreate
-/// it before authentication finishes, and the signed-in Email controller then
-/// observes the same manager rather than opening a second session identifier.
+/// Process-wide owners of the per-variant background URLSessions. The app
+/// delegate can recreate them before authentication finishes, and the signed-in
+/// Email controller then observes the same managers.
 enum GemmaModelServicesProvider {
   private final class State: @unchecked Sendable {
     let lock = NSLock()
@@ -654,9 +681,12 @@ enum GemmaModelServicesProvider {
     }
     state.lock.unlock()
 
-    guard let manifest = try? GemmaModelManifest.load() else { return nil }
-    let manager = GemmaModelManager(manifest: manifest)
-    let candidate = GemmaModelServices(manifest: manifest, manager: manager)
+    guard let manifests = try? GemmaModelManifest.loadAll() else { return nil }
+    var managers: [EmailGemmaModelVariant: GemmaModelManager] = [:]
+    for (variant, manifest) in manifests {
+      managers[variant] = GemmaModelManager(manifest: manifest)
+    }
+    let candidate = GemmaModelServices(manifests: manifests, managers: managers)
 
     state.lock.lock()
     if let existing = state.services {

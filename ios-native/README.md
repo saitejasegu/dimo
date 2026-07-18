@@ -49,29 +49,26 @@ For Email suggestions, replace `GMAIL_OAUTH_CLIENT_ID` and
 client and its reversed client-ID scheme. Enable the Gmail API and request
 `openid email https://www.googleapis.com/auth/gmail.readonly`. Production use
 requires Google's restricted-scope verification; configure the OAuth redirect
-as `<reversed-client-id>:/oauthredirect`. `GemmaModelManifest.json` uses a
-commit-pinned, anonymously downloadable Hugging Face mirror of the LiteRT
-Community artifact. The app verifies the official artifact's exact byte count
-and SHA-256 before installation, so a hosted-file substitution is rejected.
-Changing the mirror, commit, or artifact requires a bundled manifest update and
-a new app release.
+as `<reversed-client-id>:/oauthredirect`. Bundled
+`GemmaModelManifest-270m.json` and `GemmaModelManifest-1b.json` point at
+commit-pinned Hugging Face GGUF artifacts (Gemma 3 270M Q8_0 and Gemma 3 1B
+Q4_K_M). The app verifies each artifact's exact byte count and SHA-256 before
+installation, so a hosted-file substitution is rejected. Changing a mirror,
+commit, or artifact requires a bundled manifest update and a new app release.
 
-Email analysis has no default provider. Each signed-in user chooses either the
-downloaded Local Gemma model or OpenRouter in Email settings. OpenRouter uses a
-user-supplied API key stored in a device-only, user-scoped Keychain item;
-analysis requests go from the iPhone to OpenRouter (not via Convex). Analyzed
-suggestions, including the full normalized email body, sync through Convex as
-native-owned `emailMessage` entities so they restore across devices. Gmail OAuth
-tokens never enter the sync payload. The model catalog, pricing,
-structured-output support, and ZDR availability are read from OpenRouter at
-runtime. Do not add an OpenRouter key to an xcconfig, Info.plist, source file,
-database, or Dimo sync payload.
+Email analysis has no default provider. Each signed-in user chooses either a
+downloaded Local Gemma model (270M or 1B) or OpenRouter in Email settings.
+OpenRouter uses a user-supplied API key stored in a device-only, user-scoped
+Keychain item; analysis requests go from the iPhone to OpenRouter (not via
+Convex). Analyzed suggestions, including the full normalized email body, sync
+through Convex as native-owned `emailMessage` entities so they restore across
+devices. Gmail OAuth tokens never enter the sync payload. The model catalog,
+pricing, structured-output support, and ZDR availability are read from
+OpenRouter at runtime. Do not add an OpenRouter key to an xcconfig, Info.plist,
+source file, database, or Dimo sync payload.
 
-LiteRT-LM's Swift wrapper is pinned to upstream tag `v0.13.0` under
-`Packages/LiteRTLM`. This small packaging shim is necessary because the
-upstream 0.13.0 remote product declares an unsafe linker flag that Xcode refuses
-for application targets; `Packages/LiteRTLM/UPSTREAM.md` records the exact
-commit, binary checksum, and removal path.
+On-device inference uses llama.cpp via the checksum-pinned XCFramework under
+`Packages/LlamaCpp` (release `b10066`). See `Packages/LlamaCpp/UPSTREAM.md`.
 
 After changing xcconfigs: `xcodegen generate`, then delete the app from the phone and reinstall (old builds keep the previous Info.plist URL).
 

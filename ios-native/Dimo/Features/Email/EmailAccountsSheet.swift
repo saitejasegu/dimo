@@ -1,8 +1,7 @@
 import SwiftUI
 
-struct EmailAccountsSheet: View {
+struct EmailSettingsSection: View {
   @Bindable var store: EmailFeatureStore
-  @Environment(\.dismiss) private var dismiss
   @State private var disconnectCandidate: EmailUIAccount?
   @State private var confirmDeleteModel = false
   @State private var confirmCellularDownload = false
@@ -11,30 +10,20 @@ struct EmailAccountsSheet: View {
   @State private var confirmSelectedModelNonZDR = false
 
   var body: some View {
-    NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: 22) {
-          accountsSection
-          analyzerSection
-          privacySection
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+    VStack(alignment: .leading, spacing: 22) {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Email")
+          .font(DimoFont.display(18, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+        Text("Gmail accounts, analysis, models, and privacy")
+          .font(DimoFont.body(12))
+          .foregroundStyle(Theme.muted)
       }
-      .background(Theme.canvas.ignoresSafeArea())
-      .navigationTitle("Email settings")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button("Done") { dismiss() }
-            .font(DimoFont.body(15, weight: .semibold))
-            .foregroundStyle(Theme.green)
-        }
-      }
+
+      accountsSection
+      analyzerSection
+      privacySection
     }
-    .presentationDetents([.large])
-    .presentationDragIndicator(.visible)
-    .presentationBackground(Theme.canvas)
     .sheet(isPresented: $modelPickerPresented) {
       OpenRouterModelPicker(store: store)
     }
@@ -102,6 +91,17 @@ struct EmailAccountsSheet: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("OpenRouter or the selected provider may retain email content under its own policy. Analyzed suggestions, including email text, still sync through Dimo for restore.")
+    }
+    .alert(
+      "Email action failed",
+      isPresented: Binding(
+        get: { store.lastActionError != nil },
+        set: { if !$0 { store.clearError() } }
+      )
+    ) {
+      Button("OK") { store.clearError() }
+    } message: {
+      Text(store.lastActionError ?? "Please try again.")
     }
   }
 
@@ -293,11 +293,51 @@ struct EmailAccountsSheet: View {
           Text("Local Gemma")
             .font(DimoFont.body(14, weight: .semibold))
             .foregroundStyle(Theme.ink)
-          Text("Gemma 3 270M IT · 8-bit · Analyzes on this iPhone · suggestions sync through Dimo")
+          Text("Choose 270M or 1B · GGUF via llama.cpp · Analyzes on this iPhone · suggestions sync through Dimo")
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.muted)
         }
         Spacer()
+      }
+
+      if !store.gemmaModelOptions.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Model size")
+            .font(DimoFont.body(12, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+          ForEach(store.gemmaModelOptions) { option in
+            Button {
+              store.selectGemmaModelVariant(option.variant)
+            } label: {
+              HStack(alignment: .top, spacing: 10) {
+                Image(systemName: store.selectedGemmaModelVariant == option.variant
+                  ? "checkmark.circle.fill"
+                  : "circle")
+                  .foregroundStyle(
+                    store.selectedGemmaModelVariant == option.variant ? Theme.green : Theme.muted
+                  )
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(option.title)
+                    .font(DimoFont.body(13, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                  Text("\(option.subtitle) · \(option.downloadSizeDescription)")
+                    .font(DimoFont.body(11))
+                    .foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+              }
+              .padding(10)
+              .background(
+                store.selectedGemmaModelVariant == option.variant
+                  ? Theme.greenSoft
+                  : Theme.canvasDeep
+              )
+              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
+          }
+        }
       }
 
       Text(modelTitle)
@@ -593,22 +633,24 @@ struct EmailAccountsSheet: View {
   }
 
   private var modelTitle: String {
+    let variant = store.selectedGemmaModelVariant.title
     switch store.modelState {
-    case .notInstalled: return "Gemma is not downloaded"
+    case .notInstalled: return "\(variant) is not downloaded"
     case .checkingStorage: return "Preparing download"
-    case .downloading: return "Downloading Gemma"
+    case .downloading: return "Downloading \(variant)"
     case .paused: return "Download paused"
-    case .verifying: return "Verifying Gemma"
-    case .installed(let version): return "Gemma \(version) installed"
-    case .failed: return "Gemma download failed"
-    case .unavailable: return "Gemma unavailable"
+    case .verifying: return "Verifying \(variant)"
+    case .installed(let version): return "\(variant) \(version) installed"
+    case .failed: return "\(variant) download failed"
+    case .unavailable: return "\(variant) unavailable"
     }
   }
 
   private var modelDetail: String {
+    let variant = store.selectedGemmaModelVariant.title
     switch store.modelState {
     case .notInstalled:
-      return "Download Gemma to analyze email suggestions. \(store.modelDownloadSizeDescription) download; \(store.modelStorageRequirementDescription). Wi-Fi is preferred."
+      return "Download \(variant) to analyze email suggestions. \(store.modelDownloadSizeDescription) download; \(store.modelStorageRequirementDescription). Wi-Fi is preferred."
     case .checkingStorage:
       return store.modelStorageRequirementDescription
     case .downloading:
@@ -622,7 +664,7 @@ struct EmailAccountsSheet: View {
         return detail
       }
       return store.isGemmaAnalyzerAvailable
-        ? "Gemma is ready and analyzes one message at a time on this iPhone. Analyzed suggestions sync through Dimo for restore."
+        ? "\(variant) is ready and analyzes one message at a time on this iPhone. Analyzed suggestions sync through Dimo for restore."
         : "The model file is installed. Tap Retry Gemma analysis to initialize it and retry failed emails."
     case .failed(let message), .unavailable(let message):
       return message

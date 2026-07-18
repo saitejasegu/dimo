@@ -84,6 +84,7 @@ struct EmailAnalysisSettings: Codable, Hashable, Sendable {
   static let singletonID = "settings"
 
   var selectedProvider: EmailAnalysisProvider?
+  var gemmaModelVariant: EmailGemmaModelVariant
   var openRouterModelID: String?
   var openRouterPrivacyMode: OpenRouterPrivacyMode
   var nonZDRConsentVersion: Int?
@@ -93,6 +94,7 @@ struct EmailAnalysisSettings: Codable, Hashable, Sendable {
   static var defaults: EmailAnalysisSettings {
     EmailAnalysisSettings(
       selectedProvider: nil,
+      gemmaModelVariant: .defaultValue,
       openRouterModelID: nil,
       openRouterPrivacyMode: .zdrOnly,
       nonZDRConsentVersion: nil,

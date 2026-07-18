@@ -1,14 +1,37 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SettingsSection: Hashable {
+  case preferences
+  case email
+
+  var title: String {
+    switch self {
+    case .preferences: return "Preferences"
+    case .email: return "Email"
+    }
+  }
+}
+
 struct SettingsScreen: View {
   @Bindable var store: AppStore
   var onOpenAccount: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @Environment(\.dismiss) private var dismiss
+  @State private var selectedSection: SettingsSection
   @State private var importPresented = false
   @State private var exportURL: URL?
   @State private var confirmDeleteHistory = false
+
+  init(
+    store: AppStore,
+    initialSection: SettingsSection = .preferences,
+    onOpenAccount: @escaping () -> Void
+  ) {
+    self.store = store
+    self.onOpenAccount = onOpenAccount
+    _selectedSection = State(initialValue: initialSection)
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -34,22 +57,36 @@ struct SettingsScreen: View {
       .frame(minHeight: 56)
       .padding(.horizontal, 22)
       .padding(.top, 12)
-      .padding(.bottom, 14)
+      .padding(.bottom, 10)
+
+      VStack(spacing: 10) {
+        accountCard
+
+        Picker("Settings section", selection: $selectedSection) {
+          Text(SettingsSection.preferences.title).tag(SettingsSection.preferences)
+          Text(SettingsSection.email.title).tag(SettingsSection.email)
+        }
+        .pickerStyle(.segmented)
+      }
+      .padding(.horizontal, 22)
+      .padding(.bottom, 12)
 
       ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
-          accountCard
+        if selectedSection == .preferences {
+          LazyVStack(alignment: .leading, spacing: 14) {
+            preferencesCard
 
-          preferencesCard
+            PaymentMethodsManager(store: store)
 
-          PaymentMethodsManager(store: store)
-
-          transactionDataCard
+            transactionDataCard
+          }
+        } else {
+          EmailSettingsSection(store: store.emailFeatureStore)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 16)
-        .padding(.bottom, 24)
       }
+      .contentMargins(.horizontal, 22, for: .scrollContent)
+      .contentMargins(.top, 16, for: .scrollContent)
+      .safeAreaPadding(.bottom, 24)
     }
     .background(Theme.canvas.ignoresSafeArea())
     .edgeSwipeBack(action: closeSettings)

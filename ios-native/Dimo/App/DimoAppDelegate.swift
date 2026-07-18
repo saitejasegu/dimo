@@ -6,17 +6,14 @@ final class DimoAppDelegate: NSObject, UIApplicationDelegate {
     handleEventsForBackgroundURLSession identifier: String,
     completionHandler: @escaping () -> Void
   ) {
-    guard identifier == GemmaModelManager.backgroundSessionIdentifier else {
-      completionHandler()
-      return
-    }
-    guard let modelServices = GemmaModelServicesProvider.shared() else {
+    guard let modelServices = GemmaModelServicesProvider.shared(),
+          let manager = modelServices.manager(forBackgroundSessionIdentifier: identifier) else {
       completionHandler()
       return
     }
     GemmaBackgroundSessionEvents.registerCompletion(completionHandler)
     Task {
-      await modelServices.manager.restoreBackgroundDownload()
+      await manager.restoreBackgroundDownload()
     }
   }
 }

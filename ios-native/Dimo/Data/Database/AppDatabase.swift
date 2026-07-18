@@ -251,6 +251,13 @@ enum AppDatabase {
           .defaults(to: EmailSyncWindow.defaultValue.rawValue)
       }
     }
+    migrator.registerMigration("v5-email-gemma-model-variant") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "gemmaModelVariant", .text)
+          .notNull()
+          .defaults(to: EmailGemmaModelVariant.defaultValue.rawValue)
+      }
+    }
     return migrator
   }
 }

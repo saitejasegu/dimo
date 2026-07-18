@@ -57,8 +57,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private let oauthClient: GmailOAuthClient?
   private let tokenManager: GmailAccessTokenManager?
   private let syncCoordinator: EmailSyncCoordinator?
-  private let modelManager: GemmaModelManager?
-  private let manifest: GemmaModelManifest?
+  private let modelServices: GemmaModelServices?
   private let gemmaThrottle = EmailAnalysisStartThrottle.gemma
   private let openRouterThrottle = EmailAnalysisStartThrottle.openRouter
   private let openRouterVault = OpenRouterCredentialVault()
@@ -77,6 +76,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private var analysisWork: Task<Void, Never>?
   private var pendingAnalysisTask: Task<Int, Error>?
   private var pendingAnalysisRunId: UUID?
+  private var gemmaRecoveryTask: Task<Void, Never>?
   private var notificationTokens: [NSObjectProtocol] = []
   private let pathMonitor = NWPathMonitor()
   private let pathQueue = DispatchQueue(label: "app.dimo.ios.email-network")
@@ -118,21 +118,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       syncCoordinator = nil
     }
 
-    if let modelServices = GemmaModelServicesProvider.shared() {
-      manifest = modelServices.manifest
-      modelManager = modelServices.manager
-      store.modelDownloadSizeDescription = Self.fileSizeDescription(
-        bytes: modelServices.manifest.exactByteCount,
-        prefix: "about "
-      )
-      store.modelStorageRequirementDescription = Self.fileSizeDescription(
-        bytes: modelServices.manifest.minimumFreeStorageBytes,
-        suffix: " free storage required"
-      )
-    } else {
-      manifest = nil
-      modelManager = nil
-    }
+    modelServices = GemmaModelServicesProvider.shared()
   }
 
   func start(
@@ -164,17 +150,10 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       store.lastActionError = "Email retention cleanup failed: \(error.localizedDescription)"
     }
 
-    if let modelManager {
-      modelStateTask = Task { [weak self, modelManager] in
-        let states = await modelManager.observeState()
-        for await state in states {
-          guard !Task.isCancelled else { return }
-          await self?.consumeModelState(state)
-        }
-      }
-      await modelManager.restoreBackgroundDownload()
-    } else {
-      store.modelState = .unavailable(message: "GemmaModelManifest.json could not be loaded.")
+    publishGemmaModelCatalog()
+    await observeActiveGemmaModel()
+    if modelServices == nil {
+      store.modelState = .unavailable(message: "Gemma model manifests could not be loaded.")
     }
 
 
@@ -207,6 +186,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   func tearDown() async {
     stopped = true
     foregroundWork?.cancel()
+    gemmaRecoveryTask?.cancel()
+    gemmaRecoveryTask = nil
     if let analysisWork {
       analysisWork.cancel()
       await analysisWork.value
@@ -230,7 +211,11 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     await router?.unload()
     gemmaAnalyzer = nil
     await analysisCoordinator.removeAll()
-    await modelManager?.cancelDownload()
+    if let modelServices {
+      for manager in modelServices.managers.values {
+        await manager.cancelDownload()
+      }
+    }
     await tokenManager?.clearAll()
     try? await vault.removeAll(dimoUserId: userId)
     try? await openRouterVault.remove(dimoUserId: userId)
@@ -284,7 +269,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
     guard let provider = analysisSettings.selectedProvider else { return true }
     if provider == .gemma {
-      guard await canRunGemma(), await modelManager?.installedURLs() != nil else { return false }
+      guard await canRunGemma(), await activeModelManager()?.installedURLs() != nil else {
+        return false
+      }
     } else if let retry = try? repository.emailAnalysisRetryState(),
               let notBefore = retry.notBefore,
               notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
@@ -342,13 +329,20 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       downloadModel: { [weak self] allowCellular in
         try await self?.startModelDownload(allowCellular: allowCellular)
       },
-      pauseModelDownload: { [weak self] in await self?.modelManager?.pauseDownload() },
-      cancelModelDownload: { [weak self] in await self?.modelManager?.cancelDownload() },
+      pauseModelDownload: { [weak self] in
+        await self?.activeModelManager()?.pauseDownload()
+      },
+      cancelModelDownload: { [weak self] in
+        await self?.activeModelManager()?.cancelDownload()
+      },
       retryModelDownload: { [weak self] in try await self?.retryModelDownload() },
       retryGemmaAnalysis: { [weak self] in try await self?.retryGemmaAnalysis() },
       reanalyzeAllEmails: { [weak self] in try await self?.reanalyzeAllEmails() },
       deleteModel: { [weak self] in try await self?.deleteModel() },
       selectGemma: { [weak self] in try await self?.selectGemma() },
+      selectGemmaModelVariant: { [weak self] variant in
+        try await self?.selectGemmaModelVariant(variant)
+      },
       saveOpenRouterKey: { [weak self] key in try await self?.saveOpenRouterKey(key) },
       removeOpenRouterKey: { [weak self] in try await self?.removeOpenRouterKey() },
       refreshOpenRouterModels: { [weak self] in try await self?.refreshOpenRouterModels() },
@@ -409,7 +403,11 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       object: nil,
       queue: .main
     ) { [weak self] _ in
-      Task { @MainActor in await self?.unloadGemmaForPressure() }
+      Task { @MainActor in
+        await self?.pauseGemmaExecution(
+          reason: "Gemma was paused because the iPhone reported memory pressure. Analysis retries automatically when the device recovers."
+        )
+      }
     })
     notificationTokens.append(center.addObserver(
       forName: ProcessInfo.thermalStateDidChangeNotification,
@@ -417,9 +415,33 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
-        guard ProcessInfo.processInfo.thermalState == .serious
-          || ProcessInfo.processInfo.thermalState == .critical else { return }
-        await self?.unloadGemmaForPressure()
+        guard let self else { return }
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical:
+          await self.pauseGemmaExecution(
+            reason: "Gemma is paused until this iPhone cools down. Analysis retries automatically when it recovers."
+          )
+        case .nominal, .fair:
+          await self.resumeGemmaAnalysisIfNeeded()
+        @unknown default:
+          break
+        }
+      }
+    })
+    notificationTokens.append(center.addObserver(
+      forName: .NSProcessInfoPowerStateDidChange,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        guard let self else { return }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+          await self.pauseGemmaExecution(
+            reason: "Gemma is paused while Low Power Mode is on. Turn it off, or wait — analysis retries when Low Power Mode ends."
+          )
+        } else {
+          await self.resumeGemmaAnalysisIfNeeded()
+        }
       }
     })
   }
@@ -557,7 +579,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       switch provider {
       case .gemma:
         guard await canRunGemma(), let analyzer = await preparedGemmaAnalyzer() else {
-          store.analysisStatusDetail = store.gemmaStatusDetail ?? "Local Gemma is not ready."
+          let detail = store.gemmaStatusDetail ?? "Local Gemma is not ready."
+          store.analysisStatusDetail = detail
+          scheduleGemmaRecoveryRetry(after: .seconds(15))
           return .paused
         }
         try await gemmaThrottle.waitForNextStart(
@@ -632,13 +656,15 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       }
     } catch {
       emailAnalysisLogger.error(
-        "Email analysis failure; message: \(message.key, privacy: .private(mask: .hash)); provider: \(provider.rawValue, privacy: .public); model: \((provider == .gemma ? self.manifest?.version : self.analysisSettings.openRouterModelID) ?? "none", privacy: .public); error: \(String(reflecting: error), privacy: .public)"
+        "Email analysis failure; message: \(message.key, privacy: .private(mask: .hash)); provider: \(provider.rawValue, privacy: .public); model: \((provider == .gemma ? self.activeManifest()?.version : self.analysisSettings.openRouterModelID) ?? "none", privacy: .public); error: \(String(reflecting: error), privacy: .public)"
       )
       if let router { await publishRouterState(router) }
       try repository.markEmailAnalysisFailed(
         messageKey: message.key,
         analyzer: provider == .gemma ? .gemma : .openRouter,
-        modelVersion: provider == .gemma ? manifest?.version : analysisSettings.openRouterModelID
+        modelVersion: provider == .gemma
+          ? activeManifest()?.version
+          : analysisSettings.openRouterModelID
       )
       store.analysisStatusDetail = "Analysis failed"
       return .processed
@@ -695,7 +721,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     return PersistedEmailAnalysis(
       analyzerType: envelope.analyzer == .gemma ? .gemma : .openRouter,
       modelVersion: envelope.modelID,
-      promptVersion: manifest?.promptSchemaVersion ?? EmailAnalysisResult.schemaVersion,
+      promptVersion: activeManifest()?.promptSchemaVersion ?? EmailAnalysisResult.schemaVersion,
       classification: EmailMessageClassification(rawValue: result.kind.rawValue) ?? .irrelevant,
       merchant: result.merchant,
       amount: result.amount.map { NSDecimalNumber(decimal: $0).stringValue },
@@ -712,14 +738,35 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     // The model is intentionally lazy. Merely installing Gemma or opening the
     // app must not map its weights into memory without a connected mailbox.
     guard hasConnectedAccounts else { return nil }
-    guard let modelManager, let urls = await modelManager.installedURLs() else { return nil }
+    guard let manager = activeModelManager(),
+          let urls = await manager.installedURLs(),
+          let manifest = activeManifest() else {
+      store.gemmaStatusDetail = "Download the selected Local Gemma model before analysis."
+      return nil
+    }
     if let gemmaAnalyzer { return gemmaAnalyzer }
-    let runtime = LiteRTLMEmailRuntime(modelURL: urls.model, cacheURL: urls.cache)
-    let next = EmailLanguageModelRouter(gemma: GemmaEmailLanguageModel(runtime: runtime))
+    store.analysisStatusDetail = "Loading Local Gemma…"
+    store.gemmaStatusDetail = "Loading Local Gemma…"
+    let contextTokens = manifest.runtimeContextTokens
+    let runtime = LlamaCppEmailRuntime(
+      modelURL: urls.model,
+      cacheURL: urls.cache,
+      contextTokens: contextTokens
+    )
+    let next = EmailLanguageModelRouter(
+      gemma: GemmaEmailLanguageModel(
+        runtime: runtime,
+        contextTokens: contextTokens,
+        timeout: .seconds(60)
+      )
+    )
     try? await next.load()
     router = next
     await publishRouterState(next)
-    guard await next.availability() == .gemma, let manifest else { return nil }
+    guard await next.availability() == .gemma else {
+      store.analysisStatusDetail = store.gemmaStatusDetail ?? "Local Gemma failed to load."
+      return nil
+    }
     let analyzer = GemmaEmailAnalyzer(model: next, modelID: manifest.version)
     gemmaAnalyzer = analyzer
     await analysisCoordinator.set(analyzer, for: .gemma)
@@ -835,8 +882,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   }
 
   private func selectOpenRouterModel(_ modelID: String, allowNonZDR: Bool) async throws {
-    guard try await openRouterVault.credential(dimoUserId: userId) != nil,
-          let model = openRouterModels.first(where: { $0.id == modelID }) else {
+    // The catalog is populated only after the credential has been validated.
+    // Do not make selection wait on another serialized Keychain read.
+    guard let model = openRouterModels.first(where: { $0.id == modelID }) else {
       throw EmailFeatureControllerError.openRouterNotConfigured
     }
     if !model.hasZDREndpoint, !allowNonZDR {
@@ -879,9 +927,41 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     try await switchProvider(to: .gemma)
     guard !store.modelState.isInstalled else { return }
     if store.requiresCellularDownloadConfirmation {
-      store.analysisStatusDetail = "Local Gemma is selected. Confirm the model download in Email settings."
+      store.analysisStatusDetail =
+        "Local Gemma is selected. Confirm the \(analysisSettings.gemmaModelVariant.title) download in Email settings."
     } else {
       try await startModelDownload(allowCellular: false)
+    }
+  }
+
+  private func selectGemmaModelVariant(_ variant: EmailGemmaModelVariant) async throws {
+    guard analysisSettings.gemmaModelVariant != variant else { return }
+    analysisWork?.cancel()
+    if let analysisWork { await analysisWork.value }
+    self.analysisWork = nil
+    if let pendingAnalysisTask {
+      pendingAnalysisTask.cancel()
+      _ = try? await pendingAnalysisTask.value
+      self.pendingAnalysisTask = nil
+      pendingAnalysisRunId = nil
+    }
+    await router?.unload()
+    router = nil
+    gemmaAnalyzer = nil
+    await analysisCoordinator.set(nil, for: .gemma)
+    installedModelVersionPrepared = nil
+    analysisSettings.gemmaModelVariant = variant
+    try saveAnalysisSettings()
+    publishAnalysisSettings()
+    publishGemmaModelCatalog()
+    await observeActiveGemmaModel()
+    if analysisSettings.selectedProvider == .gemma, !store.modelState.isInstalled {
+      if store.requiresCellularDownloadConfirmation {
+        store.analysisStatusDetail =
+          "\(variant.title) is selected. Confirm the model download in Email settings."
+      } else {
+        try await startModelDownload(allowCellular: false)
+      }
     }
   }
 
@@ -974,20 +1054,85 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
 
   private func publishAnalysisSettings() {
     store.selectedProvider = analysisSettings.selectedProvider
+    store.selectedGemmaModelVariant = analysisSettings.gemmaModelVariant
     store.selectedOpenRouterModelID = analysisSettings.openRouterModelID
     store.openRouterPrivacyMode = analysisSettings.openRouterPrivacyMode
     store.syncWindow = analysisSettings.syncWindow
     switch analysisSettings.selectedProvider {
     case .gemma:
+      let variant = analysisSettings.gemmaModelVariant.title
       store.analysisStatusDetail = store.modelState.isInstalled
-        ? "Local Gemma will load only when an email needs analysis."
-        : "Local Gemma is selected. Download the model to begin analysis."
+        ? "\(variant) will load only when an email needs analysis."
+        : "\(variant) is selected. Download the model to begin analysis."
     case .openRouter:
       store.analysisStatusDetail = analysisSettings.openRouterModelID.map {
         "OpenRouter · \($0)"
       } ?? "Choose an OpenRouter model."
     case nil:
       store.analysisStatusDetail = EmailFeatureControllerError.analysisNotConfigured.localizedDescription
+    }
+  }
+
+  private func activeManifest() -> GemmaModelManifest? {
+    modelServices?.manifest(for: analysisSettings.gemmaModelVariant)
+  }
+
+  private func activeModelManager() -> GemmaModelManager? {
+    modelServices?.manager(for: analysisSettings.gemmaModelVariant)
+  }
+
+  private func publishGemmaModelCatalog() {
+    guard let modelServices else { return }
+    store.gemmaModelOptions = EmailGemmaModelVariant.allCases.compactMap { variant in
+      guard let manifest = modelServices.manifest(for: variant) else { return nil }
+      return EmailUIGemmaModelOption(
+        variant: variant,
+        title: variant.title,
+        subtitle: variant.subtitle,
+        downloadSizeDescription: Self.fileSizeDescription(
+          bytes: manifest.exactByteCount,
+          prefix: "about "
+        ),
+        storageRequirementDescription: Self.fileSizeDescription(
+          bytes: manifest.minimumFreeStorageBytes,
+          suffix: " free storage required"
+        )
+      )
+    }
+    applyActiveManifestMetadata()
+  }
+
+  private func applyActiveManifestMetadata() {
+    guard let manifest = activeManifest() else { return }
+    store.modelDownloadSizeDescription = Self.fileSizeDescription(
+      bytes: manifest.exactByteCount,
+      prefix: "about "
+    )
+    store.modelStorageRequirementDescription = Self.fileSizeDescription(
+      bytes: manifest.minimumFreeStorageBytes,
+      suffix: " free storage required"
+    )
+    store.modelTermsURL = manifest.termsURL
+    store.modelAttributionURL = manifest.attributionURL
+  }
+
+  private func observeActiveGemmaModel() async {
+    modelStateTask?.cancel()
+    modelStateTask = nil
+    applyActiveManifestMetadata()
+    guard let manager = activeModelManager() else {
+      store.modelState = .unavailable(message: "The selected Gemma model is unavailable in this build.")
+      return
+    }
+    await manager.refreshState()
+    await consumeModelState(await manager.state)
+    await manager.restoreBackgroundDownload()
+    modelStateTask = Task { [weak self] in
+      let states = await manager.observeState()
+      for await state in states {
+        guard !Task.isCancelled else { return }
+        await self?.consumeModelState(state)
+      }
     }
   }
 
@@ -1063,14 +1208,18 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   }
 
   private func startModelDownload(allowCellular: Bool) async throws {
-    guard let modelManager else { throw EmailFeatureControllerError.modelUnavailable }
+    guard let modelManager = activeModelManager() else {
+      throw EmailFeatureControllerError.modelUnavailable
+    }
     lastDownloadAllowedCellular = allowCellular
     await consumeModelState(.checking)
     try await modelManager.startDownload(allowCellular: allowCellular)
   }
 
   private func retryModelDownload() async throws {
-    guard let modelManager else { throw EmailFeatureControllerError.modelUnavailable }
+    guard let modelManager = activeModelManager() else {
+      throw EmailFeatureControllerError.modelUnavailable
+    }
     try await modelManager.retryDownload(allowCellular: lastDownloadAllowedCellular)
   }
 
@@ -1163,7 +1312,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   }
 
   private func deleteModel() async throws {
-    guard let modelManager else { throw EmailFeatureControllerError.modelUnavailable }
+    guard let modelManager = activeModelManager() else {
+      throw EmailFeatureControllerError.modelUnavailable
+    }
     analysisWork?.cancel()
     pendingAnalysisTask?.cancel()
     await router?.unload()
@@ -1272,7 +1423,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     )
   }
 
-  private func unloadGemmaForPressure() async {
+  private func pauseGemmaExecution(reason: String) async {
     analysisWork?.cancel()
     pendingAnalysisTask?.cancel()
     await router?.resourcePressureDidIncrease()
@@ -1280,7 +1431,41 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     gemmaAnalyzer = nil
     await analysisCoordinator.set(nil, for: .gemma)
     store.isGemmaAnalyzerAvailable = false
-    store.gemmaStatusDetail = "Gemma was paused because the iPhone reported resource pressure. Tap Retry Gemma analysis when the device has recovered."
+    store.gemmaStatusDetail = reason
+    store.analysisStatusDetail = reason
+    scheduleGemmaRecoveryRetry(after: .seconds(15))
+  }
+
+  private func scheduleGemmaRecoveryRetry(after delay: Duration) {
+    guard analysisSettings.selectedProvider == .gemma else { return }
+    gemmaRecoveryTask?.cancel()
+    gemmaRecoveryTask = Task { [weak self] in
+      try? await Task.sleep(for: delay)
+      guard let self, !self.stopped else { return }
+      await self.resumeGemmaAnalysisIfNeeded()
+    }
+  }
+
+  /// Resumes the pending-analysis queue after a recoverable Gemma pause
+  /// (memory pressure, heat, Low Power Mode, or a failed lazy load).
+  private func resumeGemmaAnalysisIfNeeded() async {
+    guard !stopped else { return }
+    guard analysisSettings.selectedProvider == .gemma else { return }
+    guard store.modelState.isInstalled else { return }
+    guard hasConnectedAccounts else { return }
+    if let blockReason = gemmaExecutionBlockReason() {
+      store.gemmaStatusDetail = blockReason
+      store.analysisStatusDetail = blockReason
+      scheduleGemmaRecoveryRetry(after: .seconds(30))
+      return
+    }
+    guard analysisWork == nil, pendingAnalysisTask == nil else { return }
+    store.gemmaStatusDetail = "Retrying local Gemma analysis…"
+    store.analysisStatusDetail = "Retrying local Gemma analysis…"
+    analysisWork = Task { [weak self] in
+      _ = try? await self?.runPendingAnalysis()
+      self?.analysisWork = nil
+    }
   }
 
   private func canRunGemma() async -> Bool {

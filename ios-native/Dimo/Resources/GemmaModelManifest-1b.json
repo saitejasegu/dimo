@@ -1,0 +1,16 @@
+{
+  "variant": "gemma3-1b",
+  "modelName": "Gemma 3 1B IT",
+  "modelVersion": "2026.07.18-1b-q4-gguf",
+  "runtimeFormatVersion": "llama.cpp b10066",
+  "familyDirectoryName": "Gemma3-1B",
+  "backgroundSessionIdentifier": "app.dimo.ios.gemma3-1b-model-download",
+  "downloadURL": "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf",
+  "exactByteCount": 806058240,
+  "sha256": "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135",
+  "minimumFreeStorageBytes": 2147483648,
+  "runtimeContextTokens": 4096,
+  "promptSchemaVersion": 1,
+  "termsURL": "https://ai.google.dev/gemma/terms",
+  "attributionURL": "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF"
+}

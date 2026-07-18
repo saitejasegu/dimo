@@ -882,6 +882,283 @@ final class EmailStructuredOutputValidatorTests: XCTestCase {
     XCTAssertEqual(result.confidence, .high)
   }
 
+  func testGemmaDemotesCopiedPurchaseWithoutPaymentEvidenceToIrrelevant() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":null,"amount":null,"currency":null,"occurredAt":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "newsletter-1",
+      accountSubject: "gmail-subject",
+      senderName: "Shop Weekly",
+      senderAddress: "deals@shop.example",
+      subject: "This week's deals",
+      receivedAt: date("2026-07-10T10:30:00Z"),
+      normalizedBody: "Save on shoes from ₹999. Unsubscribe anytime.",
+      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .irrelevant)
+  }
+
+  func testGemmaKeepsPurchaseWhenPaymentEvidenceIsPresent() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"Acme Store","amount":"123.45","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: request(),
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .purchase)
+    XCTAssertEqual(result.amount, Decimal(string: "123.45"))
+  }
+
+  func testGemmaDemotesBankOfferEmailWithRupeeAmountsToIrrelevant() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"ICICI Bank","amount":"30000","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "icici-offers",
+      accountSubject: "gmail-subject",
+      senderName: "ICICI Bank",
+      senderAddress: "services@customer.icici.bank.in",
+      subject: "Up to ₹30,000 off on electronics with Credit Card",
+      receivedAt: date("2026-07-18T04:38:00Z"),
+      normalizedBody: """
+      Offers from brands you love
+      Save up to ₹30,000 using ICICI Bank Credit Card EMIs
+      Shop the latest electronics now and split the cost into easy EMIs.
+      Up to ₹3,000 instant cashback. Valid till Sep 26, 2026.
+      Up to ₹10,000 off. Valid till Jul 31, 2026.
+      Click here. Know More.
+      """,
+      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-18T09:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .irrelevant)
+  }
+
+  func testGemmaDemotesCreditCardApplicationPromoToIrrelevant() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"Scapia Federal Credit Card","amount":"0","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "scapia-promo",
+      accountSubject: "gmail-subject",
+      senderName: "Scapia Federal Credit Card",
+      senderAddress: "scapia_info@federalbank.co.in",
+      subject: "Unlock your credit limit",
+      receivedAt: date("2026-07-18T08:42:00Z"),
+      normalizedBody: """
+      You're almost there! Continue your Scapia Federal Credit Card application to view your credit limit instantly.
+      Zero forex markup. Save on international transactions with no forex markup.
+      Zero joining or annual fees.
+      """,
+      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-18T09:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .irrelevant)
+  }
+
+  func testGemmaDemotesNewLoginSecurityAlertToIrrelevant() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"SpaceXAI","amount":null,"currency":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "xai-login",
+      accountSubject: "gmail-subject",
+      senderName: "SpaceXAI",
+      senderAddress: "noreply@x.ai",
+      subject: "New login to your xAI account",
+      receivedAt: date("2026-07-17T19:46:00Z"),
+      normalizedBody: """
+      Your xAI account has been accessed from a new IP address.
+      We've noticed a new login to your xAI account.
+      If you notice any suspicious activity, please change your password.
+      """,
+      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-18T09:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .irrelevant)
+  }
+
+  func testGemmaDemotesAmazonSignInAlertToIrrelevant() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"amazon.com","amount":null,"currency":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "amazon-signin",
+      accountSubject: "gmail-subject",
+      senderName: "amazon.com",
+      senderAddress: "account-update@amazon.com",
+      subject: "amazon.com: Sign-in",
+      receivedAt: date("2026-07-18T08:55:00Z"),
+      normalizedBody: """
+      Saiteja, Someone signed-in to your account.
+      Date Jul 18, 2026
+      Time 02:25 PM IST
+      Device generic web browser macOS Desktop
+      Location Telangana, IN
+      """,
+      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-18T09:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .irrelevant)
+  }
+
+  func testGemmaKeepsPurchaseEvenWhenReceiptFooterSaysUnsubscribe() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"BookMyShow","amount":"512.48","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "bms-1",
+      accountSubject: "gmail-subject",
+      senderName: "BookMyShow",
+      senderAddress: "tickets@bookmyshow.email",
+      subject: "Your Tickets",
+      receivedAt: date("2026-07-10T10:30:00Z"),
+      normalizedBody: """
+      Your booking is confirmed.
+      AMOUNT PAID Rs.512.48
+      Booking ID T9A9HCT
+      Unsubscribe from these emails.
+      """,
+      categories: [EmailCategoryOption(id: "movies", name: "Movies")],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .purchase)
+    XCTAssertEqual(result.amount, Decimal(string: "512.48"))
+  }
+
+  func testResolvesCategoryNameReturnedByLocalModel() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"Acme Store","amount":"123.45","currency":"INR","categoryId":"Shopping","paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: request(),
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.categoryId, "shopping")
+  }
+
+  func testFillsCategoryFromMerchantHistoryWhenLocalModelOmitsIt() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"Acme Store","amount":"123.45","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    var analysisRequest = request()
+    analysisRequest.merchantHistory = [
+      EmailMerchantCategoryHint(merchant: "Acme Store", categoryId: "shopping"),
+    ]
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.categoryId, "shopping")
+  }
+
+  func testInfersCategoryFromEmailTextWhenLocalModelOmitsIt() throws {
+    let response = """
+    {"schemaVersion":1,"kind":"purchase","merchant":"PVR Cinemas","amount":"450.00","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
+    """
+    let analysisRequest = EmailAnalysisRequest(
+      messageId: "movies-1",
+      accountSubject: "gmail-subject",
+      senderName: "PVR Cinemas",
+      senderAddress: "tickets@pvr.example",
+      subject: "Movies booking confirmed",
+      receivedAt: date("2026-07-10T10:30:00Z"),
+      normalizedBody: "You paid ₹450.00 for Movies at PVR. Booking ID ABC12345.",
+      categories: [
+        EmailCategoryOption(id: "food", name: "Food"),
+        EmailCategoryOption(id: "movies", name: "Movies"),
+      ],
+      paymentMethods: [],
+      merchantHistory: [],
+      activeCurrency: .INR
+    )
+
+    let result = try EmailStructuredOutputValidator.validate(
+      response: response,
+      request: analysisRequest,
+      analyzer: .gemma,
+      now: date("2026-07-11T00:00:00Z")
+    )
+
+    XCTAssertEqual(result.kind, .purchase)
+    XCTAssertEqual(result.categoryId, "movies")
+  }
+
   func testKeepsBookMyShowMerchantAndRsAmountPaid() throws {
     // OpenRouter returned the correct JSON, but the validator used to drop both
     // fields: merchant only appeared in From:, and "Rs.512.48" failed the
@@ -1042,6 +1319,53 @@ final class EmailReanalysisTests: XCTestCase {
     let reviewed = try XCTUnwrap(repository.emailMessage(key: reviewedKey))
     XCTAssertEqual(reviewed.state, .dismissed)
     XCTAssertNotNil(reviewed.normalizedBodyText)
+  }
+
+  func testIrrelevantAnalysisKeepsFullEmailBody() throws {
+    let userId = "email-irrelevant-body-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repository = Repository(db: queue)
+    try repository.initializeLocalDatabase()
+    try repository.saveEmailAccount(EmailAccountRecordModel(
+      id: "gmail-subject",
+      emailAddress: "person@example.com"
+    ))
+    let message = PendingEmailMessage(
+      accountId: "gmail-subject",
+      gmailMessageId: "newsletter",
+      threadId: "thread",
+      senderAddress: "news@example.com",
+      subject: "Weekly deals",
+      snippet: "Save big",
+      internalDate: 1_000,
+      normalizedBodyText: "Full newsletter body with all the details."
+    )
+    _ = try repository.insertPendingEmailMessages([message])
+    try repository.saveEmailAnalysis(messageKey: message.key, analysis: PersistedEmailAnalysis(
+      analyzerType: .gemma,
+      modelVersion: "test-gemma",
+      promptVersion: 1,
+      classification: .irrelevant,
+      merchant: nil,
+      amount: nil,
+      currency: nil,
+      occurredAt: nil,
+      categoryId: nil,
+      paymentMethodId: nil,
+      paymentLastFour: nil,
+      reference: nil
+    ))
+
+    let stored = try XCTUnwrap(repository.emailMessage(key: message.key))
+    XCTAssertEqual(stored.state, .unactionable)
+    XCTAssertEqual(stored.normalizedBodyText, "Full newsletter body with all the details.")
+
+    _ = try repository.purgeReviewedEmailBodies()
+    XCTAssertEqual(
+      try repository.emailMessage(key: message.key)?.normalizedBodyText,
+      "Full newsletter body with all the details."
+    )
   }
 }
 
@@ -1779,7 +2103,7 @@ final class GemmaModelManifestTests: XCTestCase {
     XCTAssertThrowsError(try manifest.validate())
   }
 
-  func testRefreshRemovesLegacyOneBModelAndRecognizes270MDirectory() async throws {
+  func testRefreshRemovesLegacyLiteRTInstallAndRecognizesGGUF() async throws {
     let fileManager = FileManager.default
     let root = fileManager.temporaryDirectory.appending(
       path: "dimo-gemma-model-test-\(UUID().uuidString)",
@@ -1787,15 +2111,18 @@ final class GemmaModelManifestTests: XCTestCase {
     )
     defer { try? fileManager.removeItem(at: root) }
 
-    let legacy = root.appending(path: "Gemma3-1B/old", directoryHint: .isDirectory)
+    let legacy = root.appending(path: "Gemma3-270M/old-litert", directoryHint: .isDirectory)
     try fileManager.createDirectory(at: legacy, withIntermediateDirectories: true)
+    try Data(repeating: 1, count: 8).write(
+      to: legacy.appending(path: "model.litertlm")
+    )
 
     let current = root.appending(
       path: "Gemma3-270M/test-version",
       directoryHint: .isDirectory
     )
     try fileManager.createDirectory(at: current, withIntermediateDirectories: true)
-    let expectedModelURL = current.appending(path: "model.litertlm")
+    let expectedModelURL = current.appending(path: "model.gguf")
     try Data(repeating: 0, count: 100).write(to: expectedModelURL)
 
     let manager = GemmaModelManager(
@@ -1811,15 +2138,29 @@ final class GemmaModelManifestTests: XCTestCase {
     XCTAssertEqual(installedURLs?.model, expectedModelURL)
   }
 
+  func testBundledManifestsLoadForAllVariants() throws {
+    let manifests = try GemmaModelManifest.loadAll()
+    XCTAssertEqual(Set(manifests.keys), Set(EmailGemmaModelVariant.allCases))
+    XCTAssertEqual(manifests[.gemma3_270m]?.familyDirectoryName, "Gemma3-270M")
+    XCTAssertEqual(manifests[.gemma3_1b]?.familyDirectoryName, "Gemma3-1B")
+    XCTAssertEqual(manifests[.gemma3_270m]?.runtimeContextTokens, 4_096)
+    XCTAssertEqual(manifests[.gemma3_1b]?.runtimeContextTokens, 4_096)
+    XCTAssertTrue(manifests[.gemma3_270m]?.downloadURL.pathExtension == "gguf")
+    XCTAssertTrue(manifests[.gemma3_1b]?.downloadURL.pathExtension == "gguf")
+  }
+
   private func manifest(
     exactByteCount: Int64,
     minimumFreeStorageBytes: Int64
   ) -> GemmaModelManifest {
     GemmaModelManifest(
+      variant: .gemma3_270m,
       modelName: "Gemma 3 270M IT",
       version: "test-version",
-      runtimeFormatVersion: "LiteRT-LM test",
-      downloadURL: URL(string: "https://example.com/model.litertlm")!,
+      runtimeFormatVersion: "llama.cpp test",
+      familyDirectoryName: "Gemma3-270M",
+      backgroundSessionIdentifier: "app.dimo.ios.gemma3-270m-model-download-test",
+      downloadURL: URL(string: "https://example.com/model.gguf")!,
       exactByteCount: exactByteCount,
       sha256: String(repeating: "a", count: 64),
       minimumFreeStorageBytes: minimumFreeStorageBytes,
@@ -1842,6 +2183,7 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
 
     var settings = try repository.emailAnalysisSettings()
     settings.selectedProvider = .openRouter
+    settings.gemmaModelVariant = .gemma3_1b
     settings.openRouterModelID = OpenRouterClient.defaultModelID
     settings.openRouterPrivacyMode = .allowNonZDR
     settings.nonZDRConsentVersion = 1
@@ -1850,6 +2192,7 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
 
     let restored = try repository.emailAnalysisSettings()
     XCTAssertEqual(restored.selectedProvider, .openRouter)
+    XCTAssertEqual(restored.gemmaModelVariant, .gemma3_1b)
     XCTAssertEqual(restored.openRouterModelID, OpenRouterClient.defaultModelID)
     XCTAssertEqual(restored.openRouterPrivacyMode, .allowNonZDR)
     XCTAssertEqual(restored.nonZDRConsentVersion, 1)

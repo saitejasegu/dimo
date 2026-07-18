@@ -609,11 +609,25 @@ extension Repository {
   }
 
   func emailAnalysisSettings() throws -> EmailAnalysisSettings {
-    try db.read { db in
-      try EmailAnalysisSettingsRecord
-        .fetchOne(db, key: EmailAnalysisSettings.singletonID)?
-        .toModel() ?? .defaults
+    let (settings, shouldRewriteVariant) = try db.read { db -> (EmailAnalysisSettings, Bool) in
+      guard let record = try EmailAnalysisSettingsRecord
+        .fetchOne(db, key: EmailAnalysisSettings.singletonID)
+      else {
+        return (.defaults, false)
+      }
+      let settings = try record.toModel()
+      let needsRewrite: Bool
+      if let storedVariant = record.gemmaModelVariant {
+        needsRewrite = EmailGemmaModelVariant(rawValue: storedVariant) == nil
+      } else {
+        needsRewrite = false
+      }
+      return (settings, needsRewrite)
     }
+    if shouldRewriteVariant {
+      try saveEmailAnalysisSettings(settings)
+    }
+    return settings
   }
 
   func saveEmailAnalysisSettings(_ settings: EmailAnalysisSettings) throws {
@@ -845,8 +859,8 @@ extension Repository {
       case .refund:
         record.state = EmailSuggestionState.pendingRefund.rawValue
       case .irrelevant:
+        // Keep the full body so the user can still open and read the email.
         record.state = EmailSuggestionState.unactionable.rawValue
-        record.normalizedBodyText = nil
       }
       try record.update(db)
     }
@@ -925,13 +939,14 @@ extension Repository {
     notifyWrite()
   }
 
-  /// Marks a fetched or analyzed message as locally unusable and guarantees
-  /// that its retained body is purged in the same commit.
+  /// Marks a fetched or analyzed message as locally unusable without discarding
+  /// the retained body (so the email remains readable in the detail view).
   func markEmailSuggestionUnactionable(messageKey: String) throws {
     try finishEmailSuggestion(
       messageKey: messageKey,
       state: .unactionable,
-      allowedStates: [.pendingAnalysis, .pendingPurchase, .pendingRefund]
+      allowedStates: [.pendingAnalysis, .pendingPurchase, .pendingRefund],
+      retainBody: true
     )
   }
 
@@ -980,8 +995,8 @@ extension Repository {
     }
   }
 
-  /// Defensive maintenance: drop body text only for non-synced terminal rows
-  /// (e.g. unactionable/expired). Synced reviewed states keep the full body.
+  /// Defensive maintenance: drop body text only for expired compact rows.
+  /// Unactionable and synced reviewed states keep the full body for reading.
   @discardableResult
   func purgeReviewedEmailBodies() throws -> Int {
     try db.write { db in
@@ -989,6 +1004,7 @@ extension Repository {
         emailSyncedSuggestionStates() + [
           EmailSuggestionState.pendingAnalysis.rawValue,
           EmailSuggestionState.analysisFailed.rawValue,
+          EmailSuggestionState.unactionable.rawValue,
         ]
       return try EmailMessageRecord
         .filter(
@@ -1232,7 +1248,8 @@ extension Repository {
   private func finishEmailSuggestion(
     messageKey: String,
     state: EmailSuggestionState,
-    allowedStates: Set<EmailSuggestionState> = [.pendingPurchase, .pendingRefund]
+    allowedStates: Set<EmailSuggestionState> = [.pendingPurchase, .pendingRefund],
+    retainBody: Bool = false
   ) throws {
     try db.write { db in
       guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
@@ -1245,8 +1262,9 @@ extension Repository {
       let now = emailNowMilliseconds()
       message.state = state.rawValue
       // Keep the full body for synced reviewed/dismissed rows so Convex and
-      // Restore retain the complete email text, not only the snippet.
-      if !emailSyncedSuggestionStates().contains(state.rawValue) {
+      // Restore retain the complete email text, not only the snippet. Also keep
+      // it when the caller explicitly asks (e.g. unactionable / not-a-transaction).
+      if !retainBody, !emailSyncedSuggestionStates().contains(state.rawValue) {
         message.normalizedBodyText = nil
       }
       message.reviewedAt = now

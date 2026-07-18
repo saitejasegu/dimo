@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EmailScreen: View {
   @Bindable var store: EmailFeatureStore
+  var onOpenSettings: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
@@ -61,9 +62,6 @@ struct EmailScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
-    .sheet(isPresented: $store.accountsPresented) {
-      EmailAccountsSheet(store: store)
-    }
     .sheet(item: $store.emailDetail) { detail in
       EmailDetailSheet(detail: detail, onClose: store.dismissEmailDetail)
     }
@@ -125,30 +123,17 @@ struct EmailScreen: View {
         )
       }
 
-      Button(action: store.presentAccounts) {
-        ZStack(alignment: .topTrailing) {
-          Image(systemName: "gearshape")
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(Theme.ink)
-            .frame(width: 42, height: 42)
-            .background(Theme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Theme.line))
-
-          if !store.accounts.isEmpty {
-            Text("\(store.accounts.count)")
-              .font(.system(size: 9, weight: .bold))
-              .foregroundStyle(Theme.onGreen)
-              .frame(minWidth: 17, minHeight: 17)
-              .background(Theme.green)
-              .clipShape(Circle())
-              .offset(x: 4, y: -4)
-          }
-        }
+      Button(action: onOpenSettings) {
+        Image(systemName: "gearshape")
+          .font(.system(size: 18, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .frame(width: 42, height: 42)
+          .background(Theme.surface)
+          .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).stroke(Theme.line))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Email accounts and analyzer settings")
-      .accessibilityValue("\(store.accounts.count) connected")
     }
     .frame(minHeight: 64)
     .padding(.horizontal, 22)
@@ -223,7 +208,7 @@ struct EmailScreen: View {
       }
       .frame(maxWidth: .infinity)
 
-      Button(action: store.presentAccounts) {
+      Button(action: onOpenSettings) {
         HStack(spacing: 8) {
           Image(systemName: analyzerIcon)
             .font(.system(size: 13, weight: .semibold))

@@ -188,6 +188,15 @@ struct EmailUIAccount: Identifiable, Hashable, Sendable {
   var initialScanComplete = false
 }
 
+struct EmailUIGemmaModelOption: Identifiable, Hashable, Sendable {
+  var id: String { variant.rawValue }
+  var variant: EmailGemmaModelVariant
+  var title: String
+  var subtitle: String
+  var downloadSizeDescription: String
+  var storageRequirementDescription: String
+}
+
 struct EmailUIRefundCandidate: Identifiable, Hashable, Sendable {
   var id: String
   var merchant: String
@@ -301,6 +310,7 @@ struct EmailFeatureActions {
   var reanalyzeAllEmails: () async throws -> Void = {}
   var deleteModel: () async throws -> Void = {}
   var selectGemma: () async throws -> Void = {}
+  var selectGemmaModelVariant: (_ variant: EmailGemmaModelVariant) async throws -> Void = { _ in }
   var saveOpenRouterKey: (_ apiKey: String) async throws -> Void = { _ in }
   var removeOpenRouterKey: () async throws -> Void = {}
   var refreshOpenRouterModels: () async throws -> Void = {}
@@ -333,6 +343,8 @@ final class EmailFeatureStore {
   var allEmails: [EmailUIMessage]
   var modelState: EmailUIModelState
   var selectedProvider: EmailAnalysisProvider?
+  var selectedGemmaModelVariant: EmailGemmaModelVariant = .defaultValue
+  var gemmaModelOptions: [EmailUIGemmaModelOption] = []
   var isGemmaAnalyzerAvailable = false
   var gemmaStatusDetail: String?
   var openRouterConnectionState: OpenRouterUIConnectionState = .disconnected
@@ -351,7 +363,6 @@ final class EmailFeatureStore {
   var purchaseReview: EmailUIPurchaseReviewDraft?
   var refundReview: EmailUIRefundReview?
   var emailDetail: EmailUIEmailDetail?
-  var accountsPresented = false
   var isRefreshing = false
   var isReanalyzing = false
   var requiresCellularDownloadConfirmation = false
@@ -359,8 +370,8 @@ final class EmailFeatureStore {
 
   var modelDownloadSizeDescription: String
   var modelStorageRequirementDescription: String
-  let modelTermsURL: URL?
-  let modelAttributionURL: URL?
+  var modelTermsURL: URL?
+  var modelAttributionURL: URL?
 
   private var actions: EmailFeatureActions
 
@@ -373,10 +384,10 @@ final class EmailFeatureStore {
     activeCurrency: Currency = .INR,
     categories: [CategoryEntity] = [],
     paymentMethods: [PaymentMethodOption] = [],
-    modelDownloadSizeDescription: String = "about 304 MB",
+    modelDownloadSizeDescription: String = "about 292 MB",
     modelStorageRequirementDescription: String = "1 GB free storage required",
     modelTermsURL: URL? = URL(string: "https://ai.google.dev/gemma/terms"),
-    modelAttributionURL: URL? = URL(string: "https://ai.google.dev/gemma"),
+    modelAttributionURL: URL? = URL(string: "https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF"),
     actions: EmailFeatureActions = EmailFeatureActions()
   ) {
     self.accounts = accounts
@@ -429,7 +440,7 @@ final class EmailFeatureStore {
 
   var activeAnalyzerTitle: String {
     switch selectedProvider {
-    case .gemma: return "Local Gemma"
+    case .gemma: return "Local Gemma · \(selectedGemmaModelVariant.title)"
     case .openRouter: return "OpenRouter"
     case nil: return "Analysis not configured"
     }
@@ -437,10 +448,6 @@ final class EmailFeatureStore {
 
   var selectedOpenRouterModel: OpenRouterModel? {
     openRouterModels.first { $0.id == selectedOpenRouterModelID }
-  }
-
-  func presentAccounts() {
-    accountsPresented = true
   }
 
   func presentEmail(id: String) {
@@ -583,6 +590,10 @@ final class EmailFeatureStore {
 
   func selectGemma() {
     run { try await self.actions.selectGemma() }
+  }
+
+  func selectGemmaModelVariant(_ variant: EmailGemmaModelVariant) {
+    run { try await self.actions.selectGemmaModelVariant(variant) }
   }
 
   func saveOpenRouterKey() {

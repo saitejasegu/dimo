@@ -154,7 +154,6 @@ enum EmailStructuredOutputValidator {
       throw EmailLanguageModelError.invalidOutput("Unsupported schema version.")
     }
 
-    let categoryIds = Set(request.categories.map(\.id))
     let paymentMethodIds = Set(request.paymentMethods.map(\.id))
     let deterministic = EmailDeterministicEvidenceExtractor.extract(request)
     if output.kind == .irrelevant {
@@ -269,14 +268,32 @@ enum EmailStructuredOutputValidator {
     )
     if output.occurredAt != nil, modelOccurredAt == nil { correctedOutput = true }
 
-    let categoryId = output.categoryId.flatMap { categoryIds.contains($0) ? $0 : nil }
-      ?? deterministic.categoryId.flatMap { categoryIds.contains($0) ? $0 : nil }
+    let categoryId = resolveCategoryId(
+      modelValue: output.categoryId,
+      merchant: merchant,
+      request: request,
+      deterministicCategoryId: deterministic.categoryId
+    )
     if output.categoryId != nil, categoryId != output.categoryId { correctedOutput = true }
     if output.paymentMethodId != nil, !paymentMethodIds.contains(output.paymentMethodId!) {
       correctedOutput = true
     }
     if amount == nil || currency == nil { confidence = .low }
     if correctedOutput { confidence = .low }
+
+    // Small on-device models often copy kind=purchase from the schema example
+    // with no money fields. Keep financial kinds only when amount+currency are
+    // evidenced. Do not reject real receipts just because the footer says
+    // "unsubscribe" — that previously marked almost every email irrelevant.
+    if analyzer == .gemma,
+       !gemmaAcceptsFinancialClassification(
+         kind: output.kind,
+         amount: amount,
+         currency: currency,
+         source: source
+       ) {
+      return .irrelevant(analyzer: analyzer)
+    }
 
     return EmailAnalysisResult(
       kind: output.kind,
@@ -291,6 +308,99 @@ enum EmailStructuredOutputValidator {
       analyzer: analyzer,
       confidence: confidence
     )
+  }
+
+  /// Local Gemma over-classifies empty `purchase` copies and marketing mail.
+  /// Require evidenced money; hard-reject security/application/promo content.
+  private static func gemmaAcceptsFinancialClassification(
+    kind: EmailAnalysisKind,
+    amount: Decimal?,
+    currency: Currency?,
+    source: String
+  ) -> Bool {
+    guard kind != .irrelevant else { return true }
+    guard amount != nil, currency != nil else { return false }
+    if hasBlockingNonTransactionSignals(in: source) { return false }
+    // Card applications, limit unlocks, shipping updates, etc. are never purchases.
+    if hasHardPromoSignals(in: source) { return false }
+    // Bare "unsubscribe" footers appear on real receipts — only demote those
+    // when the email also lacks completed-payment language.
+    if hasSoftPromoSignals(in: source), !hasCompletedPaymentSignals(in: source) {
+      return false
+    }
+    return true
+  }
+
+  private static func hasCompletedPaymentSignals(in source: String) -> Bool {
+    let patterns = [
+      #"\b(?:you\s+)?paid\b"#,
+      #"\bpayment\s+(?:successful|received|confirmed|completed|done)\b"#,
+      #"\bamount\s+paid\b"#,
+      #"\b(?:has\s+been\s+)?(?:debited|charged|refunded|credited)\b"#,
+      #"\b(?:debit|refund)\s+(?:of|for|alert)\b"#,
+      #"\b(?:txn|transaction)\s*(?:id|no|number)\b"#,
+      #"\bsuccessful\s+transaction\b"#,
+      #"\bbooking\s+(?:id|no|number|confirmed)\b"#,
+      #"\border\s+(?:confirmed|placed|completed)\b"#,
+      #"\bpurchase\s+(?:successful|confirmed|complete)\b"#,
+      #"\bspent\b"#,
+      #"\bbill(?:ed|ing)\s+amount\b"#,
+      #"\btotal\s+(?:amount|paid)\b"#,
+      #"\breceipt\b"#,
+      #"\binvoice\b"#,
+      #"\bupi\b"#,
+      #"\b(?:neft|imps|rtgs)\b"#,
+    ]
+    return matchesAny(patterns, in: source)
+  }
+
+  private static func hasBlockingNonTransactionSignals(in source: String) -> Bool {
+    let patterns = [
+      #"\b(?:otp|one[-\s]?time\s+password|verification\s+code)\b"#,
+      #"\b(?:payment\s+failed|transaction\s+declined|pending\s+authorization|pre[-\s]?auth)\b"#,
+      #"\b(?:password\s+reset|change\s+your\s+password|suspicious\s+activity)\b"#,
+      #"\b(?:sign[-\s]?in(?:\s+attempt)?|signed[-\s]?in|log\s*ins?|logged[-\s]?in)\b"#,
+      #"\b(?:new\s+login|new\s+sign[-\s]?in|new\s+ip(?:\s+address)?)\b"#,
+      #"\b(?:accessed\s+from|account\s+has\s+been\s+accessed)\b"#,
+      #"\bsomeone\s+signed\b"#,
+      #"\b(?:new\s+device|security\s+alert|account\s+activity)\b"#,
+    ]
+    return matchesAny(patterns, in: source)
+  }
+
+  private static func hasHardPromoSignals(in source: String) -> Bool {
+    let patterns = [
+      #"\b(?:promotional|newsletter|marketing)\b"#,
+      #"\b(?:credit\s+limit|credit\s+card\s+application|card\s+application)\b"#,
+      #"\b(?:unlock\s+your\s+credit|continue\s+your\s+.{0,40}application)\b"#,
+      #"\b(?:zero\s+forex|forex\s+markup|joining\s+or\s+annual\s+fees|zero\s+joining)\b"#,
+      #"\b(?:out\s+for\s+delivery|shipped|shipping\s+update|tracking\s+number)\b"#,
+      #"\b(?:account\s+statement|available\s+balance)\b"#,
+      // Bank/merchant offer blasts often include ₹ amounts but are not payments.
+      #"\b(?:offers?\s+from|shop\s+the\s+latest|know\s+more|click\s+here)\b"#,
+      #"\b(?:up\s+to\s+(?:₹|rs\.?|inr|\$)|instant\s+cashback|cashback\s+offer)\b"#,
+      #"\b(?:valid\s+(?:till|until|thru|through)|offer\s+valid)\b"#,
+      #"\b(?:easy\s+emis?|split\s+the\s+cost|using\s+.{0,40}credit\s+card\s+emis?)\b"#,
+      #"\b(?:flat\s+\d+%?\s+off|\d+%\s+off|save\s+up\s+to)\b"#,
+    ]
+    return matchesAny(patterns, in: source)
+  }
+
+  private static func hasSoftPromoSignals(in source: String) -> Bool {
+    matchesAny([#"\bunsubscribe\b"#], in: source)
+  }
+
+  private static func matchesAny(_ patterns: [String], in source: String) -> Bool {
+    let range = NSRange(source.startIndex..., in: source)
+    for pattern in patterns {
+      guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        continue
+      }
+      if regex.firstMatch(in: source, options: [], range: range) != nil {
+        return true
+      }
+    }
+    return false
   }
 
   private static func decodeOutput(_ dictionary: [String: Any]) throws -> EmailStructuredOutput {
@@ -450,6 +560,94 @@ enum EmailStructuredOutputValidator {
       pattern = #"(?<![0-9])"# + escaped + #"(?:\.0{1,2})?(?![0-9]|\.[0-9])"#
     }
     return ungroupedSource.range(of: pattern, options: .regularExpression) != nil
+  }
+
+  /// Resolves a category for local models that return a name, an invalid id, or
+  /// null. Prefers an exact allowed id, then a category-name match, then
+  /// merchant/category history, then category names evidenced in the email text.
+  private static func resolveCategoryId(
+    modelValue: String?,
+    merchant: String?,
+    request: EmailAnalysisRequest,
+    deterministicCategoryId: String?
+  ) -> String? {
+    let categoryIds = Set(request.categories.map(\.id))
+    if let modelValue, categoryIds.contains(modelValue) {
+      return modelValue
+    }
+
+    if let modelValue, let fromName = categoryIdMatchingName(modelValue, in: request.categories) {
+      return fromName
+    }
+
+    let historyMerchants = [merchant, request.senderName]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    for candidate in historyMerchants {
+      let merchantKey = evidenceKey(candidate)
+      guard !merchantKey.isEmpty else { continue }
+      if let match = request.merchantHistory.first(where: {
+        let historyKey = evidenceKey($0.merchant)
+        return !historyKey.isEmpty
+          && (merchantKey.contains(historyKey) || historyKey.contains(merchantKey))
+          && categoryIds.contains($0.categoryId)
+      }) {
+        return match.categoryId
+      }
+    }
+
+    if let deterministicCategoryId, categoryIds.contains(deterministicCategoryId) {
+      return deterministicCategoryId
+    }
+
+    // Small models often leave categoryId null. Recover when an Allowed
+    // category name clearly appears in the merchant/subject/body.
+    return inferCategoryIdFromEmailText(merchant: merchant, request: request)
+  }
+
+  private static func categoryIdMatchingName(
+    _ raw: String,
+    in categories: [EmailCategoryOption]
+  ) -> String? {
+    let needle = evidenceKey(raw)
+    guard !needle.isEmpty else { return nil }
+    if let exactName = categories.first(where: { evidenceKey($0.name) == needle }) {
+      return exactName.id
+    }
+    // Prefer the longest fuzzy name match so "Food" does not beat "Fast Food".
+    return categories
+      .filter {
+        let nameKey = evidenceKey($0.name)
+        return nameKey.count >= 3 && (nameKey.contains(needle) || needle.contains(nameKey))
+      }
+      .max(by: { evidenceKey($0.name).count < evidenceKey($1.name).count })?
+      .id
+  }
+
+  private static func inferCategoryIdFromEmailText(
+    merchant: String?,
+    request: EmailAnalysisRequest
+  ) -> String? {
+    let haystack = evidenceKey(
+      [
+        merchant,
+        request.senderName,
+        request.subject,
+        request.normalizedBody,
+      ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+    )
+    guard !haystack.isEmpty else { return nil }
+
+    let matches = request.categories.filter { category in
+      let nameKey = evidenceKey(category.name)
+      // Require a meaningful name so short tokens like "TV" do not over-match.
+      return nameKey.count >= 4 && haystack.contains(nameKey)
+    }
+    return matches
+      .max(by: { evidenceKey($0.name).count < evidenceKey($1.name).count })?
+      .id
   }
 
   private static func validatePaymentMethod(
