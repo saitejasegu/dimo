@@ -9,7 +9,7 @@
   "exactByteCount": 806058240,
   "sha256": "8ccc5cd1f1b3602548715ae25a66ed73fd5dc68a210412eea643eb20eb75a135",
   "minimumFreeStorageBytes": 2147483648,
-  "runtimeContextTokens": 4096,
+  "runtimeContextTokens": 8192,
   "promptSchemaVersion": 1,
   "termsURL": "https://ai.google.dev/gemma/terms",
   "attributionURL": "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF"

@@ -360,6 +360,7 @@ struct EmailScreen: View {
     case .all: return "tray.full"
     case .purchases: return "cart"
     case .refunds: return "arrow.uturn.backward.circle"
+    case .awaitingAnalysis: return "hourglass"
     case .reviewed: return "checkmark.circle"
     }
   }
@@ -369,6 +370,7 @@ struct EmailScreen: View {
     case .all: return "No scanned emails yet"
     case .purchases: return "No purchase suggestions"
     case .refunds: return "No refund suggestions"
+    case .awaitingAnalysis: return "No emails awaiting analysis"
     case .reviewed: return "Nothing reviewed yet"
     }
   }
@@ -379,6 +381,8 @@ struct EmailScreen: View {
       return "Scanned messages and their local analysis status will appear here."
     case .purchases, .refunds:
       return "Email scanning is best effort and is not real time. Tap an account above to refresh."
+    case .awaitingAnalysis:
+      return "Fetched emails waiting for analysis will appear here."
     case .reviewed:
       return "Suggestions you add, dismiss, or apply will appear here."
     }
@@ -419,6 +423,8 @@ struct EmailScreen: View {
       return store.suggestions.count {
         $0.status == .pendingRefund && $0.kind == .refund
       }
+    case .awaitingAnalysis:
+      return store.allEmails.count { $0.analysisState == .pending }
     case .reviewed:
       return store.suggestions.count { $0.status.isReviewed }
     }

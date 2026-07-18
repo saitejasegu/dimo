@@ -198,7 +198,7 @@ actor OpenRouterClient {
     apiKey: String,
     outputTokenLimit: Int = standardOutputTokenLimit
   ) async throws -> EmailAnalysisEnvelope {
-    let prompt = EmailPromptBuilder.build(analysisRequest)
+    let prompt = EmailPromptBuilder.build(analysisRequest, provider: .openRouter)
 
     var provider: [String: Any] = ["require_parameters": true]
     if privacyMode == .zdrOnly { provider["zdr"] = true }

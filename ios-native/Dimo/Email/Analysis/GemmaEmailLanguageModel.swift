@@ -685,7 +685,11 @@ actor GemmaEmailLanguageModel: EmailLanguageModel {
 
   func analyze(_ request: EmailAnalysisRequest) async throws -> EmailAnalysisResult {
     guard loaded else { throw EmailLanguageModelError.runtimeUnavailable }
-    let prompt = EmailPromptBuilder.build(request, contextTokens: contextTokens)
+    let prompt = EmailPromptBuilder.build(
+      request,
+      provider: .gemma,
+      contextTokens: contextTokens
+    )
     let response: String
     do {
       response = try await EmailInferenceRace.run(

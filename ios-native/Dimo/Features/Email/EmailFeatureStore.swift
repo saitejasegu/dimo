@@ -4,6 +4,7 @@ import SwiftUI
 enum EmailSuggestionFilter: String, CaseIterable, Identifiable, Sendable {
   case purchases
   case refunds
+  case awaitingAnalysis
   case reviewed
   case all
 
@@ -13,13 +14,14 @@ enum EmailSuggestionFilter: String, CaseIterable, Identifiable, Sendable {
     switch self {
     case .purchases: return "Purchases"
     case .refunds: return "Refunds"
+    case .awaitingAnalysis: return "Awaiting analysis"
     case .reviewed: return "Reviewed"
     case .all: return "All"
     }
   }
 
   var displaysMessages: Bool {
-    self == .all
+    self == .awaitingAnalysis || self == .all
   }
 }
 
@@ -419,6 +421,8 @@ final class EmailFeatureStore {
           && (suggestion.kind == .purchase || suggestion.kind == .debit)
       case .refunds:
         return suggestion.status == .pendingRefund && suggestion.kind == .refund
+      case .awaitingAnalysis:
+        return false
       case .reviewed:
         return suggestion.status.isReviewed
       }
@@ -427,6 +431,8 @@ final class EmailFeatureStore {
 
   var filteredEmails: [EmailUIMessage] {
     switch selectedFilter {
+    case .awaitingAnalysis:
+      return allEmails.filter { $0.analysisState == .pending }
     case .all:
       return allEmails
     case .purchases, .refunds, .reviewed:

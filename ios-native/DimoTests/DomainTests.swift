@@ -680,8 +680,11 @@ final class EmailFeatureStoreTests: XCTestCase {
     XCTAssertEqual(EmailSuggestionFilter.allCases.last, .all)
     XCTAssertEqual(
       EmailSuggestionFilter.allCases,
-      [.purchases, .refunds, .reviewed, .all]
+      [.purchases, .refunds, .awaitingAnalysis, .reviewed, .all]
     )
+
+    store.selectedFilter = .awaitingAnalysis
+    XCTAssertEqual(store.filteredEmails.map(\.id), ["pending"])
 
     store.selectedFilter = .all
     XCTAssertEqual(store.filteredEmails.map(\.id), ["pending", "analyzed"])
@@ -2076,11 +2079,34 @@ final class EmailGemmaResponseTextTests: XCTestCase {
       merchantHistory: [],
       activeCurrency: .INR
     )
-    let prompt = EmailPromptBuilder.build(request)
+    let prompt = EmailPromptBuilder.build(request, provider: .gemma)
 
     XCTAssertTrue(prompt.contains(body))
     XCTAssertTrue(prompt.hasPrefix("You are a JSON extraction function."))
     XCTAssertTrue(prompt.hasSuffix("Return only the JSON object now."))
+  }
+
+  func testMerchantHistoryIsExcludedFromGemmaAndIncludedForOpenRouter() {
+    let request = EmailAnalysisRequest(
+      messageId: "message",
+      accountSubject: "account",
+      senderAddress: "merchant@example.com",
+      subject: "Receipt",
+      receivedAt: Date(timeIntervalSince1970: 1_700_000_000),
+      normalizedBody: "Payment completed.",
+      categories: [.init(id: "dining", name: "Dining")],
+      paymentMethods: [],
+      merchantHistory: [.init(merchant: "Example Merchant", categoryId: "dining")],
+      activeCurrency: .INR
+    )
+
+    let gemmaPrompt = EmailPromptBuilder.build(request, provider: .gemma)
+    let openRouterPrompt = EmailPromptBuilder.build(request, provider: .openRouter)
+
+    XCTAssertFalse(gemmaPrompt.contains("Merchant/category history"))
+    XCTAssertFalse(gemmaPrompt.contains("Example Merchant"))
+    XCTAssertTrue(openRouterPrompt.contains("Merchant/category history:"))
+    XCTAssertTrue(openRouterPrompt.contains("Example Merchant"))
   }
 }
 
@@ -2144,7 +2170,7 @@ final class GemmaModelManifestTests: XCTestCase {
     XCTAssertEqual(manifests[.gemma3_270m]?.familyDirectoryName, "Gemma3-270M")
     XCTAssertEqual(manifests[.gemma3_1b]?.familyDirectoryName, "Gemma3-1B")
     XCTAssertEqual(manifests[.gemma3_270m]?.runtimeContextTokens, 4_096)
-    XCTAssertEqual(manifests[.gemma3_1b]?.runtimeContextTokens, 4_096)
+    XCTAssertEqual(manifests[.gemma3_1b]?.runtimeContextTokens, 8_192)
     XCTAssertTrue(manifests[.gemma3_270m]?.downloadURL.pathExtension == "gguf")
     XCTAssertTrue(manifests[.gemma3_1b]?.downloadURL.pathExtension == "gguf")
   }

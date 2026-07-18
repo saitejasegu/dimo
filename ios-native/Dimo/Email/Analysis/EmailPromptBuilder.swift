@@ -1,6 +1,13 @@
 import Foundation
 
 enum EmailPromptBuilder {
+  enum Provider {
+    case gemma
+    case openRouter
+
+    var includesMerchantHistory: Bool { self == .openRouter }
+  }
+
   static let defaultRuntimeContextTokens = 4_096
   // Leaves room for one bounded JSON-only repair turn if the small model uses
   // its first response for prose instead of producing the requested object.
@@ -13,14 +20,18 @@ enum EmailPromptBuilder {
 
   static func build(
     _ request: EmailAnalysisRequest,
+    provider: Provider,
     contextTokens: Int = defaultRuntimeContextTokens
   ) -> String {
+    let categoryGuidance = provider.includesMerchantHistory
+      ? "For purchase/debit/refund, always set categoryId when Merchant/category history matches or an Allowed category name clearly fits; otherwise null."
+      : "For purchase/debit/refund, set categoryId when an Allowed category name clearly fits; otherwise null."
     let instructions = """
     You are a JSON extraction function. Extract one completed financial event from one email. Return one raw JSON object immediately. Do not think aloud. Do not use Markdown fences, prose, or comments. The first output character must be { and the last must be }.
 
     The only kind values are "purchase", "debit", "refund", and "irrelevant". Default to "irrelevant". Use purchase/debit/refund only when the email clearly confirms a completed payment, bank debit, or completed refund with an evidenced amount. Treat newsletters, OTPs, promotions, price lists, pending authorizations, failed or declined payments, shipping updates, statements, cancellations, balance/limit alerts, and ambiguous prices as irrelevant. A credit or completed refund is refund. Never convert currency.
 
-    Return null for every missing fact and for every extracted field when kind is "irrelevant". Never invent values. paymentMethodId must be null or one of the supplied IDs. categoryId must be null, one of the Allowed categories ids, or the exact Allowed category name. For purchase/debit/refund, always set categoryId when Merchant/category history matches or an Allowed category name clearly fits; otherwise null. Every merchant, amount, currency, occurrence time, last four, and reference must be directly evidenced by the email or its supplied received time. Use a quoted decimal string without separators for amount.
+    Return null for every missing fact and for every extracted field when kind is "irrelevant". Never invent values. paymentMethodId must be null or one of the supplied IDs. categoryId must be null, one of the Allowed categories ids, or the exact Allowed category name. \(categoryGuidance) Every merchant, amount, currency, occurrence time, last four, and reference must be directly evidenced by the email or its supplied received time. Use a quoted decimal string without separators for amount.
 
     Return these exact keys in this order. This example shows the required shape only — do not copy kind=purchase unless the email is a completed payment:
     {"schemaVersion":1,"kind":"irrelevant","merchant":null,"amount":null,"currency":null,"occurredAt":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
@@ -32,7 +43,9 @@ enum EmailPromptBuilder {
     // Leave useful space for the leading receipt/payment sections even on
     // accounts with unusually large category or payment-method lists.
     let targetFixedTokens = inputBudget - 256
-    var historyLimit = min(request.merchantHistory.count, 40)
+    var historyLimit = provider.includesMerchantHistory
+      ? min(request.merchantHistory.count, 40)
+      : 0
     var categoryLimit = request.categories.count
     var methodLimit = request.paymentMethods.count
     var context = ""
@@ -50,15 +63,21 @@ enum EmailPromptBuilder {
           "archived": $0.archived ? "true" : "false",
         ]
       })
-      let history = compactJSON(request.merchantHistory.prefix(historyLimit).map { hint in
-        [
-          "merchant": bounded(hint.merchant, count: 80),
-          "categoryId": hint.categoryId,
-          "categoryName": request.categories.first { $0.id == hint.categoryId }.map {
-            bounded($0.name, count: 80)
-          } ?? "",
-        ]
-      })
+      let historyContext: String
+      if provider.includesMerchantHistory {
+        let history = compactJSON(request.merchantHistory.prefix(historyLimit).map { hint in
+          [
+            "merchant": bounded(hint.merchant, count: 80),
+            "categoryId": hint.categoryId,
+            "categoryName": request.categories.first { $0.id == hint.categoryId }.map {
+              bounded($0.name, count: 80)
+            } ?? "",
+          ]
+        })
+        historyContext = "\nMerchant/category history: \(history)"
+      } else {
+        historyContext = ""
+      }
       context = """
       Sender name: \(jsonString(request.senderName.map { bounded($0, count: 160) }))
       Sender address: \(jsonString(bounded(request.senderAddress, count: 254)))
@@ -66,8 +85,7 @@ enum EmailPromptBuilder {
       Gmail received time: \(jsonString(receivedAt))
       Active Dimo currency: \(request.activeCurrency.rawValue)
       Allowed categories: \(categories)
-      Allowed payment methods: \(methods)
-      Merchant/category history: \(history)
+      Allowed payment methods: \(methods)\(historyContext)
       Email body:
       """
       if estimatedTokens(instructions + context) <= targetFixedTokens { break }
