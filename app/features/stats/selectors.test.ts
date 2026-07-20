@@ -29,6 +29,17 @@ describe("real statistics", () => {
     expect(bars.bars.map((bar) => bar.amount)).toEqual([0, 50, 100]);
   });
 
+  it("averages from the oldest transaction date in the selected range", () => {
+    const now = new Date(2026, 6, 11, 15);
+    const rows = [
+      transaction("oldest", 100, new Date(2026, 6, 7, 23).getTime()),
+      transaction("today", 400, new Date(2026, 6, 11, 10).getTime()),
+      transaction("outside-range", 999, new Date(2025, 6, 1).getTime()),
+    ];
+
+    expect(statsScope("1Y", rows, now).averageLabel).toBe("₹100 avg per day");
+  });
+
   it("supports a one-week range with daily bars", () => {
     const now = new Date(2026, 6, 11, 15);
     const rows = [

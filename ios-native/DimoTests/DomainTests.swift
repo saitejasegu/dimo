@@ -61,6 +61,43 @@ final class StatsHydrationTests: XCTestCase {
   }
 }
 
+final class StatsSelectorTests: XCTestCase {
+  func testAverageStartsAtOldestTransactionDateInSelectedRange() {
+    let calendar = Calendar(identifier: .gregorian)
+    let now = calendar.date(
+      from: DateComponents(year: 2026, month: 7, day: 11, hour: 15)
+    )!
+    func transaction(_ id: String, amount: Double, year: Int, month: Int, day: Int, hour: Int) -> Transaction {
+      let date = calendar.date(
+        from: DateComponents(year: year, month: month, day: day, hour: hour)
+      )!
+      return Transaction(
+        id: id,
+        name: "Merchant",
+        category: "Dining",
+        time: "",
+        day: "",
+        amount: amount,
+        occurredAt: Int(date.timeIntervalSince1970 * 1000)
+      )
+    }
+    let transactions = [
+      transaction("oldest", amount: 100, year: 2026, month: 7, day: 7, hour: 23),
+      transaction("today", amount: 400, year: 2026, month: 7, day: 11, hour: 10),
+      transaction("outside-range", amount: 999, year: 2025, month: 7, day: 1, hour: 10),
+    ]
+
+    let scope = StatsSelectors.statsScope(
+      range: .oneYear,
+      transactions: transactions,
+      now: now,
+      calendar: calendar
+    )
+
+    XCTAssertEqual(scope.averageLabel, "₹100 avg per day")
+  }
+}
+
 final class DateHelpersTests: XCTestCase {
   func testClampsMonthlyDayToShortMonth() {
     let cal = Calendar(identifier: .gregorian)

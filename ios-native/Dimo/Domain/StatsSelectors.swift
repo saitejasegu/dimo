@@ -122,8 +122,16 @@ enum StatsSelectors {
   ) -> StatsScope {
     let scoped = inRange(transactions, range: range, now: now, calendar: calendar)
     let scopeTotal = scoped.reduce(0.0) { $0 + $1.amount }
-    let start = rangeStart(range, now: now, calendar: calendar)
-    let days = max(1, Int(floor((now.timeIntervalSince(start) / 86_400) + 1)))
+    let oldestTimestamp = scoped.compactMap(\.occurredAt).min()
+    let days: Int
+    if let oldestTimestamp {
+      let oldestDate = Date(timeIntervalSince1970: TimeInterval(oldestTimestamp) / 1000)
+      let oldestDay = startOfLocalDay(oldestDate, calendar: calendar)
+      let today = startOfLocalDay(now, calendar: calendar)
+      days = max(1, (calendar.dateComponents([.day], from: oldestDay, to: today).day ?? 0) + 1)
+    } else {
+      days = 1
+    }
     let spentLabel: String
     switch range {
     case .oneWeek: spentLabel = "Spent this week"

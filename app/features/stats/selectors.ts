@@ -11,6 +11,12 @@ function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function inclusiveLocalDayCount(start: Date, end: Date) {
+  const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.max(1, Math.floor((endDay - startDay) / 86_400_000) + 1);
+}
+
 export function rangeStart(range: StatsRange, now = new Date()): Date {
   if (range === "1W") {
     return startOfLocalDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
@@ -35,8 +41,11 @@ export interface StatsScope {
 export function statsScope(range: StatsRange, transactions: Transaction[], now = new Date()): StatsScope {
   const scoped = inRange(transactions, range, now);
   const scopeTotal = scoped.reduce((sum, t) => sum + t.amount, 0);
-  const start = rangeStart(range, now);
-  const days = Math.max(1, Math.floor((now.getTime() - start.getTime()) / 86_400_000) + 1);
+  const oldestTimestamp = scoped.reduce<number | null>((oldest, transaction) => {
+    const occurredAt = transaction.occurredAt ?? 0;
+    return oldest === null || occurredAt < oldest ? occurredAt : oldest;
+  }, null);
+  const days = oldestTimestamp === null ? 1 : inclusiveLocalDayCount(new Date(oldestTimestamp), now);
   const spentLabel =
     range === "1W"
       ? "Spent this week"
