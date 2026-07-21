@@ -31,6 +31,9 @@ func compareVersions(_ a: LogicalVersion, _ b: LogicalVersion) -> Int {
 let workspaceID = "global"
 let defaultCategoryEmoji = "🙂"
 let bootstrapVersion = 3
+/// Private local tombstone retention (days). Keep aligned with Convex
+/// TOMBSTONE_RETENTION_DAYS default — not user-visible or synced.
+let tombstoneRetentionDays = 90
 
 func entityKey(type: EntityType, id: String) -> String {
   "\(workspaceID):\(type.rawValue):\(id)"

@@ -17,9 +17,11 @@ import app.dimo.android.data.model.SeedData
 import app.dimo.android.data.model.StoredEntity
 import app.dimo.android.data.model.SyncMeta
 import app.dimo.android.data.model.SyncOperation
+import app.dimo.android.data.model.TOMBSTONE_RETENTION_DAYS
 import app.dimo.android.data.model.WORKSPACE_ID
 import app.dimo.android.data.model.compareVersions
 import app.dimo.android.data.model.entityKey
+import app.dimo.android.data.model.DAY_MS
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -210,6 +212,25 @@ class Repository(private val db: AppDatabase) {
       val meta = syncMeta()
       db.syncMeta().upsert(meta.copy(lastPulledRevision = cursor).toRecord())
     }
+  }
+
+  /**
+   * Hard-delete local tombstones past the private retention window.
+   * Skips rows that still have an unacked outbox operation.
+   */
+  suspend fun purgeExpiredTombstones(now: Long = System.currentTimeMillis()): Int {
+    val cutoff = now - TOMBSTONE_RETENTION_DAYS * DAY_MS
+    var purged = 0
+    db.withTransaction {
+      for (row in db.entities().deleted(WORKSPACE_ID)) {
+        val version = PayloadCodec.decodeVersion(row.versionJson)
+        if (version.timestamp >= cutoff) continue
+        if (db.outbox().getByKey(row.key) != null) continue
+        db.entities().deleteByKey(row.key)
+        purged += 1
+      }
+    }
+    return purged
   }
 
   private suspend fun putInTransaction(

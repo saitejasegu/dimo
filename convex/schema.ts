@@ -16,6 +16,7 @@ export default defineSchema({
     revision: v.number(),
   })
     .index("by_entity_type", ["entityType"])
+    .index("by_deleted", ["deleted"])
     .index("by_owner_and_workspace_and_entity", [
       "ownerId",
       "workspaceId",

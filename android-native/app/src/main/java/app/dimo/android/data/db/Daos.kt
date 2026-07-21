@@ -27,6 +27,14 @@ interface EntityDao {
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun upsertAll(records: List<EntityRecord>)
+
+  @Query("DELETE FROM entities WHERE `key` = :key")
+  suspend fun deleteByKey(key: String)
+
+  @Query(
+    "SELECT * FROM entities WHERE workspaceId = :workspaceId AND deleted = 1",
+  )
+  suspend fun deleted(workspaceId: String): List<EntityRecord>
 }
 
 @Dao

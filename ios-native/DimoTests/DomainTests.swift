@@ -428,6 +428,69 @@ final class RepositoryBootstrapTests: XCTestCase {
     XCTAssertEqual(pending.count, 1)
   }
 
+  func testPurgeExpiredTombstones() throws {
+    let userId = "test-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repo = Repository(db: queue)
+    try repo.initializeLocalDatabase()
+
+    let now = 1_753_142_400_000 // fixed ms
+    let msPerDay = 24 * 60 * 60 * 1000
+    let expiredTs = now - (tombstoneRetentionDays + 2) * msPerDay
+    let freshTs = now - 5 * msPerDay
+
+    let expired = TransactionEntity(
+      id: "transaction-expired",
+      name: "Old",
+      amountMinor: 100,
+      occurredAt: expiredTs,
+      categoryId: "c1",
+      paymentMethodId: SeedData.cashPaymentMethod.id
+    )
+    try repo.saveEntity(entityType: .transaction, payload: .transaction(expired))
+    let expiredKey = entityKey(type: .transaction, id: expired.id)
+    try queue.write { db in
+      try OutboxRecord.deleteOne(db, key: expiredKey)
+      guard var record = try EntityRecord.fetchOne(db, key: expiredKey) else {
+        return XCTFail("missing expired")
+      }
+      var stored = try record.toStoredEntity()
+      stored.deleted = true
+      stored.version = LogicalVersion(timestamp: expiredTs, counter: 0, deviceId: "test")
+      try EntityRecord.from(stored).save(db)
+
+      let fresh = StoredEntity(
+        key: entityKey(type: .transaction, id: "transaction-fresh"),
+        workspaceId: workspaceID,
+        entityType: .transaction,
+        entityId: "transaction-fresh",
+        version: LogicalVersion(timestamp: freshTs, counter: 0, deviceId: "test"),
+        payload: .transaction(
+          TransactionEntity(
+            id: "transaction-fresh",
+            name: "Fresh",
+            amountMinor: 200,
+            occurredAt: freshTs,
+            categoryId: "c1",
+            paymentMethodId: SeedData.cashPaymentMethod.id
+          )
+        ),
+        deleted: true,
+        serverRevision: 1
+      )
+      try EntityRecord.from(fresh).save(db)
+    }
+
+    XCTAssertEqual(try repo.purgeExpiredTombstones(now: now), 1)
+    XCTAssertNil(try queue.read { db in try EntityRecord.fetchOne(db, key: expiredKey) })
+    XCTAssertNotNil(
+      try queue.read { db in
+        try EntityRecord.fetchOne(db, key: entityKey(type: .transaction, id: "transaction-fresh"))
+      }
+    )
+  }
+
   func testOutboxReplaceOnResave() throws {
     let userId = "test-\(UUID().uuidString)"
     let queue = try AppDatabase.activate(userId: userId)

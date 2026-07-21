@@ -181,6 +181,7 @@ actor SyncCoordinator {
         }
         retryAttempt = 0
         retryTask?.cancel()
+        _ = try repository.purgeExpiredTombstones()
         let blocked = try repository.blockedOutbox()
         try repository.updateSyncMeta {
           $0.syncing = false

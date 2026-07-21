@@ -298,6 +298,28 @@ final class Repository: @unchecked Sendable {
     notifyWrite()
   }
 
+  /// Hard-delete local tombstones past the private retention window.
+  /// Skips rows that still have an unacked outbox operation.
+  @discardableResult
+  func purgeExpiredTombstones(now: Int = Int(Date().timeIntervalSince1970 * 1000)) throws -> Int {
+    let cutoff = now - tombstoneRetentionDays * 24 * 60 * 60 * 1000
+    let purged = try db.write { db -> Int in
+      let records = try EntityRecord
+        .filter(Column("workspaceId") == workspaceID && Column("deleted") == true)
+        .fetchAll(db)
+      var count = 0
+      for record in records {
+        let entity = try record.toStoredEntity()
+        guard entity.version.timestamp < cutoff else { continue }
+        if try OutboxRecord.fetchOne(db, key: entity.key) != nil { continue }
+        _ = try EntityRecord.deleteOne(db, key: entity.key)
+        count += 1
+      }
+      return count
+    }
+    return purged
+  }
+
   func activeEntities(type: EntityType) throws -> [StoredEntity] {
     try db.read { db in
       try EntityRecord

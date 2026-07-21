@@ -17,6 +17,7 @@ import {
   enqueueUnsyncedDefaults,
   mergeRemotePage,
   onLocalWrite,
+  purgeExpiredTombstones,
 } from "@/data/repository";
 
 type PullResult = {
@@ -195,6 +196,7 @@ export class SyncCoordinator {
         }
         this.retryAttempt = 0;
         if (this.retryTimer) clearTimeout(this.retryTimer);
+        await purgeExpiredTombstones();
         const blocked = await db.outbox.where("status").equals("blocked").first();
         await db.syncMeta.update(WORKSPACE_ID, {
           syncing: false,

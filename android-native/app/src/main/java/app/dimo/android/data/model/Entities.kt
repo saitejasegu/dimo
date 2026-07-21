@@ -3,6 +3,8 @@ package app.dimo.android.data.model
 const val WORKSPACE_ID = "global"
 const val DEFAULT_CATEGORY_EMOJI = "🙂"
 const val BOOTSTRAP_VERSION = 3
+/** Private local tombstone retention (days). Keep aligned with Convex TOMBSTONE_RETENTION_DAYS default. */
+const val TOMBSTONE_RETENTION_DAYS = 90
 const val CASH_PAYMENT_METHOD_ID = "payment-method-cash"
 const val PREFERENCES_ID = "preferences"
 const val DEVICE_META_ID = "device"

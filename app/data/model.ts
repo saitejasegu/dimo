@@ -10,6 +10,12 @@ import type {
 
 export const WORKSPACE_ID = "global" as const;
 
+/**
+ * Private local tombstone retention (days). Keep aligned with Convex
+ * TOMBSTONE_RETENTION_DAYS default — not user-visible or synced.
+ */
+export const TOMBSTONE_RETENTION_DAYS = 90;
+
 export type EntityType =
   | "category"
   | "paymentMethod"

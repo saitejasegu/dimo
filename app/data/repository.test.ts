@@ -1,13 +1,14 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/data/db";
-import { DEFAULT_PREFERENCES, entityKey } from "@/data/model";
+import { DEFAULT_PREFERENCES, TOMBSTONE_RETENTION_DAYS, entityKey } from "@/data/model";
 import {
   backfillRecurringCurrencies,
   initializeLocalDatabase,
   saveEntity,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
+  purgeExpiredTombstones,
   sanitizePayload,
 } from "@/data/repository";
 
@@ -187,5 +188,63 @@ describe("sanitizePayload foreign-currency fields", () => {
       paused: false,
     });
     expect(local).not.toHaveProperty("currency");
+  });
+
+  it("hard-deletes expired local tombstones but keeps fresh ones and pending deletes", async () => {
+    await initializeLocalDatabase();
+    const now = Date.UTC(2026, 6, 22);
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const payload = {
+      id: "transaction-expired",
+      name: "Old",
+      amountMinor: 100,
+      occurredAt: 1,
+      categoryId: "c1",
+      paymentMethodId: "payment-method-cash",
+    };
+
+    await saveEntity("transaction", payload);
+    const key = entityKey("transaction", payload.id);
+    await db.outbox.delete(key);
+    await db.entities.update(key, {
+      deleted: true,
+      version: {
+        timestamp: now - (TOMBSTONE_RETENTION_DAYS + 2) * msPerDay,
+        counter: 0,
+        deviceId: "test",
+      },
+    });
+
+    const freshKey = entityKey("transaction", "transaction-fresh");
+    await db.entities.put({
+      key: freshKey,
+      workspaceId: "global",
+      entityType: "transaction",
+      entityId: "transaction-fresh",
+      version: {
+        timestamp: now - 5 * msPerDay,
+        counter: 0,
+        deviceId: "test",
+      },
+      payload: { ...payload, id: "transaction-fresh", name: "Fresh" },
+      deleted: true,
+      serverRevision: 1,
+    });
+
+    const pendingKey = entityKey("transaction", "transaction-pending");
+    await saveEntity("transaction", { ...payload, id: "transaction-pending", name: "Pending" });
+    await db.entities.update(pendingKey, {
+      deleted: true,
+      version: {
+        timestamp: now - (TOMBSTONE_RETENTION_DAYS + 2) * msPerDay,
+        counter: 0,
+        deviceId: "test",
+      },
+    });
+
+    expect(await purgeExpiredTombstones(now)).toBe(1);
+    expect(await db.entities.get(key)).toBeUndefined();
+    expect(await db.entities.get(freshKey)).toBeTruthy();
+    expect(await db.entities.get(pendingKey)).toBeTruthy();
   });
 });

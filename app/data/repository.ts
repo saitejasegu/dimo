@@ -4,6 +4,7 @@ import {
   DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   OWNED_ENTITY_TYPES,
+  TOMBSTONE_RETENTION_DAYS,
   WORKSPACE_ID,
   compareVersions,
   entityKey,
@@ -539,6 +540,26 @@ export async function enqueueFullUpload(
     }
   });
   notifyWrite();
+}
+
+/**
+ * Hard-delete local tombstones past the private retention window.
+ * Skips rows that still have an unacked outbox operation.
+ */
+export async function purgeExpiredTombstones(now = Date.now()) {
+  const cutoff = now - TOMBSTONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  let purged = 0;
+  await db.transaction("rw", db.entities, db.outbox, async () => {
+    const tombstones = await db.entities.filter((row) => row.deleted).toArray();
+    for (const row of tombstones) {
+      if (row.version.timestamp >= cutoff) continue;
+      const pending = await db.outbox.get(row.key);
+      if (pending) continue;
+      await db.entities.delete(row.key);
+      purged += 1;
+    }
+  });
+  return purged;
 }
 
 export async function activeEntities<T extends EntityType>(type: T) {

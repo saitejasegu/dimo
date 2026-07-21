@@ -120,6 +120,7 @@ class SyncCoordinator(
             pullAll()
           }
           retryAttempt = 0
+          repository.purgeExpiredTombstones()
           val blocked = repository.blockedOutbox()
           val meta = repository.syncMeta()
           if (blocked != null) {

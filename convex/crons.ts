@@ -20,4 +20,12 @@ crons.cron(
   {},
 );
 
+// Hard-delete expired delete-tombstones (TOMBSTONE_RETENTION_DAYS, default 90).
+crons.cron(
+  "purge expired tombstones",
+  "5 19 * * *",
+  internal.tombstonePurge.purgeExpired,
+  {},
+);
+
 export default crons;
