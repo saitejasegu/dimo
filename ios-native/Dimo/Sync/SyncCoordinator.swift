@@ -381,7 +381,9 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "archived": e.archived,
       ]
     case .transaction(let e):
-      return [
+      // Keep optional foreign-currency keys omitted (not null) — matches
+      // WirePayload.encode and Convex `v.optional(...)` validators.
+      var dict: [String: ConvexEncodable?] = [
         "id": e.id,
         "name": e.name,
         "amountMinor": Double(e.amountMinor),
@@ -389,8 +391,16 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "categoryId": e.categoryId,
         "paymentMethodId": e.paymentMethodId,
       ]
+      if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
+        dict["sourceCurrency"] = sourceCurrency
+        dict["sourceAmountMinor"] = Double(e.sourceAmountMinor ?? 0)
+        if let rate = e.exchangeRate {
+          dict["exchangeRate"] = rate
+        }
+      }
+      return dict
     case .recurring(let e):
-      return [
+      var dict: [String: ConvexEncodable?] = [
         "id": e.id,
         "name": e.name,
         "amountMinor": Double(e.amountMinor),
@@ -400,6 +410,10 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "anchorDate": e.anchorDate,
         "paused": e.paused,
       ]
+      if let currency = e.currency, !currency.isEmpty {
+        dict["currency"] = currency
+      }
+      return dict
     case .lend(let e):
       return [
         "id": e.id,

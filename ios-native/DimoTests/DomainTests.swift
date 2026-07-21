@@ -611,6 +611,9 @@ final class SanitizerTests: XCTestCase {
   }
 
   func testCurrencyMetadataRoundTripsThroughConvexWirePayload() throws {
+    // WirePayload.encode is the pull/DTO contract. ConvexSyncTransport.wirePayload
+    // must mirror these optional currency keys on push or Convex stores diverge
+    // from the local GRDB payload (web keeps writing the full shape).
     let transaction = TransactionEntity(
       id: "t-usd",
       name: "Cursor",
@@ -626,6 +629,7 @@ final class SanitizerTests: XCTestCase {
     XCTAssertEqual(transactionWire["sourceCurrency"] as? String, "USD")
     XCTAssertEqual(transactionWire["sourceAmountMinor"] as? Double, 2_360)
     XCTAssertEqual(transactionWire["exchangeRate"] as? Double, 96.44538771223525)
+    XCTAssertNotNil(transactionWire["sourceCurrency"])
 
     guard case .transaction(let decodedTransaction) = try WirePayload.decode(
       entityType: .transaction,
@@ -634,6 +638,19 @@ final class SanitizerTests: XCTestCase {
       return XCTFail("expected transaction")
     }
     XCTAssertEqual(decodedTransaction, transaction)
+
+    let defaultCurrencyTransaction = TransactionEntity(
+      id: "t-inr",
+      name: "Chai",
+      amountMinor: 5_000,
+      occurredAt: 1_784_623_080_000,
+      categoryId: "food",
+      paymentMethodId: "payment-method-cash"
+    )
+    let defaultWire = WirePayload.encode(.transaction(defaultCurrencyTransaction))
+    XCTAssertNil(defaultWire["sourceCurrency"])
+    XCTAssertNil(defaultWire["sourceAmountMinor"])
+    XCTAssertNil(defaultWire["exchangeRate"])
 
     let recurring = RecurringEntity(
       id: "r-usd",
@@ -656,6 +673,20 @@ final class SanitizerTests: XCTestCase {
       return XCTFail("expected recurring")
     }
     XCTAssertEqual(decodedRecurring, recurring)
+
+    let legacyRecurring = RecurringEntity(
+      id: "r-legacy",
+      name: "Rent",
+      amountMinor: 5_000_000,
+      categoryId: "home",
+      paymentMethodId: nil,
+      frequency: .monthly,
+      anchorDate: "2026-01-01",
+      paused: false,
+      currency: nil
+    )
+    let legacyWire = WirePayload.encode(.recurring(legacyRecurring))
+    XCTAssertNil(legacyWire["currency"])
   }
 
   func testLegacyWirePayloadsDecodeWithoutCurrencyMetadata() throws {
