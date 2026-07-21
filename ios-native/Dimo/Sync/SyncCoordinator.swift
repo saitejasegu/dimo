@@ -18,6 +18,7 @@ actor SyncCoordinator {
   private let network: NetworkMonitor
 
   private var running: Task<Void, Never>?
+  private var runGeneration = 0
   private var requested = false
   private var fullReplace = false
   private var retryAttempt = 0
@@ -42,6 +43,16 @@ actor SyncCoordinator {
   }
 
   func start() {
+    // Recover from an interrupted sync (kill mid-flight left syncing=true and
+    // disabled Sync now in settings).
+    try? repository.updateSyncMeta {
+      if $0.syncing {
+        $0.syncing = false
+        if $0.error == nil {
+          $0.error = "Sync interrupted"
+        }
+      }
+    }
     writeListener = repository.onLocalWrite { [weak self] in
       Task { await self?.schedule() }
     }
@@ -73,11 +84,20 @@ actor SyncCoordinator {
     }
   }
 
-  func request() {
+  func request(cancelInFlight: Bool = false) {
+    if cancelInFlight {
+      runGeneration += 1
+      running?.cancel()
+      running = nil
+      retryTask?.cancel()
+    }
     requested = true
     guard running == nil else { return }
+    runGeneration += 1
+    let generation = runGeneration
     running = Task {
       await runLoop()
+      guard generation == runGeneration else { return }
       running = nil
       if requested {
         request()
@@ -87,7 +107,7 @@ actor SyncCoordinator {
 
   func requestFullSync() {
     fullReplace = true
-    request()
+    request(cancelInFlight: true)
   }
 
   /// Latest ECB rates from Convex (Frankfurter is server-only, once per day).
@@ -169,6 +189,11 @@ actor SyncCoordinator {
             $0.lastSyncedAt = Int(Date().timeIntervalSince1970 * 1000)
           }
         }
+      } catch is CancellationError {
+        try? repository.updateSyncMeta {
+          $0.syncing = false
+        }
+        return
       } catch {
         if replace { fullReplace = true }
         try? repository.updateSyncMeta {
@@ -292,13 +317,15 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     let encoded: [ConvexEncodable?] = operations.map { op -> ConvexEncodable? in
       wireOperation(op) as [String: ConvexEncodable?]
     }
-    return try await client.mutation(
-      "sync:push",
-      with: [
-        "workspaceId": workspaceId,
-        "operations": encoded,
-      ]
-    )
+    return try await withTimeout(seconds: 45) {
+      try await self.client.mutation(
+        "sync:push",
+        with: [
+          "workspaceId": workspaceId,
+          "operations": encoded,
+        ]
+      )
+    }
   }
 
   func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws {
@@ -311,22 +338,26 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     var args: [String: ConvexEncodable?] = ["workspaceId": workspaceId]
     if let name { args["name"] = name }
     if let email { args["email"] = email }
-    let _: EnsureResult = try await client.mutation(
-      "sync:ensureWorkspaceProfile",
-      with: args
-    )
+    let _: EnsureResult = try await withTimeout(seconds: 45) {
+      try await self.client.mutation(
+        "sync:ensureWorkspaceProfile",
+        with: args
+      )
+    }
   }
 
   func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO {
     let encodedTypes: [ConvexEncodable?] = entityTypes.map { $0 as ConvexEncodable? }
-    return try await client.mutation(
-      "sync:clearWorkspace",
-      with: [
-        "workspaceId": workspaceId,
-        "entityTypes": encodedTypes,
-        "limit": limit,
-      ]
-    )
+    return try await withTimeout(seconds: 45) {
+      try await self.client.mutation(
+        "sync:clearWorkspace",
+        with: [
+          "workspaceId": workspaceId,
+          "entityTypes": encodedTypes,
+          "limit": limit,
+        ]
+      )
+    }
   }
 
   func latestExchangeRates() async throws -> RateTable? {
@@ -381,7 +412,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "archived": e.archived,
       ]
     case .transaction(let e):
-      // Keep optional foreign-currency keys omitted (not null) — matches
+      // Keep optional currency keys omitted (not null) — matches
       // WirePayload.encode and Convex `v.optional(...)` validators.
       var dict: [String: ConvexEncodable?] = [
         "id": e.id,
@@ -391,6 +422,9 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "categoryId": e.categoryId,
         "paymentMethodId": e.paymentMethodId,
       ]
+      if let currency = e.currency, !currency.isEmpty {
+        dict["currency"] = currency
+      }
       if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
         dict["sourceCurrency"] = sourceCurrency
         dict["sourceAmountMinor"] = Double(e.sourceAmountMinor ?? 0)
@@ -480,20 +514,55 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
   }
 
   private func firstValue<T: Decodable>(_ publisher: AnyPublisher<T, ClientError>) async throws -> T {
-    try await withCheckedThrowingContinuation { continuation in
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
       var cancellable: AnyCancellable?
-      cancellable = publisher.first().sink(
-        receiveCompletion: { completion in
-          if case .failure(let error) = completion {
-            continuation.resume(throwing: error)
+      var settled = false
+      cancellable = publisher
+        .timeout(
+          .seconds(45),
+          scheduler: DispatchQueue.global(),
+          customError: { ClientError.InternalError(msg: "Convex sync timed out") }
+        )
+        .first()
+        .sink(
+          receiveCompletion: { completion in
+            guard !settled else { return }
+            settled = true
+            switch completion {
+            case .failure(let error):
+              continuation.resume(throwing: error)
+            case .finished:
+              continuation.resume(
+                throwing: ClientError.InternalError(msg: "Convex subscription completed without a value")
+              )
+            }
+            cancellable?.cancel()
+          },
+          receiveValue: { value in
+            guard !settled else { return }
+            settled = true
+            continuation.resume(returning: value)
+            cancellable?.cancel()
           }
-          cancellable?.cancel()
-        },
-        receiveValue: { value in
-          continuation.resume(returning: value)
-          cancellable?.cancel()
-        }
-      )
+        )
+    }
+  }
+
+  private func withTimeout<T: Sendable>(
+    seconds: Double,
+    _ work: @escaping @Sendable () async throws -> T
+  ) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+      group.addTask { try await work() }
+      group.addTask {
+        try await Task.sleep(for: .seconds(seconds))
+        throw ClientError.InternalError(msg: "Convex sync timed out")
+      }
+      defer { group.cancelAll() }
+      guard let value = try await group.next() else {
+        throw ClientError.InternalError(msg: "Convex sync timed out")
+      }
+      return value
     }
   }
 }

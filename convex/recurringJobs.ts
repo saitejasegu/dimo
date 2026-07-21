@@ -166,6 +166,7 @@ export const materializeDue = internalMutationGeneric({
 
       // Convert foreign-currency bills into the owner's default currency at that
       // day's rate. Absent/matching currency keeps the legacy straight copy.
+      let defaultCurrency = await defaultCurrencyFor(row.ownerId, row.workspaceId);
       let amountMinor = recurring.amountMinor;
       let source: {
         sourceCurrency: string;
@@ -173,7 +174,6 @@ export const materializeDue = internalMutationGeneric({
         exchangeRate: number;
       } | null = null;
       if (recurring.currency && recurring.currency !== "") {
-        const defaultCurrency = await defaultCurrencyFor(row.ownerId, row.workspaceId);
         if (recurring.currency !== defaultCurrency) {
           const ratio = await rateOn(ctx, dateKey, recurring.currency, defaultCurrency);
           if (ratio != null) {
@@ -207,6 +207,7 @@ export const materializeDue = internalMutationGeneric({
         occurredAt,
         categoryId: recurring.categoryId,
         paymentMethodId: recurring.paymentMethodId,
+        currency: defaultCurrency,
         ...(source ?? {}),
       };
       await ctx.db.insert("entities", {

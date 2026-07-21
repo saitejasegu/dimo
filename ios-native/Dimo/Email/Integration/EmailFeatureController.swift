@@ -151,13 +151,24 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
 
     publishGemmaModelCatalog()
-    await observeActiveGemmaModel()
     if modelServices == nil {
       store.modelState = .unavailable(message: "Gemma model manifests could not be loaded.")
     }
 
-
-    await restoreOpenRouterConfiguration()
+    // Gemma state / OpenRouter validation are not required to wire Connect Gmail.
+    // Keep them off the awaited start path so launch and the Email tab stay responsive.
+    Task { [weak self] in
+      guard let self, !self.stopped else { return }
+      await self.observeActiveGemmaModel()
+    }
+    Task { [weak self] in
+      guard let self, !self.stopped else { return }
+      if (try? await self.openRouterVault.credential(dimoUserId: self.userId)) != nil {
+        self.store.openRouterConnectionState = .validating
+      }
+      guard !self.stopped else { return }
+      await self.restoreOpenRouterConfiguration()
+    }
 
     if hasConnectedAccounts {
       foregroundWork = Task { [weak self] in
@@ -302,18 +313,30 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
 
   private func configureActions() {
     store.configure(actions: EmailFeatureActions(
-      connectAccount: { [weak self] in try await self?.connectAccount() },
-      disconnectAccount: { [weak self] accountId in
-        try await self?.disconnectAccount(accountId)
+      connectAccount: { [weak self] in
+        guard let self else {
+          throw EmailFeatureControllerError.gmailNotConfigured
+        }
+        try await self.connectAccount()
       },
-      refresh: { [weak self] accountId in try await self?.refresh(accountId: accountId) },
+      disconnectAccount: { [weak self] accountId in
+        guard let self else { return }
+        try await self.disconnectAccount(accountId)
+      },
+      refresh: { [weak self] accountId in
+        guard let self else { return }
+        try await self.refresh(accountId: accountId)
+      },
       dismissSuggestion: { [weak self] suggestionId in
         try self?.repository.dismissEmailSuggestion(messageKey: suggestionId)
       },
       restoreSuggestion: { [weak self] suggestionId in
         try self?.repository.restoreDismissedEmailSuggestion(messageKey: suggestionId)
       },
-      acceptPurchase: { [weak self] draft in try await self?.acceptPurchase(draft) },
+      acceptPurchase: { [weak self] draft in
+        guard let self else { return }
+        try await self.acceptPurchase(draft)
+      },
       linkPurchaseToTransaction: { [weak self] suggestionId, transactionId in
         try self?.repository.linkEmailSuggestionToTransaction(
           messageKey: suggestionId,
@@ -327,7 +350,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         )
       },
       downloadModel: { [weak self] allowCellular in
-        try await self?.startModelDownload(allowCellular: allowCellular)
+        guard let self else { return }
+        try await self.startModelDownload(allowCellular: allowCellular)
       },
       pauseModelDownload: { [weak self] in
         await self?.activeModelManager()?.pauseDownload()
@@ -335,24 +359,57 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       cancelModelDownload: { [weak self] in
         await self?.activeModelManager()?.cancelDownload()
       },
-      retryModelDownload: { [weak self] in try await self?.retryModelDownload() },
-      retryGemmaAnalysis: { [weak self] in try await self?.retryGemmaAnalysis() },
-      reanalyzeAllEmails: { [weak self] in try await self?.reanalyzeAllEmails() },
-      deleteModel: { [weak self] in try await self?.deleteModel() },
-      selectGemma: { [weak self] in try await self?.selectGemma() },
+      retryModelDownload: { [weak self] in
+        guard let self else { return }
+        try await self.retryModelDownload()
+      },
+      retryGemmaAnalysis: { [weak self] in
+        guard let self else { return }
+        try await self.retryGemmaAnalysis()
+      },
+      reanalyzeAllEmails: { [weak self] in
+        guard let self else { return }
+        try await self.reanalyzeAllEmails()
+      },
+      deleteModel: { [weak self] in
+        guard let self else { return }
+        try await self.deleteModel()
+      },
+      selectGemma: { [weak self] in
+        guard let self else { return }
+        try await self.selectGemma()
+      },
       selectGemmaModelVariant: { [weak self] variant in
-        try await self?.selectGemmaModelVariant(variant)
+        guard let self else { return }
+        try await self.selectGemmaModelVariant(variant)
       },
-      saveOpenRouterKey: { [weak self] key in try await self?.saveOpenRouterKey(key) },
-      removeOpenRouterKey: { [weak self] in try await self?.removeOpenRouterKey() },
-      refreshOpenRouterModels: { [weak self] in try await self?.refreshOpenRouterModels() },
+      saveOpenRouterKey: { [weak self] key in
+        guard let self else { return }
+        try await self.saveOpenRouterKey(key)
+      },
+      removeOpenRouterKey: { [weak self] in
+        guard let self else { return }
+        try await self.removeOpenRouterKey()
+      },
+      refreshOpenRouterModels: { [weak self] in
+        guard let self else { return }
+        try await self.refreshOpenRouterModels()
+      },
       selectOpenRouterModel: { [weak self] modelID, allowNonZDR in
-        try await self?.selectOpenRouterModel(modelID, allowNonZDR: allowNonZDR)
+        guard let self else { return }
+        try await self.selectOpenRouterModel(modelID, allowNonZDR: allowNonZDR)
       },
-      selectProvider: { [weak self] provider in try await self?.switchProvider(to: provider) },
-      selectSyncWindow: { [weak self] window in try await self?.selectSyncWindow(window) },
+      selectProvider: { [weak self] provider in
+        guard let self else { return }
+        try await self.switchProvider(to: provider)
+      },
+      selectSyncWindow: { [weak self] window in
+        guard let self else { return }
+        try await self.selectSyncWindow(window)
+      },
       retryWithAlternateProvider: { [weak self] messageID in
-        try await self?.retryWithAlternateProvider(messageID: messageID)
+        guard let self else { return }
+        try await self.retryWithAlternateProvider(messageID: messageID)
       },
       loadEmailDetail: { [weak self] messageId in
         guard let self else { throw EmailFeatureStoreError.messageNotFound }
@@ -1404,7 +1461,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         Int(Date().timeIntervalSince1970 * 1_000)
       ),
       categoryId: categoryId,
-      paymentMethodId: draft.paymentMethodID
+      paymentMethodId: draft.paymentMethodID,
+      currency: currency.rawValue
     )
     let recurring = draft.isRecurring ? RecurringEntity(
       id: "rec_\(UUID().uuidString.lowercased())",

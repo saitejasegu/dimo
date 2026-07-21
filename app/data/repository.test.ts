@@ -104,19 +104,27 @@ describe("local repository", () => {
       anchorDate: "2026-07-31",
       paused: false,
     });
+    await saveEntity("transaction", {
+      id: "legacy-tx",
+      name: "Coffee",
+      amountMinor: 500,
+      occurredAt: 1_700_000_000_000,
+      categoryId: "category-software",
+      paymentMethodId: "payment-method-cash",
+    });
     await db.outbox.clear();
 
-    expect(await backfillRecurringCurrencies()).toBe(1);
-    const entity = await db.entities.get(entityKey("recurring", "legacy-recurring"));
-    const pending = await db.outbox.get(entityKey("recurring", "legacy-recurring"));
-    expect(entity?.payload).toMatchObject({ currency: "USD" });
-    expect(pending?.payload).toMatchObject({ currency: "USD" });
+    expect(await backfillRecurringCurrencies()).toBe(2);
+    const recurring = await db.entities.get(entityKey("recurring", "legacy-recurring"));
+    const transaction = await db.entities.get(entityKey("transaction", "legacy-tx"));
+    expect(recurring?.payload).toMatchObject({ currency: "USD" });
+    expect(transaction?.payload).toMatchObject({ currency: "USD" });
     expect(await backfillRecurringCurrencies()).toBe(0);
   });
 });
 
 describe("sanitizePayload foreign-currency fields", () => {
-  it("preserves transaction source-currency fields when present", () => {
+  it("preserves transaction currency and source-currency fields when present", () => {
     const clean = sanitizePayload("transaction", {
       id: "t1",
       name: "Hotel",
@@ -124,19 +132,21 @@ describe("sanitizePayload foreign-currency fields", () => {
       occurredAt: 1_700_000_000_000,
       categoryId: "c1",
       paymentMethodId: null,
+      currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 1000,
       exchangeRate: 81.818,
     });
     expect(clean).toMatchObject({
       amountMinor: 81_818,
+      currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 1000,
       exchangeRate: 81.818,
     });
   });
 
-  it("omits source fields for a plain default-currency transaction", () => {
+  it("omits source fields for a plain default-currency transaction but keeps currency", () => {
     const clean = sanitizePayload("transaction", {
       id: "t2",
       name: "Chai",
@@ -144,7 +154,9 @@ describe("sanitizePayload foreign-currency fields", () => {
       occurredAt: 1_700_000_000_000,
       categoryId: "c1",
       paymentMethodId: null,
+      currency: "INR",
     });
+    expect(clean).toMatchObject({ currency: "INR" });
     expect(clean).not.toHaveProperty("sourceCurrency");
     expect(clean).not.toHaveProperty("sourceAmountMinor");
     expect(clean).not.toHaveProperty("exchangeRate");

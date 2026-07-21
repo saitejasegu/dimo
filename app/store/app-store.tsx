@@ -72,6 +72,7 @@ import {
   recurringEntryFields,
   toMajorUnits,
   toMinorUnits,
+  transactionAmountInDefault,
   type RateTable,
 } from "@/features/currency/rates";
 import type { EnterableCurrency } from "@/lib/types";
@@ -164,14 +165,15 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
 /** Currency fields for a one-off transaction entered in `currency`. */
 type TransactionCurrencyFields = Pick<
   TransactionEntity,
-  "amountMinor" | "sourceCurrency" | "sourceAmountMinor" | "exchangeRate"
+  "amountMinor" | "currency" | "sourceCurrency" | "sourceAmountMinor" | "exchangeRate"
 >;
 
 /**
  * Convert a major-unit `amount` entered in `currency` into a stored transaction
- * amount denominated in `defaultCurrency`. Returns `null` when a foreign amount
- * cannot be converted (rates unavailable) so the caller can abort with a toast
- * rather than store a wrong value.
+ * amount denominated in `defaultCurrency`. Always stamps `currency` with the
+ * account default at write time so a later preferences change cannot reinterpret
+ * historical `amountMinor` values. Returns `null` when a foreign amount cannot
+ * be converted (rates unavailable).
  */
 function convertEntry(
   amount: number,
@@ -180,12 +182,15 @@ function convertEntry(
   rates: AppState["rates"],
 ): TransactionCurrencyFields | null {
   const sourceMinor = Math.max(1, toMinorUnits(amount, currency));
-  if (currency === defaultCurrency) return { amountMinor: sourceMinor };
+  if (currency === defaultCurrency) {
+    return { amountMinor: sourceMinor, currency: defaultCurrency };
+  }
   const convertedMinor = convertMinor(sourceMinor, currency, defaultCurrency, rates);
   const ratio = rateBetween(currency, defaultCurrency, rates);
   if (convertedMinor == null || ratio == null) return null;
   return {
     amountMinor: Math.max(1, convertedMinor),
+    currency: defaultCurrency,
     sourceCurrency: currency,
     sourceAmountMinor: sourceMinor,
     exchangeRate: ratio,
@@ -289,6 +294,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           id: crypto.randomUUID(), name: row.merchant, amountMinor: row.amountMinor,
           occurredAt: row.occurredAt, categoryId: category.id,
           paymentMethodId: defaultPaymentMethodId,
+          currency: state.currency,
         });
       }
       try {
@@ -473,6 +479,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           occurredAt: occurrenceTimestamp(date),
           categoryId: entity.categoryId,
           paymentMethodId: entity.paymentMethodId,
+          currency: state.currency,
         };
         return saveEntity("transaction", tx);
       });
@@ -739,7 +746,7 @@ export function AppStoreProvider({
     const methodEntities = active.filter((r) => r.entityType === "paymentMethod").map((r) => r.payload as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: t.amountMinor / 100, amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", ...source }; });
+    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
     const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
     const lends = active
       .filter((r) => r.entityType === "lend")
@@ -758,7 +765,7 @@ export function AppStoreProvider({
         day: formatTransactionDay(item.occurredAt),
       }));
     dispatch({ type: "HYDRATE_DATA", data: { transactions, recurring, lends, categories, limits: Object.fromEntries(categories.map((c) => [c.name, c.monthlyBudgetMinor === null ? null : c.monthlyBudgetMinor / 100])), paymentMethods, preferences: { ...preference, defaultView: preference.defaultView }, lastPaymentMethod: device?.lastPaymentMethodId && methodMap.get(device.lastPaymentMethodId) ? paymentMethodLabel(methodMap.get(device.lastPaymentMethodId)!) : null } });
-  }, [entities, device]);
+  }, [entities, device, state.rates]);
 
   useEffect(() => { if (!state.toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [state.toast, state.toastNonce]);
   useLayoutEffect(() => {

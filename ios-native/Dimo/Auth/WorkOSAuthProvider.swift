@@ -82,6 +82,13 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
 
   func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> WorkOSSession {
     self.onIdToken = onIdToken
+    // Reuse a still-valid session from restore/sign-in so Convex auth does not
+    // block on a second WorkOS refresh during every cold start.
+    if let current = lock.withLock({ cached }),
+       current.expiresAt.timeIntervalSinceNow > 60 {
+      onIdToken(current.accessToken)
+      return current
+    }
     guard let refresh = KeychainStore.get(account: refreshAccount) else {
       throw AuthError.notAuthenticated
     }

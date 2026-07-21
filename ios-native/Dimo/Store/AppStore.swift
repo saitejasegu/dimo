@@ -59,6 +59,9 @@ final class AppStore {
   private var syncObservation: DatabaseCancellable?
   private var writeListener: UUID?
   private var idCounter = 0
+  /// Network/email follow-up after local hydrate. Cancelled on tearDown so a
+  /// slow OpenRouter/Convex call cannot outlive the signed-in session.
+  private var remoteStartTask: Task<Void, Never>?
 
   init(
     userId: String,
@@ -80,20 +83,6 @@ final class AppStore {
       let repo = Repository(db: db)
       try repo.initializeLocalDatabase()
       repository = repo
-
-      let client = ConvexClientWithAuth(
-        deploymentUrl: AppConfig.convexURL,
-        authProvider: authProvider
-      )
-      _ = await client.loginFromCache()
-      convexClient = client
-
-      let transport = ConvexSyncTransport(client: client)
-      let coordinator = SyncCoordinator(repository: repo, transport: transport)
-      await coordinator.setProfile(name: profileName, email: profileEmail)
-      self.coordinator = coordinator
-      await coordinator.start()
-      await refreshExchangeRates()
 
       entityObservation = repo.observeEntities { [weak self] entities in
         Task { @MainActor in self?.hydrate(entities: entities) }
@@ -117,6 +106,14 @@ final class AppStore {
       }
       let entities = try repo.allEntities()
       hydrate(entities: entities)
+      dataReady = true
+
+      // Start Convex before email so OpenRouter/Gemma work cannot delay sync.
+      remoteStartTask?.cancel()
+      remoteStartTask = Task { [weak self] in
+        await self?.startRemoteServices(repository: repo)
+      }
+
       let emailController = EmailFeatureController(
         userId: userId,
         repository: repo,
@@ -129,13 +126,51 @@ final class AppStore {
         transactions: transactions,
         currency: currency
       )
-      dataReady = true
+    } catch {
+      showToast(error.localizedDescription)
+    }
+  }
+
+  /// Convex auth, sync, and rates — runs after local data is visible.
+  private func startRemoteServices(repository repo: Repository) async {
+    do {
+      try Task.checkCancellation()
+      let client = ConvexClientWithAuth(
+        deploymentUrl: AppConfig.convexURL,
+        authProvider: authProvider
+      )
+      let login = await client.loginFromCache()
+      try Task.checkCancellation()
+      switch login {
+      case .success:
+        break
+      case .failure(let error):
+        try? repo.updateSyncMeta {
+          $0.syncing = false
+          $0.error = error.localizedDescription
+        }
+        showToast(error.localizedDescription)
+        return
+      }
+      convexClient = client
+
+      let transport = ConvexSyncTransport(client: client)
+      let coordinator = SyncCoordinator(repository: repo, transport: transport)
+      await coordinator.setProfile(name: profileName, email: profileEmail)
+      try Task.checkCancellation()
+      self.coordinator = coordinator
+      await coordinator.start()
+      await refreshExchangeRates()
+    } catch is CancellationError {
+      return
     } catch {
       showToast(error.localizedDescription)
     }
   }
 
   func tearDown() async {
+    remoteStartTask?.cancel()
+    remoteStartTask = nil
     await emailController?.tearDown()
     emailController = nil
     entityObservation?.cancel()
@@ -167,7 +202,7 @@ final class AppStore {
   }
 
   func syncNow() {
-    Task { await coordinator?.request() }
+    Task { await coordinator?.request(cancelInFlight: true) }
   }
 
   func requestFullSync() {
@@ -224,13 +259,15 @@ final class AppStore {
 
   private typealias TransactionCurrencyFields = (
     amountMinor: Int,
+    currency: String,
     sourceCurrency: String?,
     sourceAmountMinor: Int?,
     exchangeRate: Double?
   )
 
   /// Converts a one-off expense into the account currency while retaining its
-  /// original amount and rate for later display and editing.
+  /// original amount and rate for later display and editing. Always stamps
+  /// `currency` with the account default at write time.
   private func transactionCurrencyFields(
     amount: Double,
     entryCurrency: String
@@ -238,7 +275,7 @@ final class AppStore {
     let sourceMinor = max(1, ExchangeRates.toMinorUnits(amount, entryCurrency))
     let defaultCurrency = currency.rawValue
     guard entryCurrency != defaultCurrency else {
-      return (sourceMinor, nil, nil, nil)
+      return (sourceMinor, defaultCurrency, nil, nil, nil)
     }
     guard let convertedMinor = ExchangeRates.convertMinor(
       sourceMinor,
@@ -248,7 +285,7 @@ final class AppStore {
     ), let rate = ExchangeRates.rateBetween(entryCurrency, defaultCurrency, rates) else {
       return nil
     }
-    return (max(1, convertedMinor), entryCurrency, sourceMinor, rate)
+    return (max(1, convertedMinor), defaultCurrency, entryCurrency, sourceMinor, rate)
   }
 
   func saveExpense() {
@@ -262,7 +299,8 @@ final class AppStore {
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: Int(expenseDraft.date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
-      paymentMethodId: expenseDraft.paymentMethodId
+      paymentMethodId: expenseDraft.paymentMethodId,
+      currency: currency.rawValue
     )
     try? repository?.saveEntity(entityType: .transaction, payload: .transaction(entity))
     try? repository?.setLastPaymentMethod(expenseDraft.paymentMethodId)
@@ -299,6 +337,7 @@ final class AppStore {
         occurredAt: min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000)),
         categoryId: category.id,
         paymentMethodId: paymentMethodId,
+        currency: converted.currency,
         sourceCurrency: converted.sourceCurrency,
         sourceAmountMinor: converted.sourceAmountMinor,
         exchangeRate: converted.exchangeRate
@@ -339,6 +378,7 @@ final class AppStore {
         occurredAt: DateHelpers.occurrenceTimestamp(occurrence, time: date),
         categoryId: category.id,
         paymentMethodId: paymentMethodId,
+        currency: converted.currency,
         sourceCurrency: converted.sourceCurrency,
         sourceAmountMinor: converted.sourceAmountMinor,
         exchangeRate: converted.exchangeRate
@@ -490,6 +530,7 @@ final class AppStore {
       occurredAt: Int(date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
       paymentMethodId: paymentMethodId,
+      currency: converted.currency,
       sourceCurrency: converted.sourceCurrency,
       sourceAmountMinor: converted.sourceAmountMinor,
       exchangeRate: converted.exchangeRate
@@ -548,6 +589,7 @@ final class AppStore {
           occurredAt: DateHelpers.occurrenceTimestamp(date),
           categoryId: category.id,
           paymentMethodId: entity.paymentMethodId,
+          currency: converted.currency,
           sourceCurrency: converted.sourceCurrency,
           sourceAmountMinor: converted.sourceAmountMinor,
           exchangeRate: converted.exchangeRate
@@ -686,7 +728,8 @@ final class AppStore {
         amountMinor: row.amountMinor,
         occurredAt: row.occurredAt,
         categoryId: category.id,
-        paymentMethodId: defaultPM
+        paymentMethodId: defaultPM,
+        currency: currency.rawValue
       )
       batch.append((.transaction, .transaction(tx)))
     }
@@ -841,13 +884,19 @@ final class AppStore {
         let sourceAmount = tx.sourceCurrency.flatMap { code in
           tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
         }
+        let amountCurrency = tx.currency ?? prefs.currency.rawValue
         return Transaction(
           id: tx.id,
           name: tx.name,
           category: cat?.name ?? "Unknown",
           time: DateHelpers.formatTransactionTime(tx.occurredAt),
           day: DateHelpers.formatTransactionDay(tx.occurredAt),
-          amount: Double(tx.amountMinor) / 100,
+          amount: ExchangeRates.transactionAmountInDefault(
+            amountMinor: tx.amountMinor,
+            currency: tx.currency,
+            defaultCurrency: prefs.currency.rawValue,
+            rates: rates
+          ),
           paymentMethod: pm?.label,
           green: cat?.tint == .green,
           emoji: cat?.emoji,
@@ -855,6 +904,7 @@ final class AppStore {
           occurredAt: tx.occurredAt,
           categoryId: tx.categoryId,
           paymentMethodId: tx.paymentMethodId,
+          currency: amountCurrency,
           sourceCurrency: tx.sourceCurrency,
           sourceAmount: sourceAmount
         )

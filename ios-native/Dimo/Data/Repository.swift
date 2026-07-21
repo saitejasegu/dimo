@@ -106,8 +106,8 @@ final class Repository: @unchecked Sendable {
     notifyWrite()
   }
 
-  /// Gives legacy recurring rows an explicit denomination and enqueues the
-  /// versioned repair so web and iOS converge on the same payload.
+  /// Gives legacy recurring and transaction rows an explicit denomination and
+  /// enqueues the versioned repair so web and iOS converge on the same payload.
   @discardableResult
   func backfillRecurringCurrencies() throws -> Int {
     var updated = 0
@@ -122,20 +122,33 @@ final class Repository: @unchecked Sendable {
         accountCurrency = SeedData.defaultPreferences.currency.rawValue
       }
 
-      let records = try EntityRecord
-        .filter(
-          Column("workspaceId") == workspaceID
-            && Column("entityType") == EntityType.recurring.rawValue
-        )
-        .fetchAll(db)
-      for record in records {
-        let stored = try record.toStoredEntity()
-        guard !stored.deleted, case .recurring(var recurring) = stored.payload else { continue }
-        let current = recurring.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard current?.isEmpty != false else { continue }
-        recurring.currency = accountCurrency
-        try putInTransaction(db, entityType: .recurring, payload: .recurring(recurring))
-        updated += 1
+      for entityType in [EntityType.recurring, .transaction] {
+        let records = try EntityRecord
+          .filter(
+            Column("workspaceId") == workspaceID
+              && Column("entityType") == entityType.rawValue
+          )
+          .fetchAll(db)
+        for record in records {
+          let stored = try record.toStoredEntity()
+          guard !stored.deleted else { continue }
+          switch stored.payload {
+          case .recurring(var recurring):
+            let current = recurring.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard current?.isEmpty != false else { continue }
+            recurring.currency = accountCurrency
+            try putInTransaction(db, entityType: .recurring, payload: .recurring(recurring))
+            updated += 1
+          case .transaction(var transaction):
+            let current = transaction.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard current?.isEmpty != false else { continue }
+            transaction.currency = accountCurrency
+            try putInTransaction(db, entityType: .transaction, payload: .transaction(transaction))
+            updated += 1
+          default:
+            continue
+          }
+        }
       }
     }
     if updated > 0 { notifyWrite() }

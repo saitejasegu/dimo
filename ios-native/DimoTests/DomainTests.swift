@@ -483,22 +483,32 @@ final class RepositoryBootstrapTests: XCTestCase {
       currency: nil
     )
     try repo.saveEntity(entityType: .recurring, payload: .recurring(recurring))
+    let transaction = TransactionEntity(
+      id: "legacy-tx",
+      name: "Coffee",
+      amountMinor: 500,
+      occurredAt: 1_700_000_000_000,
+      categoryId: "category-software",
+      paymentMethodId: SeedData.cashPaymentMethod.id,
+      currency: nil
+    )
+    try repo.saveEntity(entityType: .transaction, payload: .transaction(transaction))
 
-    XCTAssertEqual(try repo.backfillRecurringCurrencies(), 1)
-    let stored = try XCTUnwrap(
+    XCTAssertEqual(try repo.backfillRecurringCurrencies(), 2)
+    let storedRecurring = try XCTUnwrap(
       repo.activeEntities(type: .recurring).first { $0.entityId == recurring.id }
     )
-    guard case .recurring(let corrected) = stored.payload else {
+    guard case .recurring(let correctedRecurring) = storedRecurring.payload else {
       return XCTFail("expected recurring payload")
     }
-    XCTAssertEqual(corrected.currency, "USD")
-    let pending = try XCTUnwrap(
-      repo.pendingOutbox(limit: 100).first { $0.entityId == recurring.id }
+    XCTAssertEqual(correctedRecurring.currency, "USD")
+    let storedTransaction = try XCTUnwrap(
+      repo.activeEntities(type: .transaction).first { $0.entityId == transaction.id }
     )
-    guard case .recurring(let pendingPayload) = pending.payload else {
-      return XCTFail("expected recurring outbox payload")
+    guard case .transaction(let correctedTransaction) = storedTransaction.payload else {
+      return XCTFail("expected transaction payload")
     }
-    XCTAssertEqual(pendingPayload.currency, "USD")
+    XCTAssertEqual(correctedTransaction.currency, "USD")
     XCTAssertEqual(try repo.backfillRecurringCurrencies(), 0)
   }
 }
@@ -621,15 +631,16 @@ final class SanitizerTests: XCTestCase {
       occurredAt: 1_784_623_080_000,
       categoryId: "software",
       paymentMethodId: "payment-method-cash",
+      currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 2_360,
       exchangeRate: 96.44538771223525
     )
     let transactionWire = WirePayload.encode(.transaction(transaction))
+    XCTAssertEqual(transactionWire["currency"] as? String, "INR")
     XCTAssertEqual(transactionWire["sourceCurrency"] as? String, "USD")
     XCTAssertEqual(transactionWire["sourceAmountMinor"] as? Double, 2_360)
     XCTAssertEqual(transactionWire["exchangeRate"] as? Double, 96.44538771223525)
-    XCTAssertNotNil(transactionWire["sourceCurrency"])
 
     guard case .transaction(let decodedTransaction) = try WirePayload.decode(
       entityType: .transaction,
@@ -645,9 +656,11 @@ final class SanitizerTests: XCTestCase {
       amountMinor: 5_000,
       occurredAt: 1_784_623_080_000,
       categoryId: "food",
-      paymentMethodId: "payment-method-cash"
+      paymentMethodId: "payment-method-cash",
+      currency: "INR"
     )
     let defaultWire = WirePayload.encode(.transaction(defaultCurrencyTransaction))
+    XCTAssertEqual(defaultWire["currency"] as? String, "INR")
     XCTAssertNil(defaultWire["sourceCurrency"])
     XCTAssertNil(defaultWire["sourceAmountMinor"])
     XCTAssertNil(defaultWire["exchangeRate"])
@@ -704,6 +717,7 @@ final class SanitizerTests: XCTestCase {
       return XCTFail("expected transaction")
     }
     XCTAssertNil(transaction.sourceCurrency)
+    XCTAssertNil(transaction.currency)
     XCTAssertNil(transaction.sourceAmountMinor)
     XCTAssertNil(transaction.exchangeRate)
 

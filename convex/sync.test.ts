@@ -70,6 +70,7 @@ describe("Convex sync protocol", () => {
           payload: {
             ...operation.payload,
             amountMinor: 227_611,
+            currency: "INR",
             sourceCurrency: "USD",
             sourceAmountMinor: 2_360,
             exchangeRate: 96.44538771223525,
@@ -105,6 +106,7 @@ describe("Convex sync protocol", () => {
     expect(result.entities.map((entity: { payload: unknown }) => entity.payload)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          currency: "INR",
           sourceCurrency: "USD",
           sourceAmountMinor: 2_360,
           exchangeRate: 96.44538771223525,

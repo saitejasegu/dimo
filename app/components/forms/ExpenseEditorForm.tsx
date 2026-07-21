@@ -283,6 +283,7 @@ export function ExpenseEditorForm({
   // Editing a foreign-currency record shows the original amount + currency; the
   // display `amount` on a foreign transaction is the converted default value.
   const initialCurrency = (transaction?.sourceCurrency ??
+    transaction?.currency ??
     recurring?.currency ??
     currency) as EnterableCurrency;
   const initialAmount =

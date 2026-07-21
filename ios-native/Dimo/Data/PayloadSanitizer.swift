@@ -32,6 +32,7 @@ enum PayloadSanitizer {
       if occurredAt == 0 {
         occurredAt = Int(Date().timeIntervalSince1970 * 1000)
       }
+      let currency = value.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let sourceCurrency = value.sourceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let hasSource = (sourceCurrency?.isEmpty == false)
       return .transaction(TransactionEntity(
@@ -41,6 +42,7 @@ enum PayloadSanitizer {
         occurredAt: occurredAt,
         categoryId: value.categoryId,
         paymentMethodId: value.paymentMethodId,
+        currency: (currency?.isEmpty == false) ? currency : nil,
         sourceCurrency: hasSource ? sourceCurrency : nil,
         sourceAmountMinor: hasSource ? max(1, Int(Double(value.sourceAmountMinor ?? 0).rounded())) : nil,
         exchangeRate: hasSource ? value.exchangeRate : nil

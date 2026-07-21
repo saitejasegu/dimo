@@ -83,11 +83,17 @@ export interface TransactionEntity {
   occurredAt: number;
   categoryId: string;
   paymentMethodId: string | null;
-  /** Original currency when entered in a non-default currency. Absent = default. */
+  /**
+   * Denomination of `amountMinor` — the account default at write time.
+   * New writers always set it so a later preferences change cannot reinterpret
+   * historical amounts. Absent only on legacy rows.
+   */
+  currency?: string;
+  /** Original currency when entered in a non-default currency. Absent = `currency`. */
   sourceCurrency?: string;
   /** Original amount in `sourceCurrency` minor units (kept for display/edit). */
   sourceAmountMinor?: number;
-  /** Rate used to convert `sourceCurrency` → default (major-unit ratio). */
+  /** Rate used to convert `sourceCurrency` → `currency` (major-unit ratio). */
   exchangeRate?: number;
 }
 

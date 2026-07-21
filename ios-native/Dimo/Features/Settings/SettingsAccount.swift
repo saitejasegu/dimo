@@ -430,10 +430,10 @@ struct AccountScreen: View {
       } label: {
         Text(syncing ? "Syncing…" : "Sync now")
           .font(DimoFont.body(14, weight: .semibold))
-          .foregroundStyle(syncing ? Theme.muted : Theme.ink)
+          .foregroundStyle(Theme.ink)
           .padding(.horizontal, 18)
           .padding(.vertical, 11)
-          .background(syncing ? Theme.canvasDeep : Theme.canvas)
+          .background(Theme.canvas)
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
           .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -441,12 +441,11 @@ struct AccountScreen: View {
           )
       }
       .buttonStyle(.plain)
-      .disabled(syncing)
       .padding(.top, 12)
       ActionButton(
         title: "Sync now (full replace)",
         variant: .danger,
-        enabled: !syncing
+        enabled: true
       ) {
         store.requestFullSync()
       }

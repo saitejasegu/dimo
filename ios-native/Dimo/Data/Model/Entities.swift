@@ -107,12 +107,15 @@ struct TransactionEntity: Codable, Hashable, Sendable, Identifiable {
   var occurredAt: Int
   var categoryId: String
   var paymentMethodId: String?
-  /// Original currency when entered in a non-default currency. Absent = default;
-  /// `amountMinor` above is always the converted default-currency value.
+  /// Denomination of `amountMinor` — the account default at write time.
+  /// New writers always set it so a later preferences change cannot reinterpret
+  /// historical amounts. Absent only on legacy rows.
+  var currency: String?
+  /// Original currency when entered in a non-default currency. Absent = `currency`.
   var sourceCurrency: String?
   /// Original amount in `sourceCurrency` minor units (kept for display/edit).
   var sourceAmountMinor: Int?
-  /// Rate used to convert `sourceCurrency` → default (major-unit ratio).
+  /// Rate used to convert `sourceCurrency` → `currency` (major-unit ratio).
   var exchangeRate: Double?
 }
 
@@ -346,6 +349,8 @@ struct Transaction: Hashable, Sendable, Identifiable {
   var occurredAt: Int?
   var categoryId: String?
   var paymentMethodId: String?
+  /// Denomination of `amountMinor` / display `amount` when not converted for totals.
+  var currency: String?
   /// Original currency when entered in a non-default currency (else nil).
   var sourceCurrency: String?
   /// Original amount in `sourceCurrency` major units, shown alongside `amount`.

@@ -124,6 +124,23 @@ export function recurringAmountInDefault(
   return converted == null ? rec.amount : toMajorUnits(converted, defaultCurrency);
 }
 
+/**
+ * A stored transaction's `amountMinor` expressed in major units of
+ * `defaultCurrency`. Legacy rows without `currency` are treated as already in
+ * the account default.
+ */
+export function transactionAmountInDefault(
+  tx: { amount: number; amountMinor?: number; currency?: string },
+  defaultCurrency: string,
+  rates: RateTable | null,
+): number {
+  const currency = tx.currency ?? defaultCurrency;
+  const minor = tx.amountMinor ?? toMinorUnits(tx.amount, currency);
+  if (currency === defaultCurrency) return toMajorUnits(minor, currency);
+  const converted = convertMinor(minor, currency, defaultCurrency, rates);
+  return converted == null ? toMajorUnits(minor, currency) : toMajorUnits(converted, defaultCurrency);
+}
+
 /** Read the last cached rate table from localStorage, or `null`. */
 export function loadCachedRates(): RateTable | null {
   if (typeof window === "undefined") return null;

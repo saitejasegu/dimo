@@ -703,7 +703,7 @@ struct ExpenseEditorSheet: View {
       isRecurring = false
     case .transaction(let id):
       guard let item = store.transactions.first(where: { $0.id == id }) else { return }
-      entryCurrency = item.sourceCurrency ?? store.currency.rawValue
+      entryCurrency = item.sourceCurrency ?? item.currency ?? store.currency.rawValue
       name = item.name
       amount = formatAmount(item.sourceAmount ?? item.amount)
       category = item.category

@@ -7,6 +7,7 @@ import {
   recurringAmountInDefault,
   toMajorUnits,
   toMinorUnits,
+  transactionAmountInDefault,
   type RateTable,
 } from "@/features/currency/rates";
 
@@ -72,6 +73,26 @@ describe("minor/major helpers", () => {
       amountMinor: 50_000,
       currency: "INR",
     });
+  });
+});
+
+describe("transactionAmountInDefault", () => {
+  it("passes through a default-currency transaction unchanged", () => {
+    expect(
+      transactionAmountInDefault({ amount: 500, amountMinor: 50_000, currency: "INR" }, "INR", rates),
+    ).toBe(500);
+    expect(transactionAmountInDefault({ amount: 500, amountMinor: 50_000 }, "INR", rates)).toBe(500);
+  });
+
+  it("converts a historical transaction when the account default changes", () => {
+    // ₹900 (90000 minor, currency INR) shown in EUR: 900/90 = €10
+    expect(
+      transactionAmountInDefault(
+        { amount: 900, amountMinor: 90_000, currency: "INR" },
+        "EUR",
+        rates,
+      ),
+    ).toBe(10);
   });
 });
 

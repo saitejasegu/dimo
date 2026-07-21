@@ -168,6 +168,7 @@ describe("recurring materialization", () => {
     // $23.60 * 100 = ₹2,360 -> 236,000 minor units.
     expect(pulled.entities[0].payload).toMatchObject({
       amountMinor: 236_000,
+      currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 2_360,
       exchangeRate: 100,

@@ -58,6 +58,8 @@ export interface Transaction {
   occurredAt?: number;
   categoryId?: ID;
   paymentMethodId?: ID | null;
+  /** Denomination of `amountMinor` — account default at write time. */
+  currency?: EnterableCurrency;
   /** Original currency when entered in a non-default currency (else absent). */
   sourceCurrency?: EnterableCurrency;
   /** Original amount in `sourceCurrency` major units, for display alongside `amount`. */

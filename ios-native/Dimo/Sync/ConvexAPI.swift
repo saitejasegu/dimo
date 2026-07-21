@@ -43,6 +43,7 @@ struct WireTransaction: Codable, Sendable {
   var occurredAt: Double
   var categoryId: String
   var paymentMethodId: String?
+  var currency: String?
   var sourceCurrency: String?
   var sourceAmountMinor: Double?
   var exchangeRate: Double?
@@ -155,6 +156,9 @@ enum WirePayload {
         "categoryId": e.categoryId,
         "paymentMethodId": e.paymentMethodId as Any? ?? NSNull(),
       ]
+      if let currency = e.currency, !currency.isEmpty {
+        dict["currency"] = currency
+      }
       // Optional foreign-currency fields: omit (not null) so v.optional accepts absence.
       if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
         dict["sourceCurrency"] = sourceCurrency
@@ -267,6 +271,7 @@ enum WirePayload {
       ))
     case .transaction:
       let wire = try JSONDecoder().decode(WireTransaction.self, from: data)
+      let currency = wire.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let sourceCurrency = wire.sourceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let hasSource = (sourceCurrency?.isEmpty == false)
       return .transaction(TransactionEntity(
@@ -276,6 +281,7 @@ enum WirePayload {
         occurredAt: Int(wire.occurredAt),
         categoryId: wire.categoryId,
         paymentMethodId: wire.paymentMethodId,
+        currency: (currency?.isEmpty == false) ? currency : nil,
         sourceCurrency: hasSource ? sourceCurrency : nil,
         sourceAmountMinor: hasSource ? wire.sourceAmountMinor.map { Int($0) } : nil,
         exchangeRate: hasSource ? wire.exchangeRate : nil

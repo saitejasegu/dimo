@@ -111,6 +111,8 @@ export function sanitizePayload<T extends EntityType>(
         categoryId: value.categoryId,
         paymentMethodId: value.paymentMethodId ?? null,
       };
+      const currency = String(value.currency ?? "").trim();
+      if (currency) clean.currency = currency;
       // Preserve foreign-currency origin only when a real source currency exists.
       const sourceCurrency = String(value.sourceCurrency ?? "").trim();
       if (sourceCurrency) {
@@ -382,9 +384,9 @@ export async function saveEntities(
 }
 
 /**
- * Give legacy recurring rows an explicit denomination using the synced account
- * currency. Writing through the normal repository path versions the repair and
- * places it in the outbox so every client converges on the same payload.
+ * Give legacy recurring and transaction rows an explicit denomination using the
+ * synced account currency. Writing through the normal repository path versions
+ * the repair and places it in the outbox so every client converges.
  */
 export async function backfillRecurringCurrencies() {
   let updated = 0;
@@ -394,17 +396,20 @@ export async function backfillRecurringCurrencies() {
       !preferences?.deleted && preferences?.payload && "currency" in preferences.payload
         ? String(preferences.payload.currency || DEFAULT_PREFERENCES.currency)
         : DEFAULT_PREFERENCES.currency;
-    const rows = await db.entities
-      .where("[workspaceId+entityType]")
-      .equals([WORKSPACE_ID, "recurring"])
-      .toArray();
 
-    for (const row of rows) {
-      if (row.deleted) continue;
-      const payload = row.payload as RecurringEntity;
-      if (String(payload.currency ?? "").trim()) continue;
-      await putInCurrentTransaction("recurring", { ...payload, currency: accountCurrency });
-      updated += 1;
+    for (const entityType of ["recurring", "transaction"] as const) {
+      const rows = await db.entities
+        .where("[workspaceId+entityType]")
+        .equals([WORKSPACE_ID, entityType])
+        .toArray();
+
+      for (const row of rows) {
+        if (row.deleted) continue;
+        const payload = row.payload as RecurringEntity | TransactionEntity;
+        if (String(payload.currency ?? "").trim()) continue;
+        await putInCurrentTransaction(entityType, { ...payload, currency: accountCurrency });
+        updated += 1;
+      }
     }
   });
   if (updated > 0) notifyWrite();

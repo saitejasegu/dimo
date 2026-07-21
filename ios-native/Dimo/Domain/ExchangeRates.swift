@@ -107,6 +107,21 @@ enum ExchangeRates {
     else { return rec.amount }
     return toMajorUnits(converted, defaultCurrency)
   }
+
+  /// A stored transaction's `amountMinor` in major units of `defaultCurrency`.
+  /// Legacy rows without `currency` are treated as already in the account default.
+  static func transactionAmountInDefault(
+    amountMinor: Int,
+    currency: String?,
+    defaultCurrency: String,
+    rates: RateTable?
+  ) -> Double {
+    let code = currency ?? defaultCurrency
+    if code == defaultCurrency { return toMajorUnits(amountMinor, code) }
+    guard let converted = convertMinor(amountMinor, from: code, to: defaultCurrency, rates: rates)
+    else { return toMajorUnits(amountMinor, code) }
+    return toMajorUnits(converted, defaultCurrency)
+  }
 }
 
 /// Local cache for the Convex `exchangeRates:latest` snapshot.

@@ -55,11 +55,15 @@ export const transactionValidator = v.object({
   occurredAt: v.number(),
   categoryId: v.string(),
   paymentMethodId: v.union(v.string(), v.null()),
-  // Foreign-currency origin. Absent means the amount was entered in the account
-  // default currency (legacy / single-currency behavior). `amountMinor` above is
-  // always the converted default-currency value; these preserve the original.
-  // Currency codes use v.string() with an app-side allow-list rather than a
-  // union so the enterable set can grow without a schema migration.
+  // Denomination of `amountMinor` — the account default currency at write time.
+  // New writers always include it so a later preferences.currency change cannot
+  // reinterpret historical amounts. Absence is accepted only for legacy rows and
+  // means "use the current account default". Uses v.string() with an app-side
+  // allow-list so the enterable set can grow without a schema migration.
+  currency: v.optional(v.string()),
+  // Foreign-currency origin. Absent means the amount was entered in `currency`
+  // (or the account default for legacy rows). `amountMinor` is the value in
+  // `currency`; these preserve the original entry for display/edit.
   sourceCurrency: v.optional(v.string()),
   sourceAmountMinor: v.optional(v.number()),
   exchangeRate: v.optional(v.number()),

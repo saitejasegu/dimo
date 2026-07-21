@@ -58,7 +58,9 @@ export function EditExpenseForm({
   ];
 
   const initialOccurred = new Date(transaction.occurredAt ?? 0);
-  const entryCurrency = (transaction.sourceCurrency ?? currency) as EnterableCurrency;
+  const entryCurrency = (transaction.sourceCurrency ??
+    transaction.currency ??
+    currency) as EnterableCurrency;
   const [amount, setAmount] = useState(
     String(transaction.sourceCurrency ? transaction.sourceAmount ?? transaction.amount : transaction.amount),
   );
