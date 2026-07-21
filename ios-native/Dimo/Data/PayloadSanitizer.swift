@@ -32,19 +32,25 @@ enum PayloadSanitizer {
       if occurredAt == 0 {
         occurredAt = Int(Date().timeIntervalSince1970 * 1000)
       }
+      let sourceCurrency = value.sourceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let hasSource = (sourceCurrency?.isEmpty == false)
       return .transaction(TransactionEntity(
         id: value.id,
         name: value.name,
         amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
         occurredAt: occurredAt,
         categoryId: value.categoryId,
-        paymentMethodId: value.paymentMethodId
+        paymentMethodId: value.paymentMethodId,
+        sourceCurrency: hasSource ? sourceCurrency : nil,
+        sourceAmountMinor: hasSource ? max(1, Int(Double(value.sourceAmountMinor ?? 0).rounded())) : nil,
+        exchangeRate: hasSource ? value.exchangeRate : nil
       ))
 
     case .recurring:
       guard case .recurring(let value) = payload else { return payload }
       let anchor = value.anchorDate
       let validAnchor = anchor.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
+      let recurringCurrency = value.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
       return .recurring(RecurringEntity(
         id: value.id,
         name: value.name,
@@ -53,7 +59,8 @@ enum PayloadSanitizer {
         paymentMethodId: value.paymentMethodId,
         frequency: value.frequency == .yearly ? .yearly : .monthly,
         anchorDate: validAnchor ? anchor : DateHelpers.localDateKey(Date()),
-        paused: value.paused
+        paused: value.paused,
+        currency: (recurringCurrency?.isEmpty == false) ? recurringCurrency : nil
       ))
 
     case .lend:

@@ -4,6 +4,7 @@ import type { Currency, Recurring } from "@/lib/types";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { useAppState } from "@/store/app-store";
+import { convertMinor, toMajorUnits, toMinorUnits } from "@/features/currency/rates";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 
 /** Compact upcoming-bill row used on the home/overview screens. */
@@ -18,12 +19,22 @@ export function UpcomingRow({
   onClick: () => void;
   size?: "mobile" | "web";
 }) {
-  const { categories } = useAppState();
+  const { categories, rates } = useAppState();
   const emoji =
     recurring.emoji ??
     categories.find((c) => c.id === recurring.categoryId)?.emoji ??
     categories.find((c) => c.name === recurring.category)?.emoji;
   const web = size === "web";
+  // Foreign bills show their own-currency amount plus today's default-currency value.
+  const foreign = Boolean(recurring.currency && recurring.currency !== currency);
+  const todayMinor = foreign
+    ? convertMinor(
+        recurring.amountMinor ?? toMinorUnits(recurring.amount, recurring.currency!),
+        recurring.currency!,
+        currency,
+        rates,
+      )
+    : null;
   return (
     <button
       type="button"
@@ -69,14 +80,23 @@ export function UpcomingRow({
           </span>
         )}
       </span>
-      <span
-        className={cn(
-          "font-display font-semibold",
-          recurring.paused ? "text-muted" : "text-ink",
-          web ? "text-sm" : "text-[15px]",
-        )}
-      >
-        {money(recurring.amount, currency)}
+      <span className="flex shrink-0 flex-col items-end">
+        <span
+          className={cn(
+            "font-display font-semibold",
+            recurring.paused ? "text-muted" : "text-ink",
+            web ? "text-sm" : "text-[15px]",
+          )}
+        >
+          {money(recurring.amount, recurring.currency ?? currency)}
+        </span>
+        {foreign ? (
+          <span className="text-[11px] text-muted">
+            {todayMinor != null
+              ? `≈ ${money(toMajorUnits(todayMinor, currency), currency)} today`
+              : "rate unavailable"}
+          </span>
+        ) : null}
       </span>
     </button>
   );

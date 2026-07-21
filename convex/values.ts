@@ -55,6 +55,14 @@ export const transactionValidator = v.object({
   occurredAt: v.number(),
   categoryId: v.string(),
   paymentMethodId: v.union(v.string(), v.null()),
+  // Foreign-currency origin. Absent means the amount was entered in the account
+  // default currency (legacy / single-currency behavior). `amountMinor` above is
+  // always the converted default-currency value; these preserve the original.
+  // Currency codes use v.string() with an app-side allow-list rather than a
+  // union so the enterable set can grow without a schema migration.
+  sourceCurrency: v.optional(v.string()),
+  sourceAmountMinor: v.optional(v.number()),
+  exchangeRate: v.optional(v.number()),
 });
 
 export const recurringValidator = v.object({
@@ -66,6 +74,12 @@ export const recurringValidator = v.object({
   frequency: v.union(v.literal("monthly"), v.literal("yearly")),
   anchorDate: v.string(),
   paused: v.boolean(),
+  // Currency the recurring amount (`amountMinor`) is denominated in. New writers
+  // always include it; absence is accepted only for legacy rows and means the
+  // account default currency. Each materialized occurrence is
+  // converted from this currency at that day's rate. Uses v.string() with an
+  // app-side allow-list so the enterable set can grow without a migration.
+  currency: v.optional(v.string()),
 });
 
 export const lendValidator = v.object({

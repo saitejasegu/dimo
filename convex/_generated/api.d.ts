@@ -9,6 +9,7 @@
  */
 
 import type * as crons from "../crons.js";
+import type * as exchangeRates from "../exchangeRates.js";
 import type * as recurringJobs from "../recurringJobs.js";
 import type * as sync from "../sync.js";
 import type * as values from "../values.js";
@@ -21,6 +22,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
+  exchangeRates: typeof exchangeRates;
   recurringJobs: typeof recurringJobs;
   sync: typeof sync;
   values: typeof values;

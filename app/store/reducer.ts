@@ -701,6 +701,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "SET_CURRENCY":
       return { ...state, currency: action.currency };
 
+    case "SET_RATES":
+      return { ...state, rates: action.rates };
+
     case "SET_WEEK_START":
       return { ...state, weekStart: action.weekStart };
 

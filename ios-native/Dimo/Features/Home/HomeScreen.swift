@@ -158,7 +158,13 @@ struct HomeScreen: View {
       let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
       let canShowAll = allUpcoming.count > upcoming.count
       let upcomingTotal = visibleUpcoming.reduce(0) { total, item in
-        total + (item.paused ? 0 : item.amount)
+        total + (item.paused
+          ? 0
+          : ExchangeRates.recurringAmountInDefault(
+              item,
+              defaultCurrency: store.currency.rawValue,
+              rates: store.rates
+            ))
       }
       VStack(alignment: .leading, spacing: 0) {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -198,7 +204,14 @@ struct HomeScreen: View {
                 store.openEditRecurring(rec.id)
               } label: {
                 HStack(spacing: 12) {
-                  CategoryTintView(green: rec.green, emoji: store.categoryEmoji(explicit: rec.emoji, categoryId: rec.categoryId, category: rec.category))
+                  CategoryTintView(
+                    green: rec.green,
+                    emoji: store.categoryEmoji(
+                      explicit: rec.emoji,
+                      categoryId: rec.categoryId,
+                      category: rec.category
+                    )
+                  )
                     .saturation(rec.paused ? 0 : 1)
                     .opacity(rec.paused ? 0.6 : 1)
                   VStack(alignment: .leading, spacing: 2) {
@@ -223,9 +236,24 @@ struct HomeScreen: View {
                     }
                   }
                   Spacer()
-                  Text(Formatting.money(rec.amount, currency: store.currency))
-                    .font(DimoFont.display(15, weight: .semibold))
-                    .foregroundStyle(rec.paused ? Theme.muted : Theme.ink)
+                  VStack(alignment: .trailing, spacing: 4) {
+                    Text(
+                      Formatting.money(
+                        rec.amount,
+                        currencyCode: rec.currency ?? store.currency.rawValue
+                      )
+                    )
+                      .font(DimoFont.display(15, weight: .semibold))
+                      .foregroundStyle(rec.paused ? Theme.muted : Theme.ink)
+
+                    if let estimate = recurringEstimate(rec) {
+                      Text(estimate)
+                        .font(DimoFont.body(12))
+                        .foregroundStyle(Theme.muted)
+                        .lineLimit(1)
+                    }
+                  }
+                  .fixedSize(horizontal: true, vertical: false)
                 }
                 .cardRow(
                   borderColor: rec.paused ? Theme.hairline : Theme.line,
@@ -240,6 +268,22 @@ struct HomeScreen: View {
       }
       .padding(.bottom, 22)
     }
+  }
+
+  private func recurringEstimate(_ rec: Recurring) -> String? {
+    let defaultCurrency = store.currency.rawValue
+    guard let sourceCurrency = rec.currency, sourceCurrency != defaultCurrency else { return nil }
+    let sourceMinor = rec.amountMinor ?? ExchangeRates.toMinorUnits(rec.amount, sourceCurrency)
+    guard let convertedMinor = ExchangeRates.convertMinor(
+      sourceMinor,
+      from: sourceCurrency,
+      to: defaultCurrency,
+      rates: store.rates
+    ) else {
+      return "Rate unavailable"
+    }
+    let converted = ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency)
+    return "≈ \(Formatting.money(converted, currencyCode: defaultCurrency)) today"
   }
 
   private var transactionsSection: some View {

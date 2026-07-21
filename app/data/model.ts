@@ -83,6 +83,12 @@ export interface TransactionEntity {
   occurredAt: number;
   categoryId: string;
   paymentMethodId: string | null;
+  /** Original currency when entered in a non-default currency. Absent = default. */
+  sourceCurrency?: string;
+  /** Original amount in `sourceCurrency` minor units (kept for display/edit). */
+  sourceAmountMinor?: number;
+  /** Rate used to convert `sourceCurrency` → default (major-unit ratio). */
+  exchangeRate?: number;
 }
 
 export interface RecurringEntity {
@@ -94,6 +100,8 @@ export interface RecurringEntity {
   frequency: "monthly" | "yearly";
   anchorDate: string;
   paused: boolean;
+  /** Currency the amount is denominated in. Absent only on legacy rows. */
+  currency?: string;
 }
 
 export interface LendEntity {

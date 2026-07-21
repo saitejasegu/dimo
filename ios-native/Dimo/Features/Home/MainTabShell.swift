@@ -95,6 +95,8 @@ struct MainTabShell: View {
           ExpenseEditorSheet(store: store, mode: .recurring(id)) {
             openSettings()
           }
+        } else {
+          AddRecurringSheet(store: store)
         }
       case .category:
         NewCategorySheet(store: store)

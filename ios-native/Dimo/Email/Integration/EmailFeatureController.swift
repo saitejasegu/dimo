@@ -1414,7 +1414,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       paymentMethodId: draft.paymentMethodID,
       frequency: draft.recurringFrequency,
       anchorDate: DateHelpers.localDateKey(draft.occurredAt),
-      paused: false
+      paused: false,
+      currency: currency.rawValue
     ) : nil
     try repository.acceptEmailSuggestion(
       messageKey: draft.suggestionID,

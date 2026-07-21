@@ -18,6 +18,7 @@ import type {
   WeekStart,
 } from "@/lib/types";
 import type { CategoryEntity, PreferencesEntity } from "@/data/model";
+import type { RateTable } from "@/features/currency/rates";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -105,6 +106,8 @@ export interface AppState {
   defaultView: string;
   defaultStatsRange: StatsRange;
   notifications: NotificationSettings;
+  /** Latest ECB exchange rates for foreign-currency display; null until fetched. */
+  rates: RateTable | null;
 
   // ----- Transient UI -----
   toast: string | null;
@@ -181,6 +184,7 @@ export function createInitialState(
     defaultView: DEFAULT_PREFERENCES.defaultView,
     defaultStatsRange: DEFAULT_PREFERENCES.defaultStatsRange,
     notifications: DEFAULT_PREFERENCES.notifications,
+    rates: null,
     toast: null,
     toastNonce: 0,
   };

@@ -23,7 +23,21 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
 
   func restoreSession() async -> WorkOSSession? {
     do {
-      return try await loginFromCache(onIdToken: { _ in })
+      return try await withThrowingTaskGroup(of: WorkOSSession.self) { group in
+        group.addTask { [self] in
+          try await loginFromCache(onIdToken: { _ in })
+        }
+        group.addTask {
+          try await Task.sleep(for: .seconds(10))
+          throw URLError(.timedOut)
+        }
+
+        defer { group.cancelAll() }
+        guard let session = try await group.next() else {
+          throw AuthError.notAuthenticated
+        }
+        return session
+      }
     } catch {
       return nil
     }

@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-import { currencySymbol } from "@/lib/format";
+import { currencySymbol, money } from "@/lib/format";
+import {
+  CURRENCY_META,
+  ENTERABLE_CURRENCIES,
+  convertMinor,
+  rateBetween,
+  toMajorUnits,
+  toMinorUnits,
+} from "@/features/currency/rates";
 import {
   localDateKey,
   localDateTimeTimestamp,
@@ -12,6 +20,7 @@ import {
 } from "@/lib/dates";
 import {
   paymentMethodLabel,
+  type EnterableCurrency,
   type Frequency,
   type PaymentMethod,
   type Recurring,
@@ -138,6 +147,98 @@ function FrequencySelect({
   );
 }
 
+function CurrencySelect({
+  value,
+  onChange,
+  mobile,
+}: {
+  value: EnterableCurrency;
+  onChange: (value: EnterableCurrency) => void;
+  mobile: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={`Expense currency: ${value}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={cn(
+          "inline-flex items-center rounded-xl px-1 transition-colors hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green/25",
+          mobile
+            ? "min-h-11 gap-0.5 font-display text-[40px] font-semibold leading-none text-inherit"
+            : "gap-1 font-display text-[26px] font-semibold text-faint",
+          open && "bg-canvas",
+        )}
+      >
+        <span>{CURRENCY_META[value]?.symbol ?? value}</span>
+        <span
+          aria-hidden
+          className={cn("text-[10px] text-muted transition-transform", open && "rotate-180")}
+        >
+          ▾
+        </span>
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          aria-label="Expense currency"
+          className="absolute left-0 top-full z-50 mt-2 max-h-64 min-w-[9rem] overflow-y-auto rounded-xl border border-line bg-popup p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.28)]"
+        >
+          {ENTERABLE_CURRENCIES.map((option) => {
+            const selected = option === value;
+            const meta = CURRENCY_META[option];
+            return (
+              <button
+                key={option}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  onChange(option);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                  selected
+                    ? "bg-green-soft font-medium text-green-deep"
+                    : "text-ink hover:bg-canvas focus:bg-canvas",
+                )}
+              >
+                <span>
+                  {meta.symbol} {meta.label}
+                </span>
+                {selected ? <span className="text-green">✓</span> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ExpenseEditorForm({
   mode,
   size,
@@ -154,6 +255,7 @@ export function ExpenseEditorForm({
   const {
     expenseDraft,
     currency,
+    rates,
     limits,
     paymentMethods,
     transactions,
@@ -178,9 +280,19 @@ export function ExpenseEditorForm({
     ? localDateKey(nextOccurrence({ anchorDate: recurring.anchorDate, frequency: recurring.frequency }))
     : today;
 
-  const [amount, setAmount] = useState(
-    mode === "create" ? expenseDraft.amount : formatAmount((transaction ?? recurring)?.amount ?? 0),
-  );
+  // Editing a foreign-currency record shows the original amount + currency; the
+  // display `amount` on a foreign transaction is the converted default value.
+  const initialCurrency = (transaction?.sourceCurrency ??
+    recurring?.currency ??
+    currency) as EnterableCurrency;
+  const initialAmount =
+    mode === "create"
+      ? expenseDraft.amount
+      : formatAmount(
+          (transaction?.sourceCurrency ? transaction.sourceAmount : (transaction ?? recurring)?.amount) ?? 0,
+        );
+  const [amount, setAmount] = useState(initialAmount);
+  const [entryCurrency, setEntryCurrency] = useState<EnterableCurrency>(initialCurrency);
   const [name, setName] = useState(
     mode === "create" ? expenseDraft.name : (transaction ?? recurring)?.name ?? "",
   );
@@ -216,6 +328,18 @@ export function ExpenseEditorForm({
     ...(selectedArchived ? [selectedArchived] : []),
   ];
   const amountValue = Number(amount);
+  // Live converted preview when entering a non-default currency.
+  const foreignEntry = entryCurrency !== currency;
+  const previewMinor =
+    foreignEntry && amountValue > 0
+      ? convertMinor(toMinorUnits(amountValue, entryCurrency), entryCurrency, currency, rates)
+      : null;
+  const conversionRate = foreignEntry ? rateBetween(entryCurrency, currency, rates) : null;
+  const conversionLabel = foreignEntry && amountValue > 0
+    ? previewMinor != null && conversionRate != null
+      ? `${currencySymbol(entryCurrency)}${amountValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })} × ${conversionRate.toLocaleString("en-IN", { maximumFractionDigits: 4 })} = ${money(toMajorUnits(previewMinor, currency), currency)}`
+      : "Rates unavailable"
+    : null;
   const normalDateValid = isRecurring || date <= today;
   const valid =
     amountValue > 0 &&
@@ -231,12 +355,14 @@ export function ExpenseEditorForm({
         paymentMethod: initialPaymentMethod,
         date: recurringDate,
         frequency: recurring.frequency === "yearly" ? "Yearly" : "Monthly",
+        currency: initialCurrency,
       }
     : null;
   const recurringDirty = Boolean(
     originalRecurring &&
       (name.trim() !== originalRecurring.name ||
         amount !== originalRecurring.amount ||
+        entryCurrency !== originalRecurring.currency ||
         category !== originalRecurring.category ||
         paymentMethod !== originalRecurring.paymentMethod ||
         date !== originalRecurring.date ||
@@ -247,6 +373,7 @@ export function ExpenseEditorForm({
     actions.saveExpense({
       name,
       amount: amountValue,
+      currency: entryCurrency,
       category,
       paymentMethod,
       date,
@@ -263,6 +390,7 @@ export function ExpenseEditorForm({
       actions.saveTransactionEdits(transaction.id, {
         name: name.trim() || category,
         amount: amountValue,
+        currency: entryCurrency,
         category,
         paymentMethod,
         occurredAt: localDateTimeTimestamp(date, time),
@@ -276,6 +404,7 @@ export function ExpenseEditorForm({
         actions.saveRecurringEdits(recurring.id, {
           name,
           amount: amountValue,
+          currency: entryCurrency,
           category,
           paymentMethod,
           anchorDate: date,
@@ -311,18 +440,20 @@ export function ExpenseEditorForm({
     <div>
       <div
         className={cn(
-          "mb-3.5",
+          "mb-1.5 flex items-center",
           mobile
-            ? "text-center font-display text-[40px] font-semibold"
-            : "flex items-center gap-2.5 rounded-[14px] border border-line bg-canvas px-[18px] py-3.5",
+            ? "justify-center font-display text-[40px] font-semibold leading-none"
+            : "gap-2.5 rounded-[14px] border border-line bg-canvas px-[18px] py-3.5",
           mobile && (amountValue > 0 ? "text-ink" : "text-disabled"),
         )}
       >
-        <span className={cn(!mobile && "font-display text-[26px] font-semibold text-faint")}>
-          {currencySymbol(currency)}
-        </span>
+        <CurrencySelect
+          value={entryCurrency}
+          onChange={setEntryCurrency}
+          mobile={mobile}
+        />
         {mobile ? (
-          amount || "0"
+          <span>{amount || "0"}</span>
         ) : (
           <input
             value={amount}
@@ -335,6 +466,24 @@ export function ExpenseEditorForm({
             className="w-full flex-1 bg-transparent font-display text-[32px] font-semibold text-ink outline-none placeholder:text-faint"
           />
         )}
+      </div>
+
+      <div
+        className={cn(
+          "mb-3.5 flex min-h-5 items-center",
+          mobile ? "justify-center" : "justify-start",
+        )}
+      >
+        {conversionLabel ? (
+          <span
+            className={cn(
+              "text-xs",
+              previewMinor != null ? "text-muted" : "text-danger",
+            )}
+          >
+            {conversionLabel}
+          </span>
+        ) : null}
       </div>
 
       <MerchantField

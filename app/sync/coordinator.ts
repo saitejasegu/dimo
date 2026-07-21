@@ -12,6 +12,7 @@ import {
 } from "@/data/model";
 import {
   acknowledgeOperations,
+  backfillRecurringCurrencies,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   mergeRemotePage,
@@ -177,6 +178,7 @@ export class SyncCoordinator {
         // WorkOS JWTs omit these claims, so pass the AuthKit user profile explicitly.
         await this.ensureProfile();
         if (replace) {
+          await backfillRecurringCurrencies();
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
           await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
           await enqueueFullUpload([...OWNED_ENTITY_TYPES]);
@@ -184,6 +186,7 @@ export class SyncCoordinator {
           await this.pullAll();
         } else {
           await this.pullAll();
+          await backfillRecurringCurrencies();
           // Upload bootstrap defaults only if pull left them unsynced (empty
           // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           await enqueueUnsyncedDefaults();

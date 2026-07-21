@@ -1,6 +1,7 @@
 import { internalMutationGeneric } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { convertMinorAmount, rateOn } from "./exchangeRates";
 
 /* Generic Convex functions intentionally use untyped index builders until a
    deployment is linked and Convex generates its schema-specific bindings. */
@@ -20,7 +21,31 @@ type RecurringPayload = {
   frequency: Frequency;
   anchorDate: string;
   paused: boolean;
+  /** Currency the amount is denominated in. Absent = account default currency. */
+  currency?: string;
 };
+
+type DefaultCurrency = "INR" | "USD" | "EUR";
+
+/** Read an owner's default currency from their preferences entity (defaults to INR). */
+async function ownerDefaultCurrency(
+  ctx: { db: any },
+  ownerId: string,
+  workspaceId: string,
+): Promise<DefaultCurrency> {
+  const prefs = await ctx.db
+    .query("entities")
+    .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
+      q
+        .eq("ownerId", ownerId)
+        .eq("workspaceId", workspaceId)
+        .eq("entityType", "preferences")
+        .eq("entityId", "preferences"),
+    )
+    .unique();
+  const currency = prefs?.payload?.currency;
+  return currency === "USD" || currency === "EUR" ? currency : "INR";
+}
 
 type DateParts = { year: number; month: number; day: number };
 
@@ -100,6 +125,16 @@ export const materializeDue = internalMutationGeneric({
       .withIndex("by_entity_type", (q: any) => q.eq("entityType", "recurring"))
       .paginate({ cursor: args.cursor ?? null, numItems: PAGE_SIZE });
 
+    // One preferences read per owner per page keeps the default-currency lookup cheap.
+    const currencyCache = new Map<string, DefaultCurrency>();
+    const defaultCurrencyFor = async (ownerId: string, workspaceId: string) => {
+      const cached = currencyCache.get(ownerId);
+      if (cached) return cached;
+      const resolved = await ownerDefaultCurrency(ctx, ownerId, workspaceId);
+      currencyCache.set(ownerId, resolved);
+      return resolved;
+    };
+
     let created = 0;
     for (const row of page.page) {
       if (row.deleted || !row.ownerId || row.workspaceId !== "global") continue;
@@ -128,13 +163,51 @@ export const materializeDue = internalMutationGeneric({
         .unique();
       const revision = (workspace?.revision ?? 0) + 1;
       const occurredAt = occurrenceTimestampIST(dateKey);
+
+      // Convert foreign-currency bills into the owner's default currency at that
+      // day's rate. Absent/matching currency keeps the legacy straight copy.
+      let amountMinor = recurring.amountMinor;
+      let source: {
+        sourceCurrency: string;
+        sourceAmountMinor: number;
+        exchangeRate: number;
+      } | null = null;
+      if (recurring.currency && recurring.currency !== "") {
+        const defaultCurrency = await defaultCurrencyFor(row.ownerId, row.workspaceId);
+        if (recurring.currency !== defaultCurrency) {
+          const ratio = await rateOn(ctx, dateKey, recurring.currency, defaultCurrency);
+          if (ratio != null) {
+            amountMinor = convertMinorAmount(
+              recurring.amountMinor,
+              recurring.currency,
+              defaultCurrency,
+              ratio,
+            );
+            source = {
+              sourceCurrency: recurring.currency,
+              sourceAmountMinor: recurring.amountMinor,
+              exchangeRate: ratio,
+            };
+          } else {
+            // Never label a foreign amount as the owner's default currency.
+            // Leaving the occurrence absent allows a same-date retry after the
+            // rates refresh succeeds.
+            console.warn(
+              `materializeDue: no rate ${recurring.currency}->${defaultCurrency} on ${dateKey}; skipping occurrence`,
+            );
+            continue;
+          }
+        }
+      }
+
       const payload = {
         id: entityId,
         name: recurring.name,
-        amountMinor: recurring.amountMinor,
+        amountMinor,
         occurredAt,
         categoryId: recurring.categoryId,
         paymentMethodId: recurring.paymentMethodId,
+        ...(source ?? {}),
       };
       await ctx.db.insert("entities", {
         ownerId: row.ownerId,

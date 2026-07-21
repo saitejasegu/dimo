@@ -5,6 +5,7 @@ import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { recurringSubtitle } from "@/features/recurring/selectors";
 import { useAppState } from "@/store/app-store";
+import { convertMinor, toMajorUnits, toMinorUnits } from "@/features/currency/rates";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 import { Badge } from "@/components/ui/Badge";
 
@@ -24,11 +25,20 @@ export function RecurringRow({
   currency: Currency;
   onClick: () => void;
 }) {
-  const { categories } = useAppState();
+  const { categories, rates } = useAppState();
   const emoji =
     recurring.emoji ??
     categories.find((c) => c.id === recurring.categoryId)?.emoji ??
     categories.find((c) => c.name === recurring.category)?.emoji;
+  const foreign = Boolean(recurring.currency && recurring.currency !== currency);
+  const todayMinor = foreign
+    ? convertMinor(
+        recurring.amountMinor ?? toMinorUnits(recurring.amount, recurring.currency!),
+        recurring.currency!,
+        currency,
+        rates,
+      )
+    : null;
 
   return (
     <button
@@ -55,8 +65,15 @@ export function RecurringRow({
             recurring.paused ? "text-faint" : "text-ink",
           )}
         >
-          {money(recurring.amount, currency)}
+          {money(recurring.amount, recurring.currency ?? currency)}
         </span>
+        {foreign ? (
+          <span className="text-[11px] text-muted">
+            {todayMinor != null
+              ? `≈ ${money(toMajorUnits(todayMinor, currency), currency)} today`
+              : "rate unavailable"}
+          </span>
+        ) : null}
         <Badge
           label={recurring.paused ? "Paused" : "Active"}
           tone={recurring.paused ? "muted" : "green"}

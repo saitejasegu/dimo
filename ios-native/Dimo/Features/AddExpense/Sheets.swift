@@ -131,6 +131,7 @@ enum ExpenseEditorMode: Equatable {
 private struct ExpenseEditorSnapshot: Equatable {
   var name: String
   var amount: String
+  var currency: String
   var category: String
   var paymentMethodId: String?
   var date: Date
@@ -144,6 +145,7 @@ struct ExpenseEditorSheet: View {
 
   @State private var name = ""
   @State private var amount = ""
+  @State private var entryCurrency = "INR"
   @State private var category = ""
   @State private var paymentMethodId: String?
   @State private var date = Date()
@@ -176,11 +178,33 @@ struct ExpenseEditorSheet: View {
           sourceEmailRow(sourceEmail)
         }
 
-        Text(Formatting.currencySymbol(store.currency) + (amount.isEmpty ? "0" : amount))
-          .font(DimoFont.display(44, weight: .bold))
+        VStack(spacing: 4) {
+          HStack(spacing: 0) {
+            if mode.supportsCurrencyEntry {
+              currencyMenu
+            } else {
+              Text(Formatting.currencySymbol(store.currency))
+                .font(DimoFont.display(44, weight: .bold))
+            }
+
+            Text(amount.isEmpty ? "0" : amount)
+              .font(DimoFont.display(44, weight: .bold))
+          }
           .foregroundStyle(amount.isEmpty ? Theme.faint : Theme.ink)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 4)
+
+          Group {
+            if let conversionCalculation {
+              Text(conversionCalculation)
+                .foregroundStyle(conversionAvailable ? Theme.muted : Theme.danger)
+            } else {
+              Color.clear
+            }
+          }
+          .font(DimoFont.body(12))
+          .frame(height: 16)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
 
         TextField("Merchant", text: $name)
           .focused($merchantFieldFocused)
@@ -494,6 +518,7 @@ struct ExpenseEditorSheet: View {
     ExpenseEditorSnapshot(
       name: name,
       amount: amount,
+      currency: entryCurrency,
       category: category,
       paymentMethodId: paymentMethodId,
       date: date,
@@ -545,7 +570,8 @@ struct ExpenseEditorSheet: View {
     case .transaction(let id):
       store.saveTransactionEdits(
         id: id, name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? category : name,
-        amount: value, categoryName: category, paymentMethodId: paymentMethodId, date: date
+        amount: value, categoryName: category, paymentMethodId: paymentMethodId, date: date,
+        entryCurrency: entryCurrency
       )
     case .recurring(let id):
       if hasChanges {
@@ -553,6 +579,7 @@ struct ExpenseEditorSheet: View {
           editingId: id,
           name: name,
           amount: amount,
+          currency: entryCurrency,
           category: category,
           paymentMethodId: paymentMethodId,
           frequency: frequency,
@@ -615,7 +642,7 @@ struct ExpenseEditorSheet: View {
 
   private var duplicateDialogMessage: String {
     let day = date.formatted(date: .abbreviated, time: .omitted)
-    let amountText = Formatting.currencySymbol(store.currency) + amount
+    let amountText = CurrencyMeta.symbol(entryCurrency) + amount
     guard duplicateMatches.count == 1, let match = duplicateMatches.first else {
       return "\(duplicateMatches.count) expenses are already recorded for \(amountText) on \(day). Link this email to one of them, or add it as a separate expense."
     }
@@ -631,7 +658,8 @@ struct ExpenseEditorSheet: View {
       paymentMethodId: paymentMethodId,
       date: date,
       recurringFrequency: isRecurring ? frequency : nil,
-      occurrenceSelection: selection
+      occurrenceSelection: selection,
+      entryCurrency: entryCurrency
     )
   }
 
@@ -666,6 +694,7 @@ struct ExpenseEditorSheet: View {
   private func loadRecord() {
     switch mode {
     case .create:
+      entryCurrency = store.currency.rawValue
       name = store.expenseDraft.name
       amount = store.expenseDraft.amount
       category = store.expenseDraft.category
@@ -674,8 +703,9 @@ struct ExpenseEditorSheet: View {
       isRecurring = false
     case .transaction(let id):
       guard let item = store.transactions.first(where: { $0.id == id }) else { return }
+      entryCurrency = item.sourceCurrency ?? store.currency.rawValue
       name = item.name
-      amount = formatAmount(item.amount)
+      amount = formatAmount(item.sourceAmount ?? item.amount)
       category = item.category
       paymentMethodId = item.paymentMethodId
       if let occurredAt = item.occurredAt {
@@ -685,6 +715,7 @@ struct ExpenseEditorSheet: View {
       sourceEmail = store.sourceEmail(forTransactionId: id)
     case .recurring(let id):
       guard let item = store.recurring.first(where: { $0.id == id }) else { return }
+      entryCurrency = item.currency ?? store.currency.rawValue
       name = item.name
       amount = formatAmount(item.amount)
       category = item.category
@@ -695,6 +726,7 @@ struct ExpenseEditorSheet: View {
       isRecurring = true
     case .emailSuggestion:
       guard let draft = emailDraft else { return }
+      entryCurrency = store.currency.rawValue
       name = draft.merchant
       amount = draft.amount
       category = draft.categoryID.flatMap { id in
@@ -731,6 +763,62 @@ struct ExpenseEditorSheet: View {
     amount = amount == "0" ? key : amount + key
   }
 
+  private var currencyMenu: some View {
+    Menu {
+      ForEach(CurrencyMeta.enterable, id: \.self) { code in
+        Button {
+          entryCurrency = code
+        } label: {
+          HStack {
+            Text("\(CurrencyMeta.symbol(code)) \(CurrencyMeta.label(code))")
+            if code == entryCurrency { Image(systemName: "checkmark") }
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 3) {
+        Text(CurrencyMeta.symbol(entryCurrency))
+          .font(DimoFont.display(44, weight: .bold))
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(Theme.muted)
+      }
+      .frame(minWidth: 44, minHeight: 44)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Expense currency")
+    .accessibilityValue(CurrencyMeta.label(entryCurrency))
+  }
+
+  private var conversionAvailable: Bool {
+    guard entryCurrency != store.currency.rawValue, (Double(amount) ?? 0) > 0 else { return true }
+    return ExchangeRates.rateBetween(entryCurrency, store.currency.rawValue, store.rates) != nil
+  }
+
+  private var conversionCalculation: String? {
+    let defaultCurrency = store.currency.rawValue
+    guard entryCurrency != defaultCurrency, let amountValue = Double(amount), amountValue > 0 else {
+      return nil
+    }
+    guard let rate = ExchangeRates.rateBetween(entryCurrency, defaultCurrency, store.rates),
+          let convertedMinor = ExchangeRates.convertMinor(
+            ExchangeRates.toMinorUnits(amountValue, entryCurrency),
+            from: entryCurrency,
+            to: defaultCurrency,
+            rates: store.rates
+          ) else {
+      return "Rates unavailable"
+    }
+    let source = Formatting.decimal(amountValue, maximumFractionDigits: 2)
+    let ratio = Formatting.decimal(rate, maximumFractionDigits: 4)
+    let converted = Formatting.money(
+      ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency),
+      currencyCode: defaultCurrency
+    )
+    return "\(CurrencyMeta.symbol(entryCurrency))\(source) × \(ratio) = \(converted)"
+  }
+
 }
 
 private extension ExpenseEditorMode {
@@ -756,6 +844,11 @@ private extension ExpenseEditorMode {
     case .transaction, .recurring: return true
     case .create, .emailSuggestion: return false
     }
+  }
+
+  var supportsCurrencyEntry: Bool {
+    if case .emailSuggestion = self { return false }
+    return true
   }
 }
 
@@ -977,8 +1070,30 @@ struct AddRecurringSheet: View {
 
         recurringField("Amount") {
           HStack(spacing: 8) {
-            Text(Formatting.currencySymbol(store.currency))
+            Menu {
+              ForEach(CurrencyMeta.enterable, id: \.self) { code in
+                Button {
+                  store.recurringDraft.currency = code
+                } label: {
+                  HStack {
+                    Text("\(CurrencyMeta.symbol(code)) \(CurrencyMeta.label(code))")
+                    if code == recurringCurrency { Image(systemName: "checkmark") }
+                  }
+                }
+              }
+            } label: {
+              HStack(spacing: 3) {
+                Text(CurrencyMeta.symbol(recurringCurrency))
+                Image(systemName: "chevron.down")
+                  .font(.system(size: 9, weight: .bold))
+              }
               .foregroundStyle(Theme.muted)
+              .frame(minWidth: 44, minHeight: 44)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Recurring currency")
+            .accessibilityValue(CurrencyMeta.label(recurringCurrency))
             TextField("0", text: $store.recurringDraft.amount)
               .keyboardType(.decimalPad)
               .textFieldStyle(.plain)
@@ -1049,6 +1164,9 @@ struct AddRecurringSheet: View {
       }
     }
     .onAppear {
+      if store.recurringDraft.currency == nil {
+        store.recurringDraft.currency = store.currency.rawValue
+      }
       originalDraft = store.recurringDraft
       updateMerchantSuggestions(for: store.recurringDraft.name)
     }
@@ -1121,6 +1239,10 @@ struct AddRecurringSheet: View {
     !store.recurringDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && (Double(store.recurringDraft.amount) ?? 0) > 0
       && !store.recurringDraft.anchorDate.isEmpty
+  }
+
+  private var recurringCurrency: String {
+    store.recurringDraft.currency ?? store.currency.rawValue
   }
 
   private func updateMerchantSuggestions(for query: String) {

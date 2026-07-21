@@ -36,4 +36,14 @@ export default defineSchema({
     /** Email for the account owner. Optional so existing rows keep validating. */
     email: v.optional(v.string()),
   }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
+  // Daily ECB reference rates (via Frankfurter), one row per calendar date.
+  // `rates` maps a currency code to units of that currency per 1 unit of `base`.
+  // Populated once per day by `refreshRates`; clients and recurring materialization
+  // read via `exchangeRates:latest` / `rateOn` — never call Frankfurter themselves.
+  exchangeRates: defineTable({
+    date: v.string(),
+    base: v.string(),
+    rates: v.record(v.string(), v.number()),
+    fetchedAt: v.number(),
+  }).index("by_date", ["date"]),
 });

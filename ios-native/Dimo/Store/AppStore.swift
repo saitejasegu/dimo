@@ -32,6 +32,8 @@ final class AppStore {
   var merchantsExpanded = false
   var categoriesExpanded = false
   var currency: Currency = .INR
+  /// Latest ECB rates for foreign-currency display; nil until first fetch.
+  var rates: RateTable? = RatesService.loadCached()
   var theme: ThemePreference = .light
   var navGlassOpacity: Double = 40
   var defaultStatsRange: StatsRange = .oneYear
@@ -91,6 +93,7 @@ final class AppStore {
       await coordinator.setProfile(name: profileName, email: profileEmail)
       self.coordinator = coordinator
       await coordinator.start()
+      await refreshExchangeRates()
 
       entityObservation = repo.observeEntities { [weak self] entities in
         Task { @MainActor in self?.hydrate(entities: entities) }
@@ -146,7 +149,21 @@ final class AppStore {
 
   func sceneBecameActive() {
     emailController?.sceneBecameActive()
-    Task { await coordinator?.request() }
+    Task {
+      await coordinator?.request()
+      await refreshExchangeRates()
+    }
+  }
+
+  /// Pull the latest ECB rates from Convex into state (and the offline cache).
+  private func refreshExchangeRates() async {
+    do {
+      guard let table = try await coordinator?.latestExchangeRates() else { return }
+      RatesService.store(table)
+      rates = table
+    } catch {
+      // Offline / auth — keep the UserDefaults cache already seeded into `rates`.
+    }
   }
 
   func syncNow() {
@@ -186,6 +203,7 @@ final class AppStore {
       )
     case .recurring:
       recurringDraft = RecurringDraft(
+        currency: currency.rawValue,
         category: categories.first(where: { $0.name == "Bills" })?.name ?? categories.first?.name ?? "Bills",
         paymentMethodId: preferredPaymentMethodId(),
         anchorDate: DateHelpers.localDateKey(Date())
@@ -203,6 +221,35 @@ final class AppStore {
   func closeDetail() { detailId = nil }
 
   // MARK: - Mutations
+
+  private typealias TransactionCurrencyFields = (
+    amountMinor: Int,
+    sourceCurrency: String?,
+    sourceAmountMinor: Int?,
+    exchangeRate: Double?
+  )
+
+  /// Converts a one-off expense into the account currency while retaining its
+  /// original amount and rate for later display and editing.
+  private func transactionCurrencyFields(
+    amount: Double,
+    entryCurrency: String
+  ) -> TransactionCurrencyFields? {
+    let sourceMinor = max(1, ExchangeRates.toMinorUnits(amount, entryCurrency))
+    let defaultCurrency = currency.rawValue
+    guard entryCurrency != defaultCurrency else {
+      return (sourceMinor, nil, nil, nil)
+    }
+    guard let convertedMinor = ExchangeRates.convertMinor(
+      sourceMinor,
+      from: entryCurrency,
+      to: defaultCurrency,
+      rates: rates
+    ), let rate = ExchangeRates.rateBetween(entryCurrency, defaultCurrency, rates) else {
+      return nil
+    }
+    return (max(1, convertedMinor), entryCurrency, sourceMinor, rate)
+  }
 
   func saveExpense() {
     guard let amount = Double(expenseDraft.amount), amount > 0 else { return }
@@ -232,21 +279,29 @@ final class AppStore {
     paymentMethodId: String?,
     date: Date,
     recurringFrequency: RecurringFrequency?,
-    occurrenceSelection: RecurringOccurrenceSelection = .selected
+    occurrenceSelection: RecurringOccurrenceSelection = .selected,
+    entryCurrency: String? = nil
   ) {
     guard amount > 0,
           let category = categories.first(where: { $0.name == categoryName }) else { return }
     let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    let amountMinor = Int((amount * 100).rounded())
+    let entryCurrency = entryCurrency ?? currency.rawValue
+    guard let converted = transactionCurrencyFields(amount: amount, entryCurrency: entryCurrency) else {
+      showToast("Exchange rates unavailable — try again once online")
+      return
+    }
 
     guard let recurringFrequency else {
       let transaction = TransactionEntity(
         id: makeId(prefix: "tx_"),
         name: trimmedName.isEmpty ? category.name : trimmedName,
-        amountMinor: amountMinor,
+        amountMinor: converted.amountMinor,
         occurredAt: min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000)),
         categoryId: category.id,
-        paymentMethodId: paymentMethodId
+        paymentMethodId: paymentMethodId,
+        sourceCurrency: converted.sourceCurrency,
+        sourceAmountMinor: converted.sourceAmountMinor,
+        exchangeRate: converted.exchangeRate
       )
       try? repository?.saveEntity(entityType: .transaction, payload: .transaction(transaction))
       try? repository?.setLastPaymentMethod(paymentMethodId)
@@ -258,15 +313,17 @@ final class AppStore {
 
     guard !trimmedName.isEmpty else { return }
     let anchorDate = DateHelpers.localDateKey(date)
+    let recurringFields = ExchangeRates.recurringFields(amount, currency: entryCurrency)
     let recurring = RecurringEntity(
       id: makeId(prefix: "rec_"),
       name: trimmedName,
-      amountMinor: amountMinor,
+      amountMinor: recurringFields.amountMinor,
       categoryId: category.id,
       paymentMethodId: paymentMethodId,
       frequency: recurringFrequency,
       anchorDate: anchorDate,
-      paused: false
+      paused: false,
+      currency: recurringFields.currency
     )
     let dates = DateHelpers.recurringTransactionDates(
       anchorDate: anchorDate,
@@ -278,10 +335,13 @@ final class AppStore {
       let transaction = TransactionEntity(
         id: makeId(prefix: "tx_"),
         name: trimmedName,
-        amountMinor: amountMinor,
+        amountMinor: converted.amountMinor,
         occurredAt: DateHelpers.occurrenceTimestamp(occurrence, time: date),
         categoryId: category.id,
-        paymentMethodId: paymentMethodId
+        paymentMethodId: paymentMethodId,
+        sourceCurrency: converted.sourceCurrency,
+        sourceAmountMinor: converted.sourceAmountMinor,
+        exchangeRate: converted.exchangeRate
       )
       return (.transaction, .transaction(transaction))
     })
@@ -410,18 +470,29 @@ final class AppStore {
     amount: Double,
     categoryName: String,
     paymentMethodId: String?,
-    date: Date
+    date: Date,
+    entryCurrency: String? = nil
   ) {
     guard amount > 0,
           let category = categories.first(where: { $0.name == categoryName }),
           transactions.contains(where: { $0.id == id }) else { return }
+    guard let converted = transactionCurrencyFields(
+      amount: amount,
+      entryCurrency: entryCurrency ?? currency.rawValue
+    ) else {
+      showToast("Exchange rates unavailable — try again once online")
+      return
+    }
     let entity = TransactionEntity(
       id: id,
       name: name,
-      amountMinor: Int((amount * 100).rounded()),
+      amountMinor: converted.amountMinor,
       occurredAt: Int(date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
-      paymentMethodId: paymentMethodId
+      paymentMethodId: paymentMethodId,
+      sourceCurrency: converted.sourceCurrency,
+      sourceAmountMinor: converted.sourceAmountMinor,
+      exchangeRate: converted.exchangeRate
     )
     try? repository?.saveEntity(entityType: .transaction, payload: .transaction(entity))
     closeDetail()
@@ -434,15 +505,23 @@ final class AppStore {
     let name = recurringDraft.name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else { return }
     let id = recurringDraft.editingId ?? makeId(prefix: "rec_")
+    let entryCurrency = recurringDraft.currency ?? currency.rawValue
+    let converted = transactionCurrencyFields(amount: amount, entryCurrency: entryCurrency)
+    if recurringDraft.editingId == nil && converted == nil {
+      showToast("Exchange rates unavailable — try again once online")
+      return
+    }
+    let recurringFields = ExchangeRates.recurringFields(amount, currency: entryCurrency)
     let entity = RecurringEntity(
       id: id,
       name: name,
-      amountMinor: Int((amount * 100).rounded()),
+      amountMinor: recurringFields.amountMinor,
       categoryId: category.id,
       paymentMethodId: recurringDraft.paymentMethodId,
       frequency: recurringDraft.frequency,
       anchorDate: recurringDraft.anchorDate,
-      paused: recurringDraft.paused
+      paused: recurringDraft.paused,
+      currency: recurringFields.currency
     )
     var batch: [(EntityType, EntityPayload)] = [(.recurring, .recurring(entity))]
     if recurringDraft.editingId == nil {
@@ -461,13 +540,17 @@ final class AppStore {
       }
 
       batch.append(contentsOf: occurrenceDates.map { date in
+        let converted = converted!
         let transaction = TransactionEntity(
           id: makeId(prefix: "tx_"),
           name: name,
-          amountMinor: entity.amountMinor,
+          amountMinor: converted.amountMinor,
           occurredAt: DateHelpers.occurrenceTimestamp(date),
           categoryId: category.id,
-          paymentMethodId: entity.paymentMethodId
+          paymentMethodId: entity.paymentMethodId,
+          sourceCurrency: converted.sourceCurrency,
+          sourceAmountMinor: converted.sourceAmountMinor,
+          exchangeRate: converted.exchangeRate
         )
         return (.transaction, .transaction(transaction))
       })
@@ -483,6 +566,7 @@ final class AppStore {
       editingId: id,
       name: rec.name,
       amount: String(format: "%.2f", rec.amount),
+      currency: rec.currency,
       category: rec.category,
       paymentMethodId: rec.paymentMethodId,
       frequency: rec.frequency ?? .monthly,
@@ -496,6 +580,7 @@ final class AppStore {
     guard let existing = try? repository?.activeEntities(type: .recurring)
       .first(where: { $0.entityId == id }),
       case .recurring(var payload) = existing.payload else { return }
+    if payload.currency == nil { payload.currency = currency.rawValue }
     payload.paused.toggle()
     try? repository?.saveEntity(entityType: .recurring, payload: .recurring(payload))
     showToast(payload.paused ? "Paused" : "Resumed")
@@ -753,6 +838,9 @@ final class AppStore {
       .map { tx in
         let cat = categoryById[tx.categoryId]
         let pm = tx.paymentMethodId.flatMap { pmById[$0] }
+        let sourceAmount = tx.sourceCurrency.flatMap { code in
+          tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
+        }
         return Transaction(
           id: tx.id,
           name: tx.name,
@@ -766,7 +854,9 @@ final class AppStore {
           amountMinor: tx.amountMinor,
           occurredAt: tx.occurredAt,
           categoryId: tx.categoryId,
-          paymentMethodId: tx.paymentMethodId
+          paymentMethodId: tx.paymentMethodId,
+          sourceCurrency: tx.sourceCurrency,
+          sourceAmount: sourceAmount
         )
       }
 
@@ -798,7 +888,7 @@ final class AppStore {
         name: rec.name,
         category: cat?.name ?? "",
         due: DateHelpers.recurringDueLabel(anchorDate: rec.anchorDate, frequency: rec.frequency),
-        amount: Double(rec.amountMinor) / 100,
+        amount: ExchangeRates.toMajorUnits(rec.amountMinor, rec.currency ?? prefs.currency.rawValue),
         paused: rec.paused,
         green: cat?.tint == .green,
         emoji: cat?.emoji,
@@ -806,7 +896,8 @@ final class AppStore {
         categoryId: rec.categoryId,
         paymentMethodId: rec.paymentMethodId,
         anchorDate: rec.anchorDate,
-        frequency: rec.frequency
+        frequency: rec.frequency,
+        currency: rec.currency
       )
     }
 
@@ -890,6 +981,7 @@ struct RecurringDraft: Equatable {
   var editingId: String?
   var name = ""
   var amount = ""
+  var currency: String?
   var category = "Bills"
   var paymentMethodId: String?
   var frequency: RecurringFrequency = .monthly

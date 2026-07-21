@@ -103,19 +103,28 @@ export function sanitizePayload<T extends EntityType>(
     }
     case "transaction": {
       const value = payload as TransactionEntity;
-      return {
+      const clean: TransactionEntity = {
         id: value.id,
         name: value.name,
         amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
         occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
         categoryId: value.categoryId,
         paymentMethodId: value.paymentMethodId ?? null,
-      } as EntityPayloadMap[T];
+      };
+      // Preserve foreign-currency origin only when a real source currency exists.
+      const sourceCurrency = String(value.sourceCurrency ?? "").trim();
+      if (sourceCurrency) {
+        clean.sourceCurrency = sourceCurrency;
+        clean.sourceAmountMinor = Math.max(1, Math.round(Number(value.sourceAmountMinor) || 0));
+        const rate = Number(value.exchangeRate);
+        if (Number.isFinite(rate) && rate > 0) clean.exchangeRate = rate;
+      }
+      return clean as EntityPayloadMap[T];
     }
     case "recurring": {
       const value = payload as RecurringEntity;
       const anchor = String(value.anchorDate ?? "");
-      return {
+      const clean: RecurringEntity = {
         id: value.id,
         name: value.name,
         amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
@@ -126,7 +135,10 @@ export function sanitizePayload<T extends EntityType>(
           ? anchor
           : new Date().toISOString().slice(0, 10),
         paused: Boolean(value.paused),
-      } as EntityPayloadMap[T];
+      };
+      const currency = String(value.currency ?? "").trim();
+      if (currency) clean.currency = currency;
+      return clean as EntityPayloadMap[T];
     }
     case "lend": {
       const value = payload as LendEntity;
@@ -367,6 +379,36 @@ export async function saveEntities(
     }
   });
   notifyWrite();
+}
+
+/**
+ * Give legacy recurring rows an explicit denomination using the synced account
+ * currency. Writing through the normal repository path versions the repair and
+ * places it in the outbox so every client converges on the same payload.
+ */
+export async function backfillRecurringCurrencies() {
+  let updated = 0;
+  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+    const preferences = await db.entities.get(entityKey("preferences", "preferences"));
+    const accountCurrency =
+      !preferences?.deleted && preferences?.payload && "currency" in preferences.payload
+        ? String(preferences.payload.currency || DEFAULT_PREFERENCES.currency)
+        : DEFAULT_PREFERENCES.currency;
+    const rows = await db.entities
+      .where("[workspaceId+entityType]")
+      .equals([WORKSPACE_ID, "recurring"])
+      .toArray();
+
+    for (const row of rows) {
+      if (row.deleted) continue;
+      const payload = row.payload as RecurringEntity;
+      if (String(payload.currency ?? "").trim()) continue;
+      await putInCurrentTransaction("recurring", { ...payload, currency: accountCurrency });
+      updated += 1;
+    }
+  });
+  if (updated > 0) notifyWrite();
+  return updated;
 }
 
 export async function removeEntity<T extends EntityType>(

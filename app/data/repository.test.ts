@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/data/db";
 import { DEFAULT_PREFERENCES, entityKey } from "@/data/model";
 import {
+  backfillRecurringCurrencies,
   initializeLocalDatabase,
   saveEntity,
   enqueueFullUpload,
@@ -88,5 +89,91 @@ describe("local repository", () => {
     expect(await db.outbox.count()).toBe(await db.entities.count());
     const blocked = await db.outbox.where("status").equals("blocked").count();
     expect(blocked).toBe(0);
+  });
+
+  it("backfills a legacy recurring row with the synced account currency", async () => {
+    await initializeLocalDatabase();
+    await saveEntity("preferences", { ...DEFAULT_PREFERENCES, currency: "USD" });
+    await saveEntity("recurring", {
+      id: "legacy-recurring",
+      name: "Cursor",
+      amountMinor: 2360,
+      categoryId: "category-software",
+      paymentMethodId: "payment-method-cash",
+      frequency: "monthly",
+      anchorDate: "2026-07-31",
+      paused: false,
+    });
+    await db.outbox.clear();
+
+    expect(await backfillRecurringCurrencies()).toBe(1);
+    const entity = await db.entities.get(entityKey("recurring", "legacy-recurring"));
+    const pending = await db.outbox.get(entityKey("recurring", "legacy-recurring"));
+    expect(entity?.payload).toMatchObject({ currency: "USD" });
+    expect(pending?.payload).toMatchObject({ currency: "USD" });
+    expect(await backfillRecurringCurrencies()).toBe(0);
+  });
+});
+
+describe("sanitizePayload foreign-currency fields", () => {
+  it("preserves transaction source-currency fields when present", () => {
+    const clean = sanitizePayload("transaction", {
+      id: "t1",
+      name: "Hotel",
+      amountMinor: 81_818,
+      occurredAt: 1_700_000_000_000,
+      categoryId: "c1",
+      paymentMethodId: null,
+      sourceCurrency: "USD",
+      sourceAmountMinor: 1000,
+      exchangeRate: 81.818,
+    });
+    expect(clean).toMatchObject({
+      amountMinor: 81_818,
+      sourceCurrency: "USD",
+      sourceAmountMinor: 1000,
+      exchangeRate: 81.818,
+    });
+  });
+
+  it("omits source fields for a plain default-currency transaction", () => {
+    const clean = sanitizePayload("transaction", {
+      id: "t2",
+      name: "Chai",
+      amountMinor: 5000,
+      occurredAt: 1_700_000_000_000,
+      categoryId: "c1",
+      paymentMethodId: null,
+    });
+    expect(clean).not.toHaveProperty("sourceCurrency");
+    expect(clean).not.toHaveProperty("sourceAmountMinor");
+    expect(clean).not.toHaveProperty("exchangeRate");
+  });
+
+  it("preserves recurring currency and drops it when absent", () => {
+    const foreign = sanitizePayload("recurring", {
+      id: "r1",
+      name: "Netflix",
+      amountMinor: 1500,
+      categoryId: "c1",
+      paymentMethodId: null,
+      frequency: "monthly",
+      anchorDate: "2026-01-10",
+      paused: false,
+      currency: "USD",
+    });
+    expect(foreign).toMatchObject({ currency: "USD" });
+
+    const local = sanitizePayload("recurring", {
+      id: "r2",
+      name: "Rent",
+      amountMinor: 50_000,
+      categoryId: "c1",
+      paymentMethodId: null,
+      frequency: "monthly",
+      anchorDate: "2026-01-10",
+      paused: false,
+    });
+    expect(local).not.toHaveProperty("currency");
   });
 });

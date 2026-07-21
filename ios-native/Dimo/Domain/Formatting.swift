@@ -12,7 +12,24 @@ enum Formatting {
   }
 
   static func money(_ amount: Double, currency: Currency = .INR) -> String {
-    let symbol = currencySymbol(currency)
+    money(amount, symbol: currencySymbol(currency))
+  }
+
+  /// Format money for any currency code (default or a foreign entry currency).
+  static func money(_ amount: Double, currencyCode: String) -> String {
+    money(amount, symbol: CurrencyMeta.symbol(currencyCode))
+  }
+
+  static func decimal(_ value: Double, maximumFractionDigits: Int) -> String {
+    let formatter = NumberFormatter()
+    formatter.locale = Locale(identifier: "en_IN")
+    formatter.numberStyle = .decimal
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = maximumFractionDigits
+    return formatter.string(from: NSNumber(value: value)) ?? String(value)
+  }
+
+  private static func money(_ amount: Double, symbol: String) -> String {
     let hasFraction = abs(amount.truncatingRemainder(dividingBy: 1)) > 0.0001
     let formatter = NumberFormatter()
     formatter.locale = Locale(identifier: "en_IN")

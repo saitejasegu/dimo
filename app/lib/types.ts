@@ -58,11 +58,17 @@ export interface Transaction {
   occurredAt?: number;
   categoryId?: ID;
   paymentMethodId?: ID | null;
+  /** Original currency when entered in a non-default currency (else absent). */
+  sourceCurrency?: EnterableCurrency;
+  /** Original amount in `sourceCurrency` major units, for display alongside `amount`. */
+  sourceAmount?: number;
 }
 
 export interface TransactionEditInput {
   name: string;
   amount: number;
+  /** Currency the `amount` above is entered in. Defaults to the account currency. */
+  currency: EnterableCurrency;
   category: CategoryName;
   paymentMethod: PaymentMethod;
   /** Epoch ms for the edited occurrence. */
@@ -75,6 +81,8 @@ export interface ExpenseSaveInput {
   amount: number;
   category: CategoryName;
   paymentMethod: PaymentMethod;
+  /** Currency the `amount` above is entered in. Defaults to the account currency. */
+  currency: EnterableCurrency;
   date: string;
   time: string;
   recurring: boolean;
@@ -86,6 +94,8 @@ export interface ExpenseSaveInput {
 export interface RecurringEditInput {
   name: string;
   amount: number;
+  /** Currency the recurring `amount` is denominated in. Defaults to account currency. */
+  currency: EnterableCurrency;
   category: CategoryName;
   paymentMethod: PaymentMethod;
   anchorDate: string;
@@ -108,6 +118,8 @@ export interface Recurring {
   paymentMethodId?: ID | null;
   anchorDate?: string;
   frequency?: "monthly" | "yearly";
+  /** Currency the amount is denominated in. Absent = account default currency. */
+  currency?: EnterableCurrency;
 }
 
 export type LendKind = "lent" | "repaid";
@@ -133,7 +145,24 @@ export type StatsRange = "1W" | "M" | "3M" | "6M" | "1Y" | "2Y";
 
 export type Frequency = "Monthly" | "Yearly";
 
+/** Account default currency (what totals/stats are denominated in). */
 export type Currency = "INR" | "USD" | "EUR";
+
+/**
+ * Currencies a single expense may be entered in. A superset of {@link Currency};
+ * foreign entries are converted into the account default on save. All values are
+ * ECB reference currencies supported by the Frankfurter rate source.
+ */
+export type EnterableCurrency =
+  | Currency
+  | "GBP"
+  | "JPY"
+  | "AUD"
+  | "CAD"
+  | "HKD"
+  | "SGD"
+  | "CHF"
+  | "CNY";
 
 export type WeekStart = "Mon" | "Sun";
 

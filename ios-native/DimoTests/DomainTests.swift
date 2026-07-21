@@ -35,6 +35,59 @@ final class GreetingTests: XCTestCase {
   }
 }
 
+final class ExchangeRateTests: XCTestCase {
+  private let rates = RateTable(
+    date: "2026-07-21",
+    base: "EUR",
+    rates: ["USD": 1, "INR": 100]
+  )
+
+  func testBuildsMajorUnitRatioForConversionCalculation() {
+    XCTAssertEqual(ExchangeRates.rateBetween("USD", "INR", rates), 100)
+    XCTAssertEqual(Formatting.decimal(23.6, maximumFractionDigits: 2), "23.6")
+  }
+
+  func testConvertsForeignMinorUnitsIntoDefaultCurrency() {
+    let converted = ExchangeRates.convertMinor(2360, from: "USD", to: "INR", rates: rates)
+    XCTAssertEqual(converted, 236_000)
+    XCTAssertEqual(ExchangeRates.toMajorUnits(converted!, "INR"), 2_360)
+  }
+
+  func testForeignRecurringDisplaysInSourceCurrencyButTotalsInDefaultCurrency() {
+    let recurring = Recurring(
+      id: "usd-recurring",
+      name: "Subscription",
+      category: "Subscriptions",
+      due: "",
+      amount: 23.6,
+      paused: false,
+      amountMinor: 2_360,
+      anchorDate: "2026-07-21",
+      frequency: .monthly,
+      currency: "USD"
+    )
+
+    XCTAssertEqual(
+      Formatting.money(recurring.amount, currencyCode: recurring.currency!),
+      "$23.60"
+    )
+    let total = RecurringSelectors.monthlyRecurringTotal([recurring]) {
+      ExchangeRates.recurringAmountInDefault($0, defaultCurrency: "INR", rates: rates)
+    }
+    XCTAssertEqual(total, 2_360)
+  }
+
+  func testRecurringFieldsAlwaysRecordTheirDenomination() {
+    let foreign = ExchangeRates.recurringFields(23.6, currency: "USD")
+    XCTAssertEqual(foreign.amountMinor, 2_360)
+    XCTAssertEqual(foreign.currency, "USD")
+
+    let accountDefault = ExchangeRates.recurringFields(500, currency: "INR")
+    XCTAssertEqual(accountDefault.amountMinor, 50_000)
+    XCTAssertEqual(accountDefault.currency, "INR")
+  }
+}
+
 final class StatsHydrationTests: XCTestCase {
   func testPulledDefaultReplacesUntouchedBootstrapRange() {
     XCTAssertEqual(
@@ -407,6 +460,47 @@ final class RepositoryBootstrapTests: XCTestCase {
     }
     XCTAssertEqual(try repo.pendingOutbox(limit: 200).count, pendingBefore + 1)
   }
+
+  func testBackfillsLegacyRecurringCurrencyFromPreferences() throws {
+    let userId = "test-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repo = Repository(db: queue)
+    try repo.initializeLocalDatabase()
+
+    var preferences = SeedData.defaultPreferences
+    preferences.currency = .USD
+    try repo.saveEntity(entityType: .preferences, payload: .preferences(preferences))
+    let recurring = RecurringEntity(
+      id: "legacy-recurring",
+      name: "Cursor",
+      amountMinor: 2360,
+      categoryId: "category-software",
+      paymentMethodId: SeedData.cashPaymentMethod.id,
+      frequency: .monthly,
+      anchorDate: "2026-07-31",
+      paused: false,
+      currency: nil
+    )
+    try repo.saveEntity(entityType: .recurring, payload: .recurring(recurring))
+
+    XCTAssertEqual(try repo.backfillRecurringCurrencies(), 1)
+    let stored = try XCTUnwrap(
+      repo.activeEntities(type: .recurring).first { $0.entityId == recurring.id }
+    )
+    guard case .recurring(let corrected) = stored.payload else {
+      return XCTFail("expected recurring payload")
+    }
+    XCTAssertEqual(corrected.currency, "USD")
+    let pending = try XCTUnwrap(
+      repo.pendingOutbox(limit: 100).first { $0.entityId == recurring.id }
+    )
+    guard case .recurring(let pendingPayload) = pending.payload else {
+      return XCTFail("expected recurring outbox payload")
+    }
+    XCTAssertEqual(pendingPayload.currency, "USD")
+    XCTAssertEqual(try repo.backfillRecurringCurrencies(), 0)
+  }
 }
 
 final class TransactionSelectorTests: XCTestCase {
@@ -514,6 +608,90 @@ final class SanitizerTests: XCTestCase {
     }
     XCTAssertEqual(value.amountMinor, 1)
     XCTAssertGreaterThan(value.occurredAt, 0)
+  }
+
+  func testCurrencyMetadataRoundTripsThroughConvexWirePayload() throws {
+    let transaction = TransactionEntity(
+      id: "t-usd",
+      name: "Cursor",
+      amountMinor: 227_611,
+      occurredAt: 1_784_623_080_000,
+      categoryId: "software",
+      paymentMethodId: "payment-method-cash",
+      sourceCurrency: "USD",
+      sourceAmountMinor: 2_360,
+      exchangeRate: 96.44538771223525
+    )
+    let transactionWire = WirePayload.encode(.transaction(transaction))
+    XCTAssertEqual(transactionWire["sourceCurrency"] as? String, "USD")
+    XCTAssertEqual(transactionWire["sourceAmountMinor"] as? Double, 2_360)
+    XCTAssertEqual(transactionWire["exchangeRate"] as? Double, 96.44538771223525)
+
+    guard case .transaction(let decodedTransaction) = try WirePayload.decode(
+      entityType: .transaction,
+      dict: transactionWire
+    ) else {
+      return XCTFail("expected transaction")
+    }
+    XCTAssertEqual(decodedTransaction, transaction)
+
+    let recurring = RecurringEntity(
+      id: "r-usd",
+      name: "Cursor",
+      amountMinor: 2_360,
+      categoryId: "software",
+      paymentMethodId: "payment-method-cash",
+      frequency: .monthly,
+      anchorDate: "2026-07-31",
+      paused: false,
+      currency: "USD"
+    )
+    let recurringWire = WirePayload.encode(.recurring(recurring))
+    XCTAssertEqual(recurringWire["currency"] as? String, "USD")
+
+    guard case .recurring(let decodedRecurring) = try WirePayload.decode(
+      entityType: .recurring,
+      dict: recurringWire
+    ) else {
+      return XCTFail("expected recurring")
+    }
+    XCTAssertEqual(decodedRecurring, recurring)
+  }
+
+  func testLegacyWirePayloadsDecodeWithoutCurrencyMetadata() throws {
+    guard case .transaction(let transaction) = try WirePayload.decode(
+      entityType: .transaction,
+      dict: [
+        "id": "legacy-t",
+        "name": "Chai",
+        "amountMinor": 5_000.0,
+        "occurredAt": 1_784_623_080_000.0,
+        "categoryId": "food",
+        "paymentMethodId": NSNull(),
+      ]
+    ) else {
+      return XCTFail("expected transaction")
+    }
+    XCTAssertNil(transaction.sourceCurrency)
+    XCTAssertNil(transaction.sourceAmountMinor)
+    XCTAssertNil(transaction.exchangeRate)
+
+    guard case .recurring(let recurring) = try WirePayload.decode(
+      entityType: .recurring,
+      dict: [
+        "id": "legacy-r",
+        "name": "Rent",
+        "amountMinor": 50_000.0,
+        "categoryId": "housing",
+        "paymentMethodId": NSNull(),
+        "frequency": "monthly",
+        "anchorDate": "2026-08-01",
+        "paused": false,
+      ]
+    ) else {
+      return XCTFail("expected recurring")
+    }
+    XCTAssertNil(recurring.currency)
   }
 }
 

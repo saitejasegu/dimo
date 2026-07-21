@@ -8,6 +8,7 @@ protocol SyncTransport: Sendable {
   func push(workspaceId: String, operations: [SyncOperation]) async throws -> PushResultDTO
   func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws
   func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO
+  func latestExchangeRates() async throws -> RateTable?
   func subscribeRevision(workspaceId: String, onChange: @escaping (Double) -> Void) -> AnyCancellable
 }
 
@@ -89,6 +90,11 @@ actor SyncCoordinator {
     request()
   }
 
+  /// Latest ECB rates from Convex (Frankfurter is server-only, once per day).
+  func latestExchangeRates() async throws -> RateTable? {
+    try await transport.latestExchangeRates()
+  }
+
   /// The revision subscription re-emits on reconnects and re-auth; only kick a
   /// sync when the server is actually ahead of what we have pulled, otherwise
   /// the coordinator loops forever and the UI reads as permanently "Syncing".
@@ -137,6 +143,7 @@ actor SyncCoordinator {
         if replace {
           // Ensure reviewed email rows exist as entities before the full upload.
           try repository.enqueueUnsyncedEmailMessages()
+          try repository.backfillRecurringCurrencies()
           try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
           try repository.updateSyncMeta { $0.lastPulledRevision = 0 }
           try repository.enqueueFullUpload(entityTypes: Array(EntityType.allCases))
@@ -144,6 +151,7 @@ actor SyncCoordinator {
           try await pullAll()
         } else {
           try await pullAll()
+          try repository.backfillRecurringCurrencies()
           // Upload bootstrap defaults only if pull left them unsynced (empty
           // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           try repository.enqueueUnsyncedDefaults()
@@ -318,6 +326,12 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
         "entityTypes": encodedTypes,
         "limit": limit,
       ]
+    )
+  }
+
+  func latestExchangeRates() async throws -> RateTable? {
+    try await firstValue(
+      client.subscribe(to: "exchangeRates:latest", with: [:] as [String: ConvexEncodable?])
     )
   }
 

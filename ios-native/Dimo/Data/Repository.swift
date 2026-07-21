@@ -106,6 +106,42 @@ final class Repository: @unchecked Sendable {
     notifyWrite()
   }
 
+  /// Gives legacy recurring rows an explicit denomination and enqueues the
+  /// versioned repair so web and iOS converge on the same payload.
+  @discardableResult
+  func backfillRecurringCurrencies() throws -> Int {
+    var updated = 0
+    try db.write { db in
+      let preferencesKey = entityKey(type: .preferences, id: "preferences")
+      let accountCurrency: String
+      if let record = try EntityRecord.fetchOne(db, key: preferencesKey),
+         !record.deleted,
+         case .preferences(let preferences) = try record.toStoredEntity().payload {
+        accountCurrency = preferences.currency.rawValue
+      } else {
+        accountCurrency = SeedData.defaultPreferences.currency.rawValue
+      }
+
+      let records = try EntityRecord
+        .filter(
+          Column("workspaceId") == workspaceID
+            && Column("entityType") == EntityType.recurring.rawValue
+        )
+        .fetchAll(db)
+      for record in records {
+        let stored = try record.toStoredEntity()
+        guard !stored.deleted, case .recurring(var recurring) = stored.payload else { continue }
+        let current = recurring.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard current?.isEmpty != false else { continue }
+        recurring.currency = accountCurrency
+        try putInTransaction(db, entityType: .recurring, payload: .recurring(recurring))
+        updated += 1
+      }
+    }
+    if updated > 0 { notifyWrite() }
+    return updated
+  }
+
   func removeEntity(entityType: EntityType, id: String) throws {
     let key = entityKey(type: entityType, id: id)
     try db.write { db in

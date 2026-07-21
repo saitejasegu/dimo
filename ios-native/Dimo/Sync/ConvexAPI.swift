@@ -43,6 +43,9 @@ struct WireTransaction: Codable, Sendable {
   var occurredAt: Double
   var categoryId: String
   var paymentMethodId: String?
+  var sourceCurrency: String?
+  var sourceAmountMinor: Double?
+  var exchangeRate: Double?
 }
 
 struct WireRecurring: Codable, Sendable {
@@ -54,6 +57,7 @@ struct WireRecurring: Codable, Sendable {
   var frequency: String
   var anchorDate: String
   var paused: Bool
+  var currency: String?
 }
 
 struct WireLend: Codable, Sendable {
@@ -143,7 +147,7 @@ enum WirePayload {
         "archived": e.archived,
       ]
     case .transaction(let e):
-      return [
+      var dict: [String: Any] = [
         "id": e.id,
         "name": e.name,
         "amountMinor": Double(e.amountMinor),
@@ -151,8 +155,15 @@ enum WirePayload {
         "categoryId": e.categoryId,
         "paymentMethodId": e.paymentMethodId as Any? ?? NSNull(),
       ]
+      // Optional foreign-currency fields: omit (not null) so v.optional accepts absence.
+      if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
+        dict["sourceCurrency"] = sourceCurrency
+        dict["sourceAmountMinor"] = Double(e.sourceAmountMinor ?? 0)
+        if let rate = e.exchangeRate { dict["exchangeRate"] = rate }
+      }
+      return dict
     case .recurring(let e):
-      return [
+      var dict: [String: Any] = [
         "id": e.id,
         "name": e.name,
         "amountMinor": Double(e.amountMinor),
@@ -162,6 +173,10 @@ enum WirePayload {
         "anchorDate": e.anchorDate,
         "paused": e.paused,
       ]
+      if let currency = e.currency, !currency.isEmpty {
+        dict["currency"] = currency
+      }
+      return dict
     case .lend(let e):
       return [
         "id": e.id,
@@ -252,16 +267,22 @@ enum WirePayload {
       ))
     case .transaction:
       let wire = try JSONDecoder().decode(WireTransaction.self, from: data)
+      let sourceCurrency = wire.sourceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let hasSource = (sourceCurrency?.isEmpty == false)
       return .transaction(TransactionEntity(
         id: wire.id,
         name: wire.name,
         amountMinor: Int(wire.amountMinor),
         occurredAt: Int(wire.occurredAt),
         categoryId: wire.categoryId,
-        paymentMethodId: wire.paymentMethodId
+        paymentMethodId: wire.paymentMethodId,
+        sourceCurrency: hasSource ? sourceCurrency : nil,
+        sourceAmountMinor: hasSource ? wire.sourceAmountMinor.map { Int($0) } : nil,
+        exchangeRate: hasSource ? wire.exchangeRate : nil
       ))
     case .recurring:
       let wire = try JSONDecoder().decode(WireRecurring.self, from: data)
+      let currency = wire.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
       return .recurring(RecurringEntity(
         id: wire.id,
         name: wire.name,
@@ -270,7 +291,8 @@ enum WirePayload {
         paymentMethodId: wire.paymentMethodId,
         frequency: RecurringFrequency(rawValue: wire.frequency) ?? .monthly,
         anchorDate: wire.anchorDate,
-        paused: wire.paused
+        paused: wire.paused,
+        currency: (currency?.isEmpty == false) ? currency : nil
       ))
     case .lend:
       let wire = try JSONDecoder().decode(WireLend.self, from: data)

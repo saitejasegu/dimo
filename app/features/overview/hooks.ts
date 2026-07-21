@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useAppState } from "@/store/app-store";
 import { budgetTotals, topCategories } from "@/features/budgets/selectors";
+import { recurringAmountInDefault } from "@/features/currency/rates";
 import {
   activeRecurring,
   allUpcomingBills,
@@ -9,7 +10,7 @@ import {
 } from "@/features/recurring/selectors";
 
 export function useOverview() {
-  const { transactions, recurring, limits } = useAppState();
+  const { transactions, recurring, limits, currency, rates } = useAppState();
 
   return useMemo(() => {
     const totals = budgetTotals(transactions, limits);
@@ -24,7 +25,9 @@ export function useOverview() {
     });
     return {
       totals,
-      recurringTotal: monthlyRecurringTotal(recurring),
+      recurringTotal: monthlyRecurringTotal(recurring, (r) =>
+        recurringAmountInDefault(r, currency, rates),
+      ),
       activeCount: active.length,
       recent: transactions,
       upcoming: upcomingBills(recurring),
@@ -32,5 +35,5 @@ export function useOverview() {
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,
     };
-  }, [transactions, recurring, limits]);
+  }, [transactions, recurring, limits, currency, rates]);
 }

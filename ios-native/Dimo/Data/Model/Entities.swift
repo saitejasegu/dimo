@@ -107,6 +107,13 @@ struct TransactionEntity: Codable, Hashable, Sendable, Identifiable {
   var occurredAt: Int
   var categoryId: String
   var paymentMethodId: String?
+  /// Original currency when entered in a non-default currency. Absent = default;
+  /// `amountMinor` above is always the converted default-currency value.
+  var sourceCurrency: String?
+  /// Original amount in `sourceCurrency` minor units (kept for display/edit).
+  var sourceAmountMinor: Int?
+  /// Rate used to convert `sourceCurrency` → default (major-unit ratio).
+  var exchangeRate: Double?
 }
 
 struct RecurringEntity: Codable, Hashable, Sendable, Identifiable {
@@ -118,6 +125,8 @@ struct RecurringEntity: Codable, Hashable, Sendable, Identifiable {
   var frequency: RecurringFrequency
   var anchorDate: String
   var paused: Bool
+  /// Currency the amount is denominated in. Absent only on legacy rows.
+  var currency: String?
 }
 
 enum LendKind: String, Codable, Sendable {
@@ -337,6 +346,10 @@ struct Transaction: Hashable, Sendable, Identifiable {
   var occurredAt: Int?
   var categoryId: String?
   var paymentMethodId: String?
+  /// Original currency when entered in a non-default currency (else nil).
+  var sourceCurrency: String?
+  /// Original amount in `sourceCurrency` major units, shown alongside `amount`.
+  var sourceAmount: Double?
 }
 
 struct Recurring: Hashable, Sendable, Identifiable {
@@ -354,6 +367,8 @@ struct Recurring: Hashable, Sendable, Identifiable {
   var paymentMethodId: String?
   var anchorDate: String?
   var frequency: RecurringFrequency?
+  /// Currency the amount is denominated in. nil = account default currency.
+  var currency: String?
 }
 
 struct Lend: Hashable, Sendable, Identifiable {

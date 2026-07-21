@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useConvex } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import { activateUserDatabase, db, type SyncMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
@@ -63,8 +64,23 @@ import {
   type TransactionCsvRow,
 } from "@/features/transactions/csv";
 import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
+import {
+  cacheRates,
+  convertMinor,
+  loadCachedRates,
+  rateBetween,
+  recurringEntryFields,
+  toMajorUnits,
+  toMinorUnits,
+  type RateTable,
+} from "@/features/currency/rates";
+import type { EnterableCurrency } from "@/lib/types";
 
 const TOAST_DURATION_MS = 1800;
+
+const latestRatesRef = makeFunctionReference<"query", Record<string, never>, RateTable | null>(
+  "exchangeRates:latest",
+);
 
 export interface AppActions {
   setView: (view: ViewKey) => void;
@@ -142,6 +158,37 @@ function preferencesFrom(state: AppState, patch: Partial<PreferencesEntity> = {}
     defaultPaymentMethodId: defaultMethod,
     ...patch,
     defaultView: "home",
+  };
+}
+
+/** Currency fields for a one-off transaction entered in `currency`. */
+type TransactionCurrencyFields = Pick<
+  TransactionEntity,
+  "amountMinor" | "sourceCurrency" | "sourceAmountMinor" | "exchangeRate"
+>;
+
+/**
+ * Convert a major-unit `amount` entered in `currency` into a stored transaction
+ * amount denominated in `defaultCurrency`. Returns `null` when a foreign amount
+ * cannot be converted (rates unavailable) so the caller can abort with a toast
+ * rather than store a wrong value.
+ */
+function convertEntry(
+  amount: number,
+  currency: EnterableCurrency,
+  defaultCurrency: Currency,
+  rates: AppState["rates"],
+): TransactionCurrencyFields | null {
+  const sourceMinor = Math.max(1, toMinorUnits(amount, currency));
+  if (currency === defaultCurrency) return { amountMinor: sourceMinor };
+  const convertedMinor = convertMinor(sourceMinor, currency, defaultCurrency, rates);
+  const ratio = rateBetween(currency, defaultCurrency, rates);
+  if (convertedMinor == null || ratio == null) return null;
+  return {
+    amountMinor: Math.max(1, convertedMinor),
+    sourceCurrency: currency,
+    sourceAmountMinor: sourceMinor,
+    exchangeRate: ratio,
   };
 }
 
@@ -255,8 +302,8 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       }
     },
     toggleRecurring: (id) => {
-      const row = getState().recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;
-      const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: row.paymentMethodId ?? null, frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused };
+      const state = getState(); const row = state.recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;
+      const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: row.paymentMethodId ?? null, frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused, currency: row.currency ?? state.currency };
       persist(saveEntity("recurring", entity), () => {
         dispatch({ type: "CLOSE_OVERLAY" });
         dispatch({ type: "SHOW_TOAST", message: entity.paused ? `${entity.name} paused` : `${entity.name} resumed` });
@@ -274,10 +321,13 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!(input.amount > 0) || !category) return;
       const name = input.name.trim() || input.category;
+      const currency = input.currency;
 
       if (!input.recurring) {
+        const converted = convertEntry(input.amount, currency, state.currency, state.rates);
+        if (!converted) { dispatch({ type: "SHOW_TOAST", message: "Exchange rates unavailable — try again once online" }); return; }
         const entity: TransactionEntity = {
-          id: crypto.randomUUID(), name, amountMinor: Math.round(input.amount * 100),
+          id: crypto.randomUUID(), name, ...converted,
           occurredAt: localDateTimeTimestamp(input.date, input.time),
           categoryId: category.id, paymentMethodId: method?.id ?? null,
         };
@@ -289,18 +339,23 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
 
       if (!input.name.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return;
       const recurring: RecurringEntity = {
-        id: crypto.randomUUID(), name: input.name.trim(), amountMinor: Math.round(input.amount * 100),
+        id: crypto.randomUUID(), name: input.name.trim(),
+        ...recurringEntryFields(input.amount, currency),
         categoryId: category.id, paymentMethodId: method?.id ?? null,
         frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: input.date, paused: false,
       };
       const transactionDates = recurringTransactionDates(recurring, input.occurrenceSelection);
+      // Backfilled occurrences convert with the latest cached rate. Abort rather
+      // than record a wrong default amount when a foreign entry has no rate.
+      const converted = convertEntry(input.amount, currency, state.currency, state.rates);
+      if (!converted) { dispatch({ type: "SHOW_TOAST", message: "Exchange rates unavailable — try again once online" }); return; }
       const entities: Parameters<typeof saveEntities>[0] = [
         { entityType: "recurring", payload: recurring },
         ...transactionDates.map((date): Parameters<typeof saveEntities>[0][number] => ({
           entityType: "transaction",
           payload: {
-            id: crypto.randomUUID(), name: recurring.name, amountMinor: recurring.amountMinor,
+            id: crypto.randomUUID(), name: recurring.name, ...converted,
             occurredAt: occurrenceTimestamp(date, input.time), categoryId: recurring.categoryId,
             paymentMethodId: recurring.paymentMethodId,
           } satisfies TransactionEntity,
@@ -339,7 +394,9 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     saveTransactionEdits: (id, input) => {
       const state = getState(); const current = state.transactions.find((t) => t.id === id); const category = state.categories.find((c) => c.name === input.category); const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!current || !category) return;
-      persist(saveEntity("transaction", { id, name: input.name, amountMinor: Math.round(input.amount * 100), occurredAt: input.occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
+      const converted = convertEntry(input.amount, input.currency, state.currency, state.rates);
+      if (!converted) { dispatch({ type: "SHOW_TOAST", message: "Exchange rates unavailable — try again once online" }); return; }
+      persist(saveEntity("transaction", { id, name: input.name, ...converted, occurredAt: input.occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
     },
     setRecurringName: (name) => dispatch({ type: "SET_RECURRING_NAME", name }), setRecurringAmount: (amount) => dispatch({ type: "SET_RECURRING_AMOUNT", amount }),
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),
@@ -351,7 +408,8 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!current || !category || !(input.amount > 0) || !input.name.trim() || input.anchorDate < localDateKey(new Date())) return;
       const entity: RecurringEntity = {
-        id, name: input.name.trim(), amountMinor: Math.round(input.amount * 100),
+        id, name: input.name.trim(),
+        ...recurringEntryFields(input.amount, input.currency),
         categoryId: category.id, paymentMethodId: method?.id ?? null,
         frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: input.anchorDate, paused: current.paused,
@@ -375,7 +433,12 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         const entity: RecurringEntity = {
           id: draft.id,
           name: draft.name.trim(),
-          amountMinor: Math.round(amount * 100),
+          // This editor has no currency picker; preserve whatever currency the
+          // bill was created with (the draft amount is shown in that currency).
+          ...recurringEntryFields(
+            amount,
+            (current.currency ?? state.currency) as EnterableCurrency,
+          ),
           categoryId: category.id,
           paymentMethodId: method?.id ?? null,
           frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
@@ -392,7 +455,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const entity: RecurringEntity = {
         id: crypto.randomUUID(),
         name: draft.name.trim(),
-        amountMinor: Math.round(amount * 100),
+        ...recurringEntryFields(amount, state.currency),
         categoryId: category.id,
         paymentMethodId: method?.id ?? null,
         frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
@@ -583,6 +646,33 @@ export function AppStoreProvider({
   const pending = useLiveQuery(() => db.outbox.where("status").equals("pending").count(), [], 0) ?? 0;
   const blocked = useLiveQuery(() => db.outbox.where("status").equals("blocked").count(), [], 0) ?? 0;
 
+  // Keep the latest ECB rates in state for foreign-currency entry + "today's
+  // value" display. Seed from local cache, then refresh from Convex (Frankfurter
+  // is only hit once/day by the server cron).
+  useEffect(() => {
+    let cancelled = false;
+    const cached = loadCachedRates();
+    if (cached) dispatch({ type: "SET_RATES", rates: cached });
+    const load = () => {
+      void convex
+        .query(latestRatesRef, {})
+        .then((rates) => {
+          if (cancelled || !rates) return;
+          cacheRates(rates);
+          dispatch({ type: "SET_RATES", rates });
+        })
+        .catch(() => {
+          // Offline / auth — keep whatever cache we already seeded.
+        });
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", load);
+    };
+  }, [convex]);
+
   useEffect(() => {
     let cancelled = false;
     void initializeLocalDatabase()
@@ -649,8 +739,8 @@ export function AppStoreProvider({
     const methodEntities = active.filter((r) => r.entityType === "paymentMethod").map((r) => r.payload as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; return { id: t.id, name: t.name, amount: t.amountMinor / 100, amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green" }; });
-    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); return { id: item.id, name: item.name, amount: item.amountMinor / 100, amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency }; });
+    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: t.amountMinor / 100, amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", ...source }; });
+    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
     const lends = active
       .filter((r) => r.entityType === "lend")
       .map((r) => r.payload as LendEntity)

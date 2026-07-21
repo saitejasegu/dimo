@@ -10,7 +10,7 @@ struct RootView: View {
       } else {
         switch environment.session.phase {
         case .loading:
-          Theme.canvas.ignoresSafeArea()
+          LaunchLoadingView()
         case .signedOut:
           SignInScreen()
         case .signedIn:
@@ -23,6 +23,20 @@ struct RootView: View {
       }
     }
     .tint(Theme.green)
+  }
+}
+
+private struct LaunchLoadingView: View {
+  var body: some View {
+    VStack(spacing: 12) {
+      ProgressView()
+        .tint(Theme.green)
+      Text("Starting Dimo…")
+        .font(DimoFont.body(15))
+        .foregroundStyle(Theme.muted)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Theme.canvas.ignoresSafeArea())
   }
 }
 

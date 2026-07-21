@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   paymentMethodLabel,
+  type EnterableCurrency,
   type PaymentMethod,
   type Transaction,
 } from "@/lib/types";
@@ -57,7 +58,10 @@ export function EditExpenseForm({
   ];
 
   const initialOccurred = new Date(transaction.occurredAt ?? 0);
-  const [amount, setAmount] = useState(String(transaction.amount));
+  const entryCurrency = (transaction.sourceCurrency ?? currency) as EnterableCurrency;
+  const [amount, setAmount] = useState(
+    String(transaction.sourceCurrency ? transaction.sourceAmount ?? transaction.amount : transaction.amount),
+  );
   const [name, setName] = useState(transaction.name);
   const [category, setCategory] = useState(transaction.category);
   const [paymentMethod, setPaymentMethod] =
@@ -73,6 +77,7 @@ export function EditExpenseForm({
     actions.saveTransactionEdits(transaction.id, {
       name: name.trim() || category,
       amount: amountValue,
+      currency: entryCurrency,
       category,
       paymentMethod,
       occurredAt: localDateTimeTimestamp(date, time),
@@ -96,13 +101,13 @@ export function EditExpenseForm({
             valid ? "text-ink" : "text-disabled",
           )}
         >
-          {currencySymbol(currency)}
+          {currencySymbol(entryCurrency)}
           {amount || "0"}
         </div>
       ) : (
         <div className="mb-3.5 flex items-center gap-2.5 rounded-[14px] border border-line bg-canvas px-[18px] py-3.5">
           <span className="font-display text-[26px] font-semibold text-faint">
-            {currencySymbol(currency)}
+            {currencySymbol(entryCurrency)}
           </span>
           <input
             value={amount}

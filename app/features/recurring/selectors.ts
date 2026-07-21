@@ -5,9 +5,20 @@ export function activeRecurring(recs: Recurring[]): Recurring[] {
   return recs.filter((r) => !r.paused);
 }
 
-/** Sum of all non-paused recurring charges. */
-export function monthlyRecurringTotal(recs: Recurring[]): number {
-  return activeRecurring(recs).reduce((sum, r) => sum + (r.frequency === "yearly" ? r.amount / 12 : r.amount), 0);
+/**
+ * Sum of all non-paused recurring charges, normalized to a monthly figure.
+ * `amountOf` maps each bill to its amount in the account default currency
+ * (foreign bills must be converted before summing); it defaults to the raw
+ * `amount` for single-currency callers.
+ */
+export function monthlyRecurringTotal(
+  recs: Recurring[],
+  amountOf: (rec: Recurring) => number = (rec) => rec.amount,
+): number {
+  return activeRecurring(recs).reduce((sum, r) => {
+    const amount = amountOf(r);
+    return sum + (r.frequency === "yearly" ? amount / 12 : amount);
+  }, 0);
 }
 
 function withNextDue(recs: Recurring[], now: Date, includePaused = false): { rec: Recurring; due: Date }[] {

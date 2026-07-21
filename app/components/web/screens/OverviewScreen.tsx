@@ -5,6 +5,7 @@ import { money } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
+import { recurringAmountInDefault } from "@/features/currency/rates";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { UpcomingRow } from "@/components/common/UpcomingRow";
 import { CategoryBar } from "@/components/common/CategoryBar";
@@ -13,7 +14,7 @@ import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
-  const { profile, currency } = useAppState();
+  const { profile, currency, rates } = useAppState();
   const actions = useAppActions();
   const {
     totals,
@@ -29,7 +30,7 @@ export function OverviewScreen() {
   const canShowAll = allUpcoming.length > upcoming.length;
   const showUpcomingSection = allUpcoming.length > 0;
   const upcomingTotal = visibleUpcoming.reduce(
-    (total, item) => total + (item.paused ? 0 : item.amount),
+    (total, item) => total + (item.paused ? 0 : recurringAmountInDefault(item, currency, rates)),
     0,
   );
 

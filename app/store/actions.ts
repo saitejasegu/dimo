@@ -14,6 +14,7 @@ import type {
   WeekStart,
 } from "@/lib/types";
 import type { HydratedData } from "@/store/state";
+import type { RateTable } from "@/features/currency/rates";
 
 export type Action =
   | { type: "HYDRATE_DATA"; data: HydratedData }
@@ -81,6 +82,8 @@ export type Action =
   | { type: "SET_NAV_GLASS_OPACITY"; opacity: number }
   | { type: "SET_DEFAULT_STATS_RANGE"; range: StatsRange }
   | { type: "TOGGLE_NOTIFICATION"; key: keyof NotificationSettings }
+  // exchange rates
+  | { type: "SET_RATES"; rates: RateTable | null }
   // toast
   | { type: "SHOW_TOAST"; message: string }
   | { type: "CLEAR_TOAST" };

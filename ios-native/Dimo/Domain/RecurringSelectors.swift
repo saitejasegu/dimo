@@ -5,9 +5,15 @@ enum RecurringSelectors {
     recs.filter { !$0.paused }
   }
 
-  static func monthlyRecurringTotal(_ recs: [Recurring]) -> Double {
+  /// Sum active bills in a single currency. Foreign-currency callers provide
+  /// `amountOf` to convert each bill before it is added to the total.
+  static func monthlyRecurringTotal(
+    _ recs: [Recurring],
+    amountOf: (Recurring) -> Double = { $0.amount }
+  ) -> Double {
     activeRecurring(recs).reduce(0) { sum, r in
-      sum + (r.frequency == .yearly ? r.amount / 12 : r.amount)
+      let amount = amountOf(r)
+      return sum + (r.frequency == .yearly ? amount / 12 : amount)
     }
   }
 

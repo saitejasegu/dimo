@@ -6,6 +6,7 @@ import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { useActivity } from "@/features/transactions/hooks";
+import { recurringAmountInDefault } from "@/features/currency/rates";
 import {
   groupByDay,
   HOME_TRANSACTION_PAGE_SIZE,
@@ -27,7 +28,7 @@ export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
   const [pagination, setPagination] = useState({ key: "", limit: HOME_TRANSACTION_PAGE_SIZE });
-  const { profile, currency, query, categories } = useAppState();
+  const { profile, currency, rates, query, categories } = useAppState();
   const actions = useAppActions();
   const {
     totals,
@@ -50,7 +51,7 @@ export function HomeScreen() {
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
   const upcomingTotal = visibleUpcoming.reduce(
-    (total, item) => total + (item.paused ? 0 : item.amount),
+    (total, item) => total + (item.paused ? 0 : recurringAmountInDefault(item, currency, rates)),
     0,
   );
 

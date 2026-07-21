@@ -58,6 +58,62 @@ describe("Convex sync protocol", () => {
     expect(result.latestRevision).toBe(1);
   });
 
+  it("round-trips transaction and recurring currency metadata", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|currency-user",
+    });
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [
+        {
+          ...operation,
+          payload: {
+            ...operation.payload,
+            amountMinor: 227_611,
+            sourceCurrency: "USD",
+            sourceAmountMinor: 2_360,
+            exchangeRate: 96.44538771223525,
+          },
+        },
+        {
+          operationId: "op-recurring",
+          workspaceId: "global",
+          entityType: "recurring",
+          entityId: "recurring-1",
+          version: { timestamp: 101, counter: 0, deviceId: "device-a" },
+          payload: {
+            id: "recurring-1",
+            name: "Cursor",
+            amountMinor: 2_360,
+            categoryId: "category-software",
+            paymentMethodId: "payment-method-cash",
+            frequency: "monthly",
+            anchorDate: "2026-07-31",
+            paused: false,
+            currency: "USD",
+          },
+          deleted: false,
+        },
+      ],
+    });
+
+    const result = await t.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(result.entities.map((entity: { payload: unknown }) => entity.payload)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceCurrency: "USD",
+          sourceAmountMinor: 2_360,
+          exchangeRate: 96.44538771223525,
+        }),
+        expect.objectContaining({ currency: "USD", amountMinor: 2_360 }),
+      ]),
+    );
+  });
+
   it("keeps a newer tombstone over a stale update", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",

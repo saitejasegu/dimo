@@ -113,6 +113,116 @@ describe("recurring materialization", () => {
     expect(result.latestRevision).toBe(2);
   });
 
+  it("converts a foreign-currency recurring at that day's stored rate", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    const push = makeFunctionReference<"mutation">("sync:push");
+    const pull = makeFunctionReference<"query">("sync:pull");
+    // Regression: a $23.60 recurring bill must not become ₹23.60.
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "op-prefs",
+          workspaceId: "global",
+          entityType: "preferences" as const,
+          entityId: "preferences",
+          version: { timestamp: 90, counter: 0, deviceId: "device-a" },
+          payload: {
+            id: "preferences",
+            profileName: "",
+            profileEmail: "",
+            currency: "INR",
+            weekStart: "Mon",
+            defaultView: "home",
+            notifications: { bills: true, budget: true, weekly: false, large: true },
+            defaultPaymentMethodId: "payment-method-cash",
+          },
+          deleted: false,
+        },
+        recurringOperation("usd", { currency: "USD", amountMinor: 2_360 }),
+      ],
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("exchangeRates", {
+        date: "2026-02-28",
+        base: "EUR",
+        rates: { USD: 1, INR: 100 },
+        fetchedAt: Date.now(),
+      });
+    });
+
+    const result = await t.mutation(materializeDue, {
+      dateKey: "2026-02-28",
+      cursor: null,
+    });
+    expect(result.created).toBe(1);
+
+    const pulled = await t.query(pull, {
+      workspaceId: "global",
+      afterRevision: 2,
+      limit: 100,
+    });
+    expect(pulled.entities).toHaveLength(1);
+    // $23.60 * 100 = ₹2,360 -> 236,000 minor units.
+    expect(pulled.entities[0].payload).toMatchObject({
+      amountMinor: 236_000,
+      sourceCurrency: "USD",
+      sourceAmountMinor: 2_360,
+      exchangeRate: 100,
+    });
+  });
+
+  it("waits for rates instead of saving a foreign amount as default currency", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    const push = makeFunctionReference<"mutation">("sync:push");
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "op-prefs",
+          workspaceId: "global",
+          entityType: "preferences" as const,
+          entityId: "preferences",
+          version: { timestamp: 90, counter: 0, deviceId: "device-a" },
+          payload: {
+            id: "preferences",
+            profileName: "",
+            profileEmail: "",
+            currency: "INR",
+            weekStart: "Mon",
+            defaultView: "home",
+            notifications: { bills: true, budget: true, weekly: false, large: true },
+            defaultPaymentMethodId: "payment-method-cash",
+          },
+          deleted: false,
+        },
+        recurringOperation("usd", { currency: "USD", amountMinor: 2_360 }),
+      ],
+    });
+
+    expect(await t.mutation(materializeDue, {
+      dateKey: "2026-02-28",
+      cursor: null,
+    })).toMatchObject({ created: 0 });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("exchangeRates", {
+        date: "2026-02-28",
+        base: "EUR",
+        rates: { USD: 1, INR: 100 },
+        fetchedAt: Date.now(),
+      });
+    });
+    expect(await t.mutation(materializeDue, {
+      dateKey: "2026-02-28",
+      cursor: null,
+    })).toMatchObject({ created: 1 });
+  });
+
   it("skips paused and not-due recurring entries", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
