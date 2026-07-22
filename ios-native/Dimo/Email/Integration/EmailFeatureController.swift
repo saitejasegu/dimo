@@ -407,9 +407,21 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         guard let self else { return }
         try await self.selectSyncWindow(window)
       },
+      retryAnalysis: { [weak self] messageID in
+        guard let self else { return }
+        try await self.retryAnalysis(messageID: messageID)
+      },
       retryWithAlternateProvider: { [weak self] messageID in
         guard let self else { return }
         try await self.retryWithAlternateProvider(messageID: messageID)
+      },
+      retryOpenRouterConnection: { [weak self] in
+        guard let self else { return }
+        try await self.retryOpenRouterConnection()
+      },
+      retryOpenRouterAnalysis: { [weak self] in
+        guard let self else { return }
+        try await self.retryOpenRouterAnalysis()
       },
       loadEmailDetail: { [weak self] messageId in
         guard let self else { throw EmailFeatureStoreError.messageNotFound }
@@ -1083,6 +1095,37 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
+  private func retryAnalysis(messageID: String) async throws {
+    guard let message = try repository.emailMessage(key: messageID),
+          message.state == .analysisFailed else {
+      throw EmailRepositoryError.invalidSuggestionState
+    }
+    guard let provider = Self.analysisProvider(
+      analyzerType: message.analyzerType,
+      override: message.analysisProviderOverride,
+      selected: analysisSettings.selectedProvider
+    ) else {
+      throw EmailFeatureControllerError.analysisNotConfigured
+    }
+    switch provider {
+    case .gemma:
+      guard store.modelState.isInstalled else {
+        throw EmailFeatureControllerError.gemmaUnavailable(
+          "Download Local Gemma before retrying this email."
+        )
+      }
+    case .openRouter:
+      guard try await preparedOpenRouterAnalyzer() != nil else {
+        throw EmailFeatureControllerError.openRouterNotConfigured
+      }
+      // Manual retry should not wait out a prior OpenRouter backoff window.
+      try repository.clearEmailAnalysisRetryState()
+    }
+    try repository.retryEmailAnalysis(messageKey: messageID, providerOverride: provider)
+    try refreshEmailUIFromRepository()
+    _ = try await runPendingAnalysis(maximumCount: 1)
+  }
+
   private func retryWithAlternateProvider(messageID: String) async throws {
     guard let message = try repository.emailMessage(key: messageID),
           message.state == .analysisFailed else {
@@ -1098,10 +1141,78 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       guard try await preparedOpenRouterAnalyzer() != nil else {
         throw EmailFeatureControllerError.openRouterNotConfigured
       }
+      try repository.clearEmailAnalysisRetryState()
     }
     try repository.retryEmailAnalysis(messageKey: messageID, providerOverride: alternate)
     try refreshEmailUIFromRepository()
     _ = try await runPendingAnalysis(maximumCount: 1)
+  }
+
+  private func retryOpenRouterConnection() async throws {
+    store.openRouterConnectionState = .validating
+    guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
+      store.openRouterConnectionState = .disconnected
+      throw EmailFeatureControllerError.openRouterNotConfigured
+    }
+    do {
+      let keyInfo = try await openRouterClient.validateKey(credential.apiKey)
+      openRouterModels = try await openRouterClient.models(apiKey: credential.apiKey)
+      store.openRouterModels = openRouterModels
+      store.openRouterConnectionState = .connected(
+        label: keyInfo.label,
+        creditLimit: keyInfo.limit,
+        limitRemaining: keyInfo.limitRemaining
+      )
+      try repository.clearEmailAnalysisRetryState()
+      publishAnalysisSettings()
+      try await resumeOpenRouterAnalysisQueue()
+    } catch {
+      store.openRouterConnectionState = .failed(error.localizedDescription)
+      if analysisSettings.selectedProvider == .openRouter {
+        store.analysisStatusDetail = error.localizedDescription
+      }
+      throw error
+    }
+  }
+
+  private func retryOpenRouterAnalysis() async throws {
+    guard analysisSettings.selectedProvider == .openRouter else {
+      throw EmailFeatureControllerError.openRouterNotConfigured
+    }
+    guard try await preparedOpenRouterAnalyzer() != nil else {
+      throw EmailFeatureControllerError.openRouterNotConfigured
+    }
+    try repository.clearEmailAnalysisRetryState()
+    store.analysisStatusDetail = "Retrying OpenRouter analysis…"
+    try await resumeOpenRouterAnalysisQueue()
+  }
+
+  private func resumeOpenRouterAnalysisQueue() async throws {
+    guard analysisSettings.selectedProvider == .openRouter else { return }
+    if let analysisWork {
+      analysisWork.cancel()
+      await analysisWork.value
+      self.analysisWork = nil
+    }
+    if let pendingAnalysisTask {
+      pendingAnalysisTask.cancel()
+      _ = try? await pendingAnalysisTask.value
+      self.pendingAnalysisTask = nil
+      pendingAnalysisRunId = nil
+    }
+    _ = try await runPendingAnalysis()
+  }
+
+  private static func analysisProvider(
+    analyzerType: EmailAnalyzerKind?,
+    override: EmailAnalysisProvider?,
+    selected: EmailAnalysisProvider?
+  ) -> EmailAnalysisProvider? {
+    switch analyzerType {
+    case .openRouter: return .openRouter
+    case .gemma: return .gemma
+    case .rules, nil: return override ?? selected
+    }
   }
 
   private func saveAnalysisSettings() throws {

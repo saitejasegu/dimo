@@ -4,6 +4,7 @@ struct EmailMessageStatusCard: View {
   var email: EmailUIMessage
   var onOpen: () -> Void = {}
   var onRestore: (() -> Void)? = nil
+  var onRetry: (() -> Void)? = nil
   var onRetryWithAlternate: (() -> Void)? = nil
 
   var body: some View {
@@ -102,16 +103,30 @@ struct EmailMessageStatusCard: View {
         .buttonStyle(.plain)
       }
 
-      if email.analysisState == .failed, let onRetryWithAlternate {
+      if email.analysisState == .failed, onRetry != nil || onRetryWithAlternate != nil {
         Divider().overlay(Theme.lineSoft)
-        Button(action: onRetryWithAlternate) {
-          Label(alternateTitle, systemImage: "arrow.triangle.2.circlepath")
-            .font(DimoFont.body(13, weight: .semibold))
-            .foregroundStyle(Theme.green)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 32)
+        VStack(alignment: .leading, spacing: 4) {
+          if let onRetry {
+            Button(action: onRetry) {
+              Label(retryTitle, systemImage: "arrow.clockwise")
+                .font(DimoFont.body(13, weight: .semibold))
+                .foregroundStyle(Theme.green)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+          }
+          if let onRetryWithAlternate {
+            Button(action: onRetryWithAlternate) {
+              Label(alternateTitle, systemImage: "arrow.triangle.2.circlepath")
+                .font(DimoFont.body(13, weight: .semibold))
+                .foregroundStyle(Theme.green)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 32)
+            }
+            .buttonStyle(.plain)
+          }
         }
-        .buttonStyle(.plain)
       }
     }
     .padding(16)
@@ -119,6 +134,14 @@ struct EmailMessageStatusCard: View {
     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
     .accessibilityElement(children: .contain)
+  }
+
+  private var retryTitle: String {
+    switch email.analyzer {
+    case .openRouter: return "Retry with OpenRouter"
+    case .gemma: return "Retry with Local Gemma"
+    case nil: return "Retry analysis"
+    }
   }
 
   private var alternateTitle: String {

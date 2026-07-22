@@ -319,7 +319,10 @@ struct EmailFeatureActions {
   var selectOpenRouterModel: (_ modelID: String, _ allowNonZDR: Bool) async throws -> Void = { _, _ in }
   var selectProvider: (_ provider: EmailAnalysisProvider?) async throws -> Void = { _ in }
   var selectSyncWindow: (_ window: EmailSyncWindow) async throws -> Void = { _ in }
+  var retryAnalysis: (_ messageID: String) async throws -> Void = { _ in }
   var retryWithAlternateProvider: (_ messageID: String) async throws -> Void = { _ in }
+  var retryOpenRouterConnection: () async throws -> Void = {}
+  var retryOpenRouterAnalysis: () async throws -> Void = {}
   var loadEmailDetail: (_ messageID: String) async throws -> EmailUIEmailDetail = { _ in
     throw EmailFeatureStoreError.messageNotFound
   }
@@ -650,8 +653,20 @@ final class EmailFeatureStore {
     }
   }
 
+  func retryAnalysis(messageID: String) {
+    run { try await self.actions.retryAnalysis(messageID) }
+  }
+
   func retryWithAlternateProvider(messageID: String) {
     run { try await self.actions.retryWithAlternateProvider(messageID) }
+  }
+
+  func retryOpenRouterConnection() {
+    run { try await self.actions.retryOpenRouterConnection() }
+  }
+
+  func retryOpenRouterAnalysis() {
+    run { try await self.actions.retryOpenRouterAnalysis() }
   }
 
   func clearError() {

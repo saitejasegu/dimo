@@ -392,7 +392,28 @@ struct EmailSettingsSection: View {
       }
 
       switch store.openRouterConnectionState {
-      case .disconnected, .failed:
+      case .failed(let message):
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+          .font(DimoFont.body(10, weight: .medium))
+          .foregroundStyle(Theme.danger)
+          .fixedSize(horizontal: false, vertical: true)
+        ActionButton(title: "Retry OpenRouter", variant: .accent) {
+          store.retryOpenRouterConnection()
+        }
+        SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .font(DimoFont.body(12))
+          .padding(12)
+          .background(Theme.canvasDeep)
+          .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        Text("Retry uses the key already saved on this iPhone. Enter a different key only if you want to replace it.")
+          .font(DimoFont.body(10))
+          .foregroundStyle(Theme.muted)
+        ActionButton(title: "Validate and save key", variant: .secondary, enabled: !store.openRouterAPIKeyInput.isEmpty) {
+          store.saveOpenRouterKey()
+        }
+      case .disconnected:
         SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
           .textInputAutocapitalization(.never)
           .autocorrectionDisabled()
@@ -412,11 +433,14 @@ struct EmailSettingsSection: View {
           .foregroundStyle(Theme.muted)
       case .connected:
         if store.selectedProvider == .openRouter,
-           store.analysisStatusDetail.localizedCaseInsensitiveContains("unavailable") {
+           openRouterNeedsManualRetry {
           Label(store.analysisStatusDetail, systemImage: "exclamationmark.triangle.fill")
             .font(DimoFont.body(10, weight: .medium))
             .foregroundStyle(Theme.danger)
             .fixedSize(horizontal: false, vertical: true)
+          ActionButton(title: "Retry OpenRouter analysis", variant: .accent) {
+            store.retryOpenRouterAnalysis()
+          }
         }
 
         Button {
@@ -607,6 +631,19 @@ struct EmailSettingsSection: View {
     case nil:
       return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you choose an analyzer; analyzed suggestions later sync through Dimo for restore."
     }
+  }
+
+  private var openRouterNeedsManualRetry: Bool {
+    let detail = store.analysisStatusDetail.lowercased()
+    return detail.contains("unavailable")
+      || detail.contains("insufficient")
+      || detail.contains("rate limit")
+      || detail.contains("waiting to retry")
+      || detail.contains("could not be reached")
+      || detail.contains("timed out")
+      || detail.contains("forbidden")
+      || detail.contains("invalid")
+      || detail.contains("analysis failed")
   }
 
   private func sectionHeading(_ title: String, detail: String?) -> some View {

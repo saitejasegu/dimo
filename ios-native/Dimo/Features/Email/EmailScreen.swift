@@ -27,6 +27,9 @@ struct EmailScreen: View {
                     onRestore: email.analysisState == .dismissed
                       ? { store.restoreSuggestion(email.id) }
                       : nil,
+                    onRetry: email.analysisState == .failed
+                      ? { store.retryAnalysis(messageID: email.id) }
+                      : nil,
                     onRetryWithAlternate: email.analysisState == .failed
                       ? { store.retryWithAlternateProvider(messageID: email.id) }
                       : nil
