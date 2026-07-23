@@ -19,7 +19,7 @@ import {
   DEFAULT_CATEGORY_EMOJI,
   DEFAULT_PREFERENCES,
   WORKSPACE_ID,
-  entityKey,
+  payloadFromStored,
   type CategoryEntity,
   type LendEntity,
   type PaymentMethodEntity,
@@ -28,6 +28,8 @@ import {
   type TransactionEntity,
 } from "@/data/model";
 import {
+  allStoredRows,
+  getStoredRow,
   initializeLocalDatabase,
   removeEntity,
   saveEntity,
@@ -647,7 +649,7 @@ export function AppStoreProvider({
   activateUserDatabase(user.id);
   const convex = useConvex();
   const [state, dispatch] = useReducer(reducer, user.name, createInitialState);
-  const entities = useLiveQuery(() => db.entities.toArray(), [], undefined);
+  const entities = useLiveQuery(() => allStoredRows(), [], undefined);
   const device = useLiveQuery(() => db.deviceMeta.get("device"), [], undefined);
   const meta = useLiveQuery(() => db.syncMeta.get(WORKSPACE_ID), [], undefined);
   const pending = useLiveQuery(() => db.outbox.where("status").equals("pending").count(), [], 0) ?? 0;
@@ -701,9 +703,9 @@ export function AppStoreProvider({
         // Persist AuthKit profile into an established preferences row so later
         // preference pushes also carry name/email. A zero server revision means
         // initial sync did not complete, so leave the bootstrap row untouched.
-        const existing = await db.entities.get(entityKey("preferences", "preferences"));
+        const existing = await getStoredRow("preferences", "preferences");
         if (!existing || existing.deleted || existing.serverRevision === 0) return;
-        const current = existing.payload as PreferencesEntity;
+        const current = payloadFromStored("preferences", existing);
         if (
           nextName &&
           nextEmail &&
@@ -730,27 +732,34 @@ export function AppStoreProvider({
 
   useEffect(() => {
     if (!entities?.length) return;
-    const active = entities.filter((row) => !row.deleted);
+    const active = entities.filter(({ row }) => !row.deleted);
     const categories = active
       .filter((r) => r.entityType === "category")
       .map((r) => {
-        const payload = r.payload as CategoryEntity & { emoji?: string };
+        const payload = payloadFromStored("category", r.row as never) as CategoryEntity & {
+          emoji?: string;
+        };
         return {
           ...payload,
           emoji: payload.emoji || DEFAULT_CATEGORY_EMOJI,
         } satisfies CategoryEntity;
       })
       .sort((a, b) => a.sortOrder - b.sortOrder);
-    const storedPreference = active.find((r) => r.entityType === "preferences")?.payload as Partial<PreferencesEntity> | undefined;
+    const prefsRow = active.find((r) => r.entityType === "preferences")?.row;
+    const storedPreference = prefsRow
+      ? (payloadFromStored("preferences", prefsRow as never) as Partial<PreferencesEntity>)
+      : undefined;
     const preference: PreferencesEntity = { ...DEFAULT_PREFERENCES, ...storedPreference };
-    const methodEntities = active.filter((r) => r.entityType === "paymentMethod").map((r) => r.payload as PaymentMethodEntity);
+    const methodEntities = active
+      .filter((r) => r.entityType === "paymentMethod")
+      .map((r) => payloadFromStored("paymentMethod", r.row as never) as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => r.payload as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
-    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => r.payload as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
+    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => payloadFromStored("transaction", r.row as never) as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
+    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => payloadFromStored("recurring", r.row as never) as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
     const lends = active
       .filter((r) => r.entityType === "lend")
-      .map((r) => r.payload as LendEntity)
+      .map((r) => payloadFromStored("lend", r.row as never) as LendEntity)
       .sort((a, b) => b.occurredAt - a.occurredAt)
       .map((item) => ({
         id: item.id,

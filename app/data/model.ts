@@ -190,31 +190,53 @@ export interface EntityPayloadMap {
 
 export type EntityPayload = EntityPayloadMap[EntityType];
 
-export interface StoredEntity<T extends EntityType = EntityType> {
+/** Shared sync columns on every typed local row. */
+export interface StoredRowBase {
   key: string;
   workspaceId: typeof WORKSPACE_ID;
-  entityType: T;
   entityId: string;
   version: LogicalVersion;
-  payload: EntityPayloadMap[T];
   deleted: boolean;
   serverRevision: number;
 }
 
-export interface SyncOperation<T extends EntityType = EntityType> {
-  operationId: string;
+export type StoredCategory = StoredRowBase & Omit<CategoryEntity, "id">;
+export type StoredPaymentMethod = StoredRowBase & Omit<PaymentMethodEntity, "id">;
+export type StoredTransaction = StoredRowBase & Omit<TransactionEntity, "id">;
+export type StoredRecurring = StoredRowBase & Omit<RecurringEntity, "id">;
+export type StoredLend = StoredRowBase & Omit<LendEntity, "id">;
+export type StoredEmailMessage = StoredRowBase & Omit<EmailMessageEntity, "id">;
+export type StoredPreferences = StoredRowBase & Omit<PreferencesEntity, "id">;
+
+export type StoredRowMap = {
+  category: StoredCategory;
+  paymentMethod: StoredPaymentMethod;
+  transaction: StoredTransaction;
+  recurring: StoredRecurring;
+  lend: StoredLend;
+  emailMessage: StoredEmailMessage;
+  preferences: StoredPreferences;
+};
+
+export type StoredRow<T extends EntityType = EntityType> = StoredRowMap[T];
+
+/**
+ * Dirty-key outbox entry — no payload snapshot. Push reads the current typed
+ * row for this key and builds the wire operation from it.
+ */
+export interface OutboxEntry {
   key: string;
-  workspaceId: typeof WORKSPACE_ID;
-  entityType: T;
+  operationId: string;
+  entityType: EntityType;
   entityId: string;
-  version: LogicalVersion;
-  payload: EntityPayloadMap[T];
-  deleted: boolean;
   status: "pending" | "blocked";
   attempts: number;
   lastError: string | null;
   createdAt: number;
 }
+
+/** @deprecated Prefer OutboxEntry; kept as an alias during the rewrite. */
+export type SyncOperation = OutboxEntry;
 
 export const entityKey = (type: EntityType, id: string) =>
   `${WORKSPACE_ID}:${type}:${id}`;
@@ -223,6 +245,29 @@ export function compareVersions(a: LogicalVersion, b: LogicalVersion): number {
   if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
   if (a.counter !== b.counter) return a.counter - b.counter;
   return a.deviceId.localeCompare(b.deviceId);
+}
+
+export function payloadFromStored<T extends EntityType>(
+  _entityType: T,
+  row: StoredRowMap[T],
+): EntityPayloadMap[T] {
+  const rest = { ...row } as Record<string, unknown>;
+  const entityId = String(rest.entityId);
+  delete rest.key;
+  delete rest.workspaceId;
+  delete rest.entityId;
+  delete rest.version;
+  delete rest.deleted;
+  delete rest.serverRevision;
+  return { id: entityId, ...rest } as EntityPayloadMap[T];
+}
+
+export function storedFieldsFromPayload<T extends EntityType>(
+  payload: EntityPayloadMap[T],
+): Omit<EntityPayloadMap[T], "id"> {
+  const rest = { ...payload } as Record<string, unknown>;
+  delete rest.id;
+  return rest as Omit<EntityPayloadMap[T], "id">;
 }
 
 export const CASH_PAYMENT_METHOD: PaymentMethodEntity = {
@@ -245,4 +290,14 @@ export const DEFAULT_PREFERENCES: PreferencesEntity = {
   defaultStatsRange: "1Y",
   notifications: { bills: true, budget: true, weekly: false, large: true },
   defaultPaymentMethodId: CASH_PAYMENT_METHOD.id,
+};
+
+export const DEXIE_STORE_BY_TYPE: Record<EntityType, string> = {
+  category: "categories",
+  paymentMethod: "paymentMethods",
+  transaction: "transactions",
+  recurring: "recurring",
+  lend: "lends",
+  emailMessage: "emailMessages",
+  preferences: "preferences",
 };

@@ -430,23 +430,43 @@ struct PullResultDTO: Decodable {
   var hasMore: Bool
 }
 
+/// Flat typed pull row — no nested `payload` blob.
 struct RemoteEntityDTO: Decodable {
   var workspaceId: String
-  var entityType: String
   var entityId: String
   var version: WireVersion
-  var payload: [String: AnyDecodableValue]
   var deleted: Bool
   var serverRevision: Double
+  /// Remaining typed fields decoded as a loose dictionary for legacy fallbacks.
+  var fields: [String: AnyDecodableValue]
 
-  func toStoredEntity() throws -> StoredEntity {
-    let type = EntityType(rawValue: entityType) ?? .transaction
-    let dict = payload.mapValues(\.rawValue)
-    let payload = try WirePayload.decode(entityType: type, dict: dict)
+  private enum KnownKey: String {
+    case workspaceId, entityId, version, deleted, serverRevision
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+    workspaceId = try container.decode(String.self, forKey: DynamicCodingKey("workspaceId"))
+    entityId = try container.decode(String.self, forKey: DynamicCodingKey("entityId"))
+    version = try container.decode(WireVersion.self, forKey: DynamicCodingKey("version"))
+    deleted = try container.decode(Bool.self, forKey: DynamicCodingKey("deleted"))
+    serverRevision = try container.decode(Double.self, forKey: DynamicCodingKey("serverRevision"))
+    var extras: [String: AnyDecodableValue] = [:]
+    for key in container.allKeys {
+      if KnownKey(rawValue: key.stringValue) != nil { continue }
+      extras[key.stringValue] = try container.decode(AnyDecodableValue.self, forKey: key)
+    }
+    fields = extras
+  }
+
+  func toStoredEntity(entityType: EntityType) throws -> StoredEntity {
+    var dict = fields.mapValues(\.rawValue)
+    dict["id"] = entityId
+    let payload = try WirePayload.decode(entityType: entityType, dict: dict)
     return StoredEntity(
-      key: entityKey(type: type, id: entityId),
+      key: entityKey(type: entityType, id: entityId),
       workspaceId: workspaceId,
-      entityType: type,
+      entityType: entityType,
       entityId: entityId,
       version: version.toDomain(),
       payload: payload,
@@ -454,6 +474,37 @@ struct RemoteEntityDTO: Decodable {
       serverRevision: Int(serverRevision)
     )
   }
+
+  /// Legacy blob pull compatibility (entityType + nested payload).
+  func toStoredEntity() throws -> StoredEntity {
+    if let nested = fields["payload"],
+       let typeRaw = fields["entityType"]?.rawValue as? String,
+       let type = EntityType(rawValue: typeRaw),
+       let payloadDict = nested.rawValue as? [String: Any] {
+      let payload = try WirePayload.decode(entityType: type, dict: payloadDict)
+      return StoredEntity(
+        key: entityKey(type: type, id: entityId),
+        workspaceId: workspaceId,
+        entityType: type,
+        entityId: entityId,
+        version: version.toDomain(),
+        payload: payload,
+        deleted: deleted,
+        serverRevision: Int(serverRevision)
+      )
+    }
+    throw DecodingError.dataCorrupted(
+      .init(codingPath: [], debugDescription: "Missing entity type for remote row")
+    )
+  }
+}
+
+struct DynamicCodingKey: CodingKey {
+  var stringValue: String
+  var intValue: Int? { nil }
+  init(_ string: String) { stringValue = string }
+  init?(stringValue: String) { self.stringValue = stringValue }
+  init?(intValue: Int) { return nil }
 }
 
 struct PushResultDTO: Decodable {

@@ -1,18 +1,22 @@
 import { ConvexReactClient } from "convex/react";
 import { makeFunctionReference } from "convex/server";
-import { db } from "@/data/db";
+import { db, EMPTY_PULLED_REVISIONS } from "@/data/db";
 import {
   WORKSPACE_ID,
   ALL_CLOUD_ENTITY_TYPES,
   OWNED_ENTITY_TYPES,
   entityKey,
   type CloudEntityType,
-  type StoredEntity,
-  type SyncOperation,
+  type EntityType,
+  type LogicalVersion,
+  type OutboxEntry,
+  type StoredRowMap,
 } from "@/data/model";
 import {
+  ALL_ENTITY_TYPES,
   acknowledgeOperations,
   backfillRecurringCurrencies,
+  buildPushOperation,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   mergeRemotePage,
@@ -20,8 +24,8 @@ import {
   purgeExpiredTombstones,
 } from "@/data/repository";
 
-type PullResult = {
-  entities: Array<Omit<StoredEntity, "key">>;
+type PullPage = {
+  entities: Array<Record<string, unknown>>;
   latestRevision: number;
   hasMore: boolean;
 };
@@ -36,20 +40,40 @@ type ClearResult = {
   hasMore: boolean;
 };
 
-type PushOperation = Omit<
-  SyncOperation,
-  "key" | "status" | "attempts" | "lastError" | "createdAt"
->;
-
-const pullRef = makeFunctionReference<"query", {
+type PullArgs = {
   workspaceId: string;
   afterRevision: number;
   limit: number;
-}, PullResult>("sync:pull");
-const pushRef = makeFunctionReference<"mutation", {
-  workspaceId: string;
-  operations: Array<PushOperation>;
-}, PushResult>("sync:push");
+};
+
+const PUSH_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
+  category: makeFunctionReference<"mutation">("syncTyped:pushCategories"),
+  paymentMethod: makeFunctionReference<"mutation">("syncTyped:pushPaymentMethods"),
+  transaction: makeFunctionReference<"mutation">("syncTyped:pushTransactions"),
+  recurring: makeFunctionReference<"mutation">("syncTyped:pushRecurring"),
+  lend: makeFunctionReference<"mutation">("syncTyped:pushLends"),
+  emailMessage: makeFunctionReference<"mutation">("syncTyped:pushEmailMessages"),
+  preferences: makeFunctionReference<"mutation">("syncTyped:pushPreferences"),
+};
+
+const PULL_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
+  category: makeFunctionReference<"query", PullArgs, PullPage>("syncTyped:pullCategories"),
+  paymentMethod: makeFunctionReference<"query", PullArgs, PullPage>(
+    "syncTyped:pullPaymentMethods",
+  ),
+  transaction: makeFunctionReference<"query", PullArgs, PullPage>(
+    "syncTyped:pullTransactions",
+  ),
+  recurring: makeFunctionReference<"query", PullArgs, PullPage>("syncTyped:pullRecurring"),
+  lend: makeFunctionReference<"query", PullArgs, PullPage>("syncTyped:pullLends"),
+  emailMessage: makeFunctionReference<"query", PullArgs, PullPage>(
+    "syncTyped:pullEmailMessages",
+  ),
+  preferences: makeFunctionReference<"query", PullArgs, PullPage>(
+    "syncTyped:pullPreferences",
+  ),
+};
+
 const revisionRef = makeFunctionReference<"query", { workspaceId: string }, number>(
   "sync:currentRevision",
 );
@@ -71,16 +95,29 @@ export function isPermanentSyncError(message: string) {
   );
 }
 
-function toPushPayload(operations: SyncOperation[]): PushOperation[] {
-  return operations.map((op) => ({
-    operationId: op.operationId,
-    workspaceId: op.workspaceId,
-    entityType: op.entityType,
-    entityId: op.entityId,
-    version: op.version,
-    payload: op.payload,
-    deleted: op.deleted,
-  }));
+function toStoredFromPull<T extends EntityType>(
+  entityType: T,
+  row: Record<string, unknown>,
+): StoredRowMap[T] {
+  const entityId = String(row.entityId);
+  const fields = { ...row };
+  delete fields.workspaceId;
+  delete fields.entityId;
+  const version = fields.version as LogicalVersion;
+  const deleted = Boolean(fields.deleted);
+  const serverRevision = Number(fields.serverRevision) || 0;
+  delete fields.version;
+  delete fields.deleted;
+  delete fields.serverRevision;
+  return {
+    key: entityKey(entityType, entityId),
+    workspaceId: WORKSPACE_ID,
+    entityId,
+    version,
+    deleted,
+    serverRevision,
+    ...fields,
+  } as StoredRowMap[T];
 }
 
 export class SyncCoordinator {
@@ -175,21 +212,20 @@ export class SyncCoordinator {
       }
       await db.syncMeta.update(WORKSPACE_ID, { syncing: true, error: null });
       try {
-        // Backfill workspace name/email for existing rows on every authenticated sync.
-        // WorkOS JWTs omit these claims, so pass the AuthKit user profile explicitly.
         await this.ensureProfile();
         if (replace) {
           await backfillRecurringCurrencies();
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
-          await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
+          await db.syncMeta.update(WORKSPACE_ID, {
+            lastPulledRevision: 0,
+            pulledRevisions: { ...EMPTY_PULLED_REVISIONS },
+          });
           await enqueueFullUpload([...OWNED_ENTITY_TYPES]);
           await this.pushAll();
           await this.pullAll();
         } else {
           await this.pullAll();
           await backfillRecurringCurrencies();
-          // Upload bootstrap defaults only if pull left them unsynced (empty
-          // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           await enqueueUnsyncedDefaults();
           await this.pushAll();
           await this.pullAll();
@@ -224,22 +260,26 @@ export class SyncCoordinator {
   }
 
   private async pullAll() {
+    for (const entityType of ALL_ENTITY_TYPES) {
+      await this.pullType(entityType);
+    }
+  }
+
+  private async pullType(entityType: EntityType) {
     let meta = await db.syncMeta.get(WORKSPACE_ID);
-    let cursor = meta?.lastPulledRevision ?? 0;
+    let cursor =
+      meta?.pulledRevisions?.[entityType] ?? meta?.lastPulledRevision ?? 0;
     while (true) {
-      const page = await this.client.query(pullRef, {
+      const page = (await this.client.query(PULL_REF[entityType], {
         workspaceId: WORKSPACE_ID,
         afterRevision: cursor,
         limit: 100,
-      });
-      const rows = page.entities.map((row) => ({
-        ...row,
-        key: entityKey(row.entityType, row.entityId),
-      })) as StoredEntity[];
+      })) as PullPage;
+      const rows = page.entities.map((row) => toStoredFromPull(entityType, row));
       const pageCursor = rows.length
         ? Math.max(...rows.map((row) => row.serverRevision))
         : page.latestRevision;
-      await mergeRemotePage(rows, pageCursor);
+      await mergeRemotePage(entityType, rows as never, pageCursor);
       cursor = pageCursor;
       if (!page.hasMore) break;
       meta = await db.syncMeta.get(WORKSPACE_ID);
@@ -248,18 +288,45 @@ export class SyncCoordinator {
 
   private async pushAll() {
     while (true) {
-      const operations = await db.outbox.where("status").equals("pending").limit(50).toArray();
-      if (!operations.length) return;
-      await this.pushBatch(operations);
+      const pending = await db.outbox.where("status").equals("pending").toArray();
+      if (!pending.length) return;
+
+      // Group by type so each batch hits one typed endpoint.
+      const byType = new Map<EntityType, OutboxEntry[]>();
+      for (const op of pending) {
+        const list = byType.get(op.entityType) ?? [];
+        list.push(op);
+        byType.set(op.entityType, list);
+      }
+
+      let pushedAny = false;
+      for (const [entityType, ops] of byType) {
+        // Cap each typed batch at 50.
+        for (let i = 0; i < ops.length; i += 50) {
+          const batch = ops.slice(i, i + 50);
+          await this.pushBatch(entityType, batch);
+          pushedAny = true;
+        }
+      }
+      if (!pushedAny) return;
     }
   }
 
-  private async pushBatch(operations: SyncOperation[]) {
+  private async pushBatch(entityType: EntityType, operations: OutboxEntry[]) {
+    const wireOps = [];
+    for (const entry of operations) {
+      const op = await buildPushOperation(entry);
+      if (op) wireOps.push(op);
+    }
+    if (!wireOps.length) {
+      for (const entry of operations) await db.outbox.delete(entry.key);
+      return;
+    }
     try {
-      const result = await this.client.mutation(pushRef, {
+      const result = (await this.client.mutation(PUSH_REF[entityType], {
         workspaceId: WORKSPACE_ID,
-        operations: toPushPayload(operations),
-      });
+        operations: wireOps,
+      })) as PushResult;
       await acknowledgeOperations(result.acknowledgements);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -278,8 +345,8 @@ export class SyncCoordinator {
       }
       if (operations.length > 1) {
         const mid = Math.max(1, Math.floor(operations.length / 2));
-        await this.pushBatch(operations.slice(0, mid));
-        await this.pushBatch(operations.slice(mid));
+        await this.pushBatch(entityType, operations.slice(0, mid));
+        await this.pushBatch(entityType, operations.slice(mid));
         return;
       }
       const operation = operations[0];
@@ -312,7 +379,6 @@ export function startSync(
 ) {
   sharedCoordinator ??= new SyncCoordinator(client);
   if (profile) sharedCoordinator.setProfile(profile);
-  // Kick the workspace profile write immediately on login, then start normal sync.
   void sharedCoordinator.ensureProfile().catch(() => {
     // Auth token may still be attaching; the sync loop retries ensureProfile.
   });

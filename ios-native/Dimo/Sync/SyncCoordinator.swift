@@ -4,8 +4,17 @@ import Foundation
 
 protocol SyncTransport: Sendable {
   func currentRevision(workspaceId: String) async throws -> Double
-  func pull(workspaceId: String, afterRevision: Double, limit: Double) async throws -> PullResultDTO
-  func push(workspaceId: String, operations: [SyncOperation]) async throws -> PushResultDTO
+  func pull(
+    entityType: EntityType,
+    workspaceId: String,
+    afterRevision: Double,
+    limit: Double
+  ) async throws -> PullResultDTO
+  func push(
+    entityType: EntityType,
+    workspaceId: String,
+    operations: [SyncOperation]
+  ) async throws -> PushResultDTO
   func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws
   func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO
   func latestExchangeRates() async throws -> RateTable?
@@ -165,7 +174,10 @@ actor SyncCoordinator {
           try repository.enqueueUnsyncedEmailMessages()
           try repository.backfillRecurringCurrencies()
           try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
-          try repository.updateSyncMeta { $0.lastPulledRevision = 0 }
+          try repository.updateSyncMeta {
+            $0.lastPulledRevision = 0
+            $0.pulledRevisions = [:]
+          }
           try repository.enqueueFullUpload(entityTypes: Array(EntityType.allCases))
           try await pushAll()
           try await pullAll()
@@ -219,34 +231,58 @@ actor SyncCoordinator {
   }
 
   private func pullAll() async throws {
-    var cursor = try repository.syncMeta()?.lastPulledRevision ?? 0
+    for entityType in EntityType.allCases {
+      try await pullType(entityType)
+    }
+  }
+
+  private func pullType(_ entityType: EntityType) async throws {
+    var meta = try repository.syncMeta()
+    var cursor = meta?.pulledRevisions[entityType] ?? meta?.lastPulledRevision ?? 0
     while true {
       let page = try await transport.pull(
+        entityType: entityType,
         workspaceId: workspaceID,
         afterRevision: Double(cursor),
         limit: 100
       )
-      let rows = try page.entities.map { try $0.toStoredEntity() }
+      let rows = try page.entities.map { try $0.toStoredEntity(entityType: entityType) }
       let pageCursor = rows.isEmpty
         ? Int(page.latestRevision)
         : (rows.map(\.serverRevision).max() ?? Int(page.latestRevision))
-      try repository.mergeRemotePage(rows, cursor: pageCursor)
+      try repository.mergeRemotePage(rows, entityType: entityType, cursor: pageCursor)
       cursor = pageCursor
       if !page.hasMore { break }
+      meta = try repository.syncMeta()
     }
   }
 
   private func pushAll() async throws {
     while true {
-      let operations = try repository.pendingOutbox(limit: 50)
-      if operations.isEmpty { return }
-      try await pushBatch(operations)
+      let pending = try repository.pendingOutbox(limit: 500)
+      if pending.isEmpty { return }
+      let grouped = Dictionary(grouping: pending, by: \.entityType)
+      var pushed = false
+      for (entityType, ops) in grouped {
+        var index = 0
+        while index < ops.count {
+          let batch = Array(ops[index..<min(index + 50, ops.count)])
+          try await pushBatch(entityType: entityType, operations: batch)
+          pushed = true
+          index += 50
+        }
+      }
+      if !pushed { return }
     }
   }
 
-  private func pushBatch(_ operations: [SyncOperation]) async throws {
+  private func pushBatch(entityType: EntityType, operations: [SyncOperation]) async throws {
     do {
-      let result = try await transport.push(workspaceId: workspaceID, operations: operations)
+      let result = try await transport.push(
+        entityType: entityType,
+        workspaceId: workspaceID,
+        operations: operations
+      )
       try repository.acknowledgeOperations(result.acknowledgements.map(\.operationId))
     } catch {
       let message = error.localizedDescription
@@ -261,8 +297,8 @@ actor SyncCoordinator {
       }
       if operations.count > 1 {
         let mid = max(1, operations.count / 2)
-        try await pushBatch(Array(operations.prefix(mid)))
-        try await pushBatch(Array(operations.suffix(from: mid)))
+        try await pushBatch(entityType: entityType, operations: Array(operations.prefix(mid)))
+        try await pushBatch(entityType: entityType, operations: Array(operations.suffix(from: mid)))
         return
       }
       var operation = operations[0]
@@ -301,10 +337,15 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     )
   }
 
-  func pull(workspaceId: String, afterRevision: Double, limit: Double) async throws -> PullResultDTO {
+  func pull(
+    entityType: EntityType,
+    workspaceId: String,
+    afterRevision: Double,
+    limit: Double
+  ) async throws -> PullResultDTO {
     try await firstValue(
       client.subscribe(
-        to: "sync:pull",
+        to: Self.pullPath(entityType),
         with: [
           "workspaceId": workspaceId,
           "afterRevision": afterRevision,
@@ -314,18 +355,46 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     )
   }
 
-  func push(workspaceId: String, operations: [SyncOperation]) async throws -> PushResultDTO {
+  func push(
+    entityType: EntityType,
+    workspaceId: String,
+    operations: [SyncOperation]
+  ) async throws -> PushResultDTO {
     let encoded: [ConvexEncodable?] = operations.map { op -> ConvexEncodable? in
-      wireOperation(op) as [String: ConvexEncodable?]
+      wireTypedOperation(op) as [String: ConvexEncodable?]
     }
     return try await withTimeout(seconds: 45) {
       try await self.client.mutation(
-        "sync:push",
+        Self.pushPath(entityType),
         with: [
           "workspaceId": workspaceId,
           "operations": encoded,
         ]
       )
+    }
+  }
+
+  private static func pullPath(_ type: EntityType) -> String {
+    switch type {
+    case .category: return "syncTyped:pullCategories"
+    case .paymentMethod: return "syncTyped:pullPaymentMethods"
+    case .transaction: return "syncTyped:pullTransactions"
+    case .recurring: return "syncTyped:pullRecurring"
+    case .lend: return "syncTyped:pullLends"
+    case .emailMessage: return "syncTyped:pullEmailMessages"
+    case .preferences: return "syncTyped:pullPreferences"
+    }
+  }
+
+  private static func pushPath(_ type: EntityType) -> String {
+    switch type {
+    case .category: return "syncTyped:pushCategories"
+    case .paymentMethod: return "syncTyped:pushPaymentMethods"
+    case .transaction: return "syncTyped:pushTransactions"
+    case .recurring: return "syncTyped:pushRecurring"
+    case .lend: return "syncTyped:pushLends"
+    case .emailMessage: return "syncTyped:pushEmailMessages"
+    case .preferences: return "syncTyped:pushPreferences"
     }
   }
 
@@ -336,9 +405,10 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       var name: String?
       var email: String?
     }
-    var args: [String: ConvexEncodable?] = ["workspaceId": workspaceId]
-    if let name { args["name"] = name }
-    if let email { args["email"] = email }
+    var mutableArgs: [String: ConvexEncodable?] = ["workspaceId": workspaceId]
+    if let name { mutableArgs["name"] = name }
+    if let email { mutableArgs["email"] = email }
+    let args = mutableArgs
     let _: EnsureResult = try await withTimeout(seconds: 45) {
       try await self.client.mutation(
         "sync:ensureWorkspaceProfile",
@@ -376,142 +446,107 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       )
   }
 
-  private func wireOperation(_ op: SyncOperation) -> [String: ConvexEncodable?] {
-    [
+  private func wireTypedOperation(_ op: SyncOperation) -> [String: ConvexEncodable?] {
+    var dict: [String: ConvexEncodable?] = [
       "operationId": op.operationId,
       "workspaceId": op.workspaceId,
-      "entityType": op.entityType.rawValue,
       "entityId": op.entityId,
       "version": [
         "timestamp": Double(op.version.timestamp),
         "counter": Double(op.version.counter),
         "deviceId": op.version.deviceId,
       ] as [String: ConvexEncodable?],
-      "payload": wirePayload(op.payload),
       "deleted": op.deleted,
     ]
-  }
-
-  private func wirePayload(_ payload: EntityPayload) -> [String: ConvexEncodable?] {
-    switch payload {
+    switch op.payload {
     case .category(let e):
-      return [
-        "id": e.id,
-        "name": e.name,
-        "emoji": e.emoji,
-        "monthlyBudgetMinor": e.monthlyBudgetMinor.map { Double($0) },
-        "tint": e.tint.rawValue,
-        "sortOrder": Double(e.sortOrder),
-        "system": e.system,
-      ]
+      dict["name"] = e.name
+      dict["emoji"] = e.emoji
+      dict["monthlyBudgetMinor"] = e.monthlyBudgetMinor.map { Double($0) }
+      dict["tint"] = e.tint.rawValue
+      dict["sortOrder"] = Double(e.sortOrder)
+      dict["system"] = e.system
     case .paymentMethod(let e):
-      return [
-        "id": e.id,
-        "name": e.name,
-        "type": e.type.rawValue,
-        "detail": e.detail,
-        "archived": e.archived,
-      ]
+      dict["name"] = e.name
+      dict["type"] = e.type.rawValue
+      dict["detail"] = e.detail
+      dict["archived"] = e.archived
     case .transaction(let e):
-      // Keep optional currency keys omitted (not null) — matches
-      // WirePayload.encode and Convex `v.optional(...)` validators.
-      var dict: [String: ConvexEncodable?] = [
-        "id": e.id,
-        "name": e.name,
-        "amountMinor": Double(e.amountMinor),
-        "occurredAt": Double(e.occurredAt),
-        "categoryId": e.categoryId,
-        "paymentMethodId": e.paymentMethodId,
-      ]
-      if let currency = e.currency, !currency.isEmpty {
-        dict["currency"] = currency
-      }
+      dict["name"] = e.name
+      dict["amountMinor"] = Double(e.amountMinor)
+      dict["occurredAt"] = Double(e.occurredAt)
+      dict["categoryId"] = e.categoryId
+      dict["paymentMethodId"] = e.paymentMethodId
+      if let currency = e.currency, !currency.isEmpty { dict["currency"] = currency }
       if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
         dict["sourceCurrency"] = sourceCurrency
         dict["sourceAmountMinor"] = Double(e.sourceAmountMinor ?? 0)
-        if let rate = e.exchangeRate {
-          dict["exchangeRate"] = rate
-        }
+        if let rate = e.exchangeRate { dict["exchangeRate"] = rate }
       }
-      return dict
     case .recurring(let e):
-      var dict: [String: ConvexEncodable?] = [
-        "id": e.id,
-        "name": e.name,
-        "amountMinor": Double(e.amountMinor),
-        "categoryId": e.categoryId,
-        "paymentMethodId": e.paymentMethodId,
-        "frequency": e.frequency.rawValue,
-        "anchorDate": e.anchorDate,
-        "paused": e.paused,
-      ]
-      if let currency = e.currency, !currency.isEmpty {
-        dict["currency"] = currency
-      }
-      return dict
+      dict["name"] = e.name
+      dict["amountMinor"] = Double(e.amountMinor)
+      dict["categoryId"] = e.categoryId
+      dict["paymentMethodId"] = e.paymentMethodId
+      dict["frequency"] = e.frequency.rawValue
+      dict["anchorDate"] = e.anchorDate
+      dict["paused"] = e.paused
+      if let currency = e.currency, !currency.isEmpty { dict["currency"] = currency }
     case .lend(let e):
-      return [
-        "id": e.id,
-        "contactName": e.contactName,
-        "contactId": e.contactId,
-        "amountMinor": Double(e.amountMinor),
-        "occurredAt": Double(e.occurredAt),
-        "comment": e.comment,
-        "kind": (e.kind ?? .lent).rawValue,
-      ]
+      dict["contactName"] = e.contactName
+      dict["contactId"] = e.contactId
+      dict["amountMinor"] = Double(e.amountMinor)
+      dict["occurredAt"] = Double(e.occurredAt)
+      dict["comment"] = e.comment
+      dict["kind"] = (e.kind ?? .lent).rawValue
     case .emailMessage(let e):
-      return [
-        "id": e.id,
-        "accountId": e.accountId,
-        "accountEmail": e.accountEmail,
-        "gmailMessageId": e.gmailMessageId,
-        "threadId": e.threadId,
-        "rfcMessageId": e.rfcMessageId,
-        "senderName": e.senderName,
-        "senderAddress": e.senderAddress,
-        "subject": e.subject,
-        "snippet": e.snippet,
-        "internalDate": Double(e.internalDate),
-        "normalizedBodyText": e.normalizedBodyText,
-        "analyzerType": e.analyzerType,
-        "modelVersion": e.modelVersion,
-        "promptVersion": e.promptVersion.map { Double($0) },
-        "classification": e.classification,
-        "merchant": e.merchant,
-        "amount": e.amount,
-        "currency": e.currency,
-        "occurredAt": e.occurredAt.map { Double($0) },
-        "categoryId": e.categoryId,
-        "paymentMethodId": e.paymentMethodId,
-        "paymentLastFour": e.paymentLastFour,
-        "reference": e.reference,
-        "state": e.state,
-        "linkedTransactionId": e.linkedTransactionId,
-        "analyzedAt": e.analyzedAt.map { Double($0) },
-        "reviewedAt": e.reviewedAt.map { Double($0) },
-        "createdAt": Double(e.createdAt),
-        "updatedAt": Double(e.updatedAt),
-      ]
+      dict["accountId"] = e.accountId
+      dict["accountEmail"] = e.accountEmail
+      dict["gmailMessageId"] = e.gmailMessageId
+      dict["threadId"] = e.threadId
+      dict["rfcMessageId"] = e.rfcMessageId
+      dict["senderName"] = e.senderName
+      dict["senderAddress"] = e.senderAddress
+      dict["subject"] = e.subject
+      dict["snippet"] = e.snippet
+      dict["internalDate"] = Double(e.internalDate)
+      dict["normalizedBodyText"] = e.normalizedBodyText
+      dict["analyzerType"] = e.analyzerType
+      dict["modelVersion"] = e.modelVersion
+      dict["promptVersion"] = e.promptVersion.map { Double($0) }
+      dict["classification"] = e.classification
+      dict["merchant"] = e.merchant
+      dict["amount"] = e.amount
+      dict["currency"] = e.currency
+      dict["occurredAt"] = e.occurredAt.map { Double($0) }
+      dict["categoryId"] = e.categoryId
+      dict["paymentMethodId"] = e.paymentMethodId
+      dict["paymentLastFour"] = e.paymentLastFour
+      dict["reference"] = e.reference
+      dict["state"] = e.state
+      dict["linkedTransactionId"] = e.linkedTransactionId
+      dict["analyzedAt"] = e.analyzedAt.map { Double($0) }
+      dict["reviewedAt"] = e.reviewedAt.map { Double($0) }
+      dict["createdAt"] = Double(e.createdAt)
+      dict["updatedAt"] = Double(e.updatedAt)
     case .preferences(let e):
-      return [
-        "id": e.id,
-        "profileName": e.profileName,
-        "profileEmail": e.profileEmail,
-        "currency": e.currency.rawValue,
-        "weekStart": e.weekStart.rawValue,
-        "theme": e.theme.rawValue,
-        "navGlassOpacity": Double(e.navGlassOpacity),
-        "defaultView": e.defaultView.rawValue,
-        "defaultStatsRange": e.defaultStatsRange.rawValue,
-        "notifications": [
-          "bills": e.notifications.bills,
-          "budget": e.notifications.budget,
-          "weekly": e.notifications.weekly,
-          "large": e.notifications.large,
-        ] as [String: ConvexEncodable?],
-        "defaultPaymentMethodId": e.defaultPaymentMethodId,
-      ]
+      dict["profileName"] = e.profileName
+      dict["profileEmail"] = e.profileEmail
+      dict["currency"] = e.currency.rawValue
+      dict["weekStart"] = e.weekStart.rawValue
+      dict["theme"] = e.theme.rawValue
+      dict["navGlassOpacity"] = Double(e.navGlassOpacity)
+      dict["defaultView"] = e.defaultView.rawValue
+      dict["defaultStatsRange"] = e.defaultStatsRange.rawValue
+      dict["notifications"] = [
+        "bills": e.notifications.bills,
+        "budget": e.notifications.budget,
+        "weekly": e.notifications.weekly,
+        "large": e.notifications.large,
+      ] as [String: ConvexEncodable?]
+      dict["defaultPaymentMethodId"] = e.defaultPaymentMethodId
     }
+    return dict
   }
 
   private func firstValue<T: Decodable>(_ publisher: AnyPublisher<T, ClientError>) async throws -> T {

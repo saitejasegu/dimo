@@ -396,3 +396,161 @@ describe("Convex sync protocol", () => {
     expect(workspace?.email).toBe("login@example.com");
   });
 });
+
+describe("typed sync + dual-write bridge", () => {
+  const pushTransactions = makeFunctionReference<"mutation">("syncTyped:pushTransactions");
+  const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
+  const pushCategories = makeFunctionReference<"mutation">("syncTyped:pushCategories");
+  const pullCategories = makeFunctionReference<"query">("syncTyped:pullCategories");
+
+  it("typed push is visible to blob pull and vice versa", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|bridge-user",
+    });
+
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "typed-1",
+        workspaceId: "global",
+        entityId: "transaction-typed",
+        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+        deleted: false,
+        name: "Typed coffee",
+        amountMinor: 500,
+        occurredAt: 100,
+        categoryId: "category-dining",
+        paymentMethodId: "payment-method-cash",
+      }],
+    });
+
+    const blobPull = await t.query(pull, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(blobPull.entities).toHaveLength(1);
+    expect(blobPull.entities[0]).toMatchObject({
+      entityType: "transaction",
+      entityId: "transaction-typed",
+      payload: { name: "Typed coffee", amountMinor: 500 },
+    });
+
+    await t.mutation(push, {
+      workspaceId: "global",
+      operations: [{
+        ...operation,
+        operationId: "blob-1",
+        entityId: "transaction-blob",
+        payload: { ...operation.payload, id: "transaction-blob", name: "Blob coffee" },
+      }],
+    });
+
+    const typedPull = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(typedPull.entities.map((e: { entityId: string }) => e.entityId).sort()).toEqual([
+      "transaction-blob",
+      "transaction-typed",
+    ]);
+  });
+
+  it("delete on typed protocol tombstones both stores", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|bridge-del",
+    });
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "create",
+        workspaceId: "global",
+        entityId: "transaction-1",
+        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+        deleted: false,
+        name: "Coffee",
+        amountMinor: 500,
+        occurredAt: 100,
+        categoryId: "c1",
+        paymentMethodId: null,
+      }],
+    });
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "delete",
+        workspaceId: "global",
+        entityId: "transaction-1",
+        version: { timestamp: 200, counter: 0, deviceId: "device-a" },
+        deleted: true,
+        name: "Coffee",
+        amountMinor: 500,
+        occurredAt: 100,
+        categoryId: "c1",
+        paymentMethodId: null,
+      }],
+    });
+
+    const blob = await t.query(pull, { workspaceId: "global", afterRevision: 0, limit: 100 });
+    expect(blob.entities[0].deleted).toBe(true);
+    const typed = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(typed.entities[0].deleted).toBe(true);
+  });
+
+  it("orders revisions across typed tables from the shared workspace counter", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|cross-table",
+    });
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "cat",
+        workspaceId: "global",
+        entityId: "category-1",
+        version: { timestamp: 100, counter: 0, deviceId: "a" },
+        deleted: false,
+        name: "Food",
+        emoji: "🍽",
+        monthlyBudgetMinor: null,
+        tint: "neutral",
+        sortOrder: 0,
+        system: false,
+      }],
+    });
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [{
+        operationId: "tx",
+        workspaceId: "global",
+        entityId: "transaction-1",
+        version: { timestamp: 101, counter: 0, deviceId: "a" },
+        deleted: false,
+        name: "Lunch",
+        amountMinor: 1000,
+        occurredAt: 100,
+        categoryId: "category-1",
+        paymentMethodId: null,
+      }],
+    });
+
+    const cats = await t.query(pullCategories, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    const txs = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(cats.entities[0].serverRevision).toBe(1);
+    expect(txs.entities[0].serverRevision).toBe(2);
+    expect(cats.latestRevision).toBe(2);
+    expect(txs.latestRevision).toBe(2);
+  });
+});

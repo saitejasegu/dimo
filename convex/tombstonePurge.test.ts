@@ -117,10 +117,27 @@ describe("tombstonePurge.purgeExpired", () => {
     });
     expect(before.entities).toHaveLength(3);
 
-    const result = await t.mutation(purgeExpired, { now });
-    expect(result.purged).toBe(1);
-    expect(result.hasMore).toBe(false);
-    expect(result.days).toBe(DEFAULT_TOMBSTONE_RETENTION_DAYS);
+    let tableIndex = 0;
+    let cursor: string | null = null;
+    let totalPurged = 0;
+    for (let i = 0; i < 32; i++) {
+      const page: {
+        purged: number;
+        hasMore: boolean;
+        nextTableIndex?: number;
+        nextCursor?: string | null;
+      } = await t.mutation(purgeExpired, {
+        now,
+        tableIndex,
+        cursor,
+      });
+      totalPurged += page.purged;
+      if (!page.hasMore) break;
+      tableIndex = page.nextTableIndex ?? tableIndex;
+      cursor = page.nextCursor ?? null;
+    }
+    expect(totalPurged).toBeGreaterThanOrEqual(1);
+
 
     const after = await t.query(pull, {
       workspaceId: "global",
@@ -137,5 +154,31 @@ describe("tombstonePurge.purgeExpired", () => {
       after.entities.find((row: { entityId: string }) => row.entityId === "transaction-live")
         ?.deleted,
     ).toBe(false);
+
+    // Directly assert the expired tombstone is gone from both stores.
+    const leftover = await t.run(async (ctx) => {
+      const typed = await ctx.db
+        .query("transactions")
+        .withIndex("by_owner_workspace_entity", (q) =>
+          q
+            .eq("ownerId", "https://api.workos.com/|purge-user")
+            .eq("workspaceId", "global")
+            .eq("entityId", "transaction-expired"),
+        )
+        .unique();
+      const blob = await ctx.db
+        .query("entities")
+        .withIndex("by_owner_and_workspace_and_entity", (q) =>
+          q
+            .eq("ownerId", "https://api.workos.com/|purge-user")
+            .eq("workspaceId", "global")
+            .eq("entityType", "transaction")
+            .eq("entityId", "transaction-expired"),
+        )
+        .unique();
+      return { typed, blob };
+    });
+    expect(leftover.typed).toBeNull();
+    expect(leftover.blob).toBeNull();
   });
 });

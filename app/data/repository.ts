@@ -1,4 +1,9 @@
-import { db, type DeviceMetaRecord } from "@/data/db";
+import {
+  db,
+  EMPTY_PULLED_REVISIONS,
+  type DeviceMetaRecord,
+  type SyncMetaRecord,
+} from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -8,6 +13,8 @@ import {
   WORKSPACE_ID,
   compareVersions,
   entityKey,
+  payloadFromStored,
+  storedFieldsFromPayload,
   type CategoryEntity,
   type EmailMessageEntity,
   type EntityPayload,
@@ -15,11 +22,12 @@ import {
   type EntityType,
   type LendEntity,
   type LogicalVersion,
+  type OutboxEntry,
   type PaymentMethodEntity,
   type PreferencesEntity,
   type RecurringEntity,
-  type StoredEntity,
-  type SyncOperation,
+  type StoredRow,
+  type StoredRowMap,
   type TransactionEntity,
 } from "@/data/model";
 
@@ -30,6 +38,15 @@ import {
  */
 const BOOTSTRAP_VERSION = 4;
 const listeners = new Set<() => void>();
+
+type TypedTable =
+  | typeof db.categories
+  | typeof db.paymentMethods
+  | typeof db.transactions
+  | typeof db.recurring
+  | typeof db.lends
+  | typeof db.emailMessages
+  | typeof db.preferences;
 
 export function onLocalWrite(listener: () => void) {
   listeners.add(listener);
@@ -42,6 +59,50 @@ function notifyWrite() {
 
 function randomId() {
   return crypto.randomUUID();
+}
+
+export function tableForType(entityType: EntityType): TypedTable {
+  switch (entityType) {
+    case "category":
+      return db.categories;
+    case "paymentMethod":
+      return db.paymentMethods;
+    case "transaction":
+      return db.transactions;
+    case "recurring":
+      return db.recurring;
+    case "lend":
+      return db.lends;
+    case "emailMessage":
+      return db.emailMessages;
+    case "preferences":
+      return db.preferences;
+  }
+}
+
+export async function getStoredRow<T extends EntityType>(
+  entityType: T,
+  id: string,
+): Promise<StoredRowMap[T] | undefined> {
+  return (await tableForType(entityType).get(entityKey(entityType, id))) as
+    | StoredRowMap[T]
+    | undefined;
+}
+
+/** All typed tables touched by repository writes. */
+function allTypedTables() {
+  return [
+    db.categories,
+    db.paymentMethods,
+    db.transactions,
+    db.recurring,
+    db.lends,
+    db.emailMessages,
+    db.preferences,
+    db.outbox,
+    db.deviceMeta,
+    db.syncMeta,
+  ] as const;
 }
 
 async function ensureDevice(): Promise<DeviceMetaRecord> {
@@ -114,7 +175,6 @@ export function sanitizePayload<T extends EntityType>(
       };
       const currency = String(value.currency ?? "").trim();
       if (currency) clean.currency = currency;
-      // Preserve foreign-currency origin only when a real source currency exists.
       const sourceCurrency = String(value.sourceCurrency ?? "").trim();
       if (sourceCurrency) {
         clean.sourceCurrency = sourceCurrency;
@@ -251,26 +311,40 @@ export function sanitizePayload<T extends EntityType>(
   }
 }
 
+function toStoredRow<T extends EntityType>(
+  entityType: T,
+  payload: EntityPayloadMap[T],
+  version: LogicalVersion,
+  deleted: boolean,
+  serverRevision: number,
+): StoredRowMap[T] {
+  const clean = sanitizePayload(entityType, payload);
+  const key = entityKey(entityType, clean.id);
+  return {
+    key,
+    workspaceId: WORKSPACE_ID,
+    entityId: clean.id,
+    version,
+    deleted,
+    serverRevision,
+    ...storedFieldsFromPayload(clean),
+  } as StoredRowMap[T];
+}
+
 async function putLocalOnly<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
   deleted = false,
 ) {
   const device = await ensureDevice();
-  const clean = sanitizePayload(entityType, payload);
-  const key = entityKey(entityType, clean.id);
-  const entity: StoredEntity<T> = {
-    key,
-    workspaceId: WORKSPACE_ID,
+  const row = toStoredRow(
     entityType,
-    entityId: clean.id,
-    // Zero version so any cloud row wins on the first pull.
-    version: { timestamp: 0, counter: 0, deviceId: device.deviceId },
-    payload: clean,
+    payload,
+    { timestamp: 0, counter: 0, deviceId: device.deviceId },
     deleted,
-    serverRevision: 0,
-  };
-  await db.entities.put(entity as StoredEntity);
+    0,
+  );
+  await tableForType(entityType).put(row as never);
 }
 
 async function putInCurrentTransaction<T extends EntityType>(
@@ -279,55 +353,60 @@ async function putInCurrentTransaction<T extends EntityType>(
   deleted = false,
 ) {
   const version = await nextVersion();
-  const clean = sanitizePayload(entityType, payload);
-  const key = entityKey(entityType, clean.id);
-  const entity: StoredEntity<T> = {
-    key,
-    workspaceId: WORKSPACE_ID,
+  const row = toStoredRow(entityType, payload, version, deleted, 0);
+  const operation: OutboxEntry = {
+    operationId: randomId(),
+    key: row.key,
     entityType,
-    entityId: clean.id,
-    version,
-    payload: clean,
-    deleted,
-    serverRevision: 0,
-  };
-  const operation: SyncOperation<T> = {
-    operationId: randomId(), key, workspaceId: WORKSPACE_ID,
-    entityType, entityId: clean.id, version, payload: clean, deleted,
+    entityId: row.entityId,
     status: "pending",
     attempts: 0,
     lastError: null,
     createdAt: Date.now(),
   };
-  await db.entities.put(entity as StoredEntity);
-  await db.outbox.put(operation as SyncOperation);
+  await tableForType(entityType).put(row as never);
+  await db.outbox.put(operation);
 }
 
 export async function initializeLocalDatabase() {
   await db.open();
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, db.syncMeta, async () => {
+  await db.transaction("rw", ...allTypedTables(), async () => {
     const device = await ensureDevice();
     const shouldReplayCloudSnapshot = device.bootstrapVersion < 4;
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
-      // Cash + preferences only — new accounts start with no seeded categories.
-      if (!(await db.entities.get(entityKey("paymentMethod", CASH_PAYMENT_METHOD.id)))) {
+      if (!(await getStoredRow("paymentMethod", CASH_PAYMENT_METHOD.id))) {
         await putLocalOnly("paymentMethod", CASH_PAYMENT_METHOD);
       }
-      if (!(await db.entities.get(entityKey("preferences", DEFAULT_PREFERENCES.id)))) {
+      if (!(await getStoredRow("preferences", DEFAULT_PREFERENCES.id))) {
         await putLocalOnly("preferences", DEFAULT_PREFERENCES);
       }
       await db.deviceMeta.update("device", { bootstrapVersion: BOOTSTRAP_VERSION });
     }
-    if (!(await db.syncMeta.get(WORKSPACE_ID))) {
-      await db.syncMeta.add({
+    const existingMeta = await db.syncMeta.get(WORKSPACE_ID);
+    if (!existingMeta) {
+      const meta: SyncMetaRecord = {
         workspaceId: WORKSPACE_ID,
         lastPulledRevision: 0,
+        pulledRevisions: { ...EMPTY_PULLED_REVISIONS },
         lastSyncedAt: null,
         error: null,
         syncing: false,
-      });
-    } else if (shouldReplayCloudSnapshot) {
-      await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: 0 });
+      };
+      await db.syncMeta.add(meta);
+    } else {
+      const pulled = {
+        ...EMPTY_PULLED_REVISIONS,
+        ...(existingMeta.pulledRevisions ?? {}),
+      };
+      const patch: Partial<SyncMetaRecord> = {};
+      if (!existingMeta.pulledRevisions) patch.pulledRevisions = pulled;
+      if (shouldReplayCloudSnapshot) {
+        patch.lastPulledRevision = 0;
+        patch.pulledRevisions = { ...EMPTY_PULLED_REVISIONS };
+      }
+      if (Object.keys(patch).length > 0) {
+        await db.syncMeta.update(WORKSPACE_ID, patch);
+      }
     }
   });
   if (typeof navigator !== "undefined") {
@@ -346,15 +425,14 @@ export async function enqueueUnsyncedDefaults() {
     { entityType: "preferences", payload: DEFAULT_PREFERENCES },
   ];
   let enqueued = false;
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+  await db.transaction("rw", ...allTypedTables(), async () => {
     for (const { entityType, payload } of defaults) {
-      const key = entityKey(entityType, payload.id);
-      const existing = await db.entities.get(key);
+      const existing = await getStoredRow(entityType, payload.id);
       if (!existing || existing.deleted || existing.serverRevision > 0) continue;
-      if (await db.outbox.get(key)) continue;
+      if (await db.outbox.get(entityKey(entityType, payload.id))) continue;
       await putInCurrentTransaction(
         entityType,
-        existing.payload as EntityPayloadMap[typeof entityType],
+        payloadFromStored(entityType, existing) as EntityPayloadMap[typeof entityType],
       );
       enqueued = true;
     }
@@ -366,7 +444,7 @@ export async function saveEntity<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
 ) {
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+  await db.transaction("rw", ...allTypedTables(), async () => {
     await putInCurrentTransaction(entityType, payload);
   });
   notifyWrite();
@@ -376,7 +454,7 @@ export async function saveEntity<T extends EntityType>(
 export async function saveEntities(
   entities: Array<{ entityType: EntityType; payload: EntityPayload }>,
 ) {
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+  await db.transaction("rw", ...allTypedTables(), async () => {
     for (const entity of entities) {
       await putInCurrentTransaction(entity.entityType, entity.payload);
     }
@@ -391,24 +469,23 @@ export async function saveEntities(
  */
 export async function backfillRecurringCurrencies() {
   let updated = 0;
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
-    const preferences = await db.entities.get(entityKey("preferences", "preferences"));
+  await db.transaction("rw", ...allTypedTables(), async () => {
+    const preferences = await getStoredRow("preferences", "preferences");
     const accountCurrency =
-      !preferences?.deleted && preferences?.payload && "currency" in preferences.payload
-        ? String(preferences.payload.currency || DEFAULT_PREFERENCES.currency)
+      preferences && !preferences.deleted
+        ? String(preferences.currency || DEFAULT_PREFERENCES.currency)
         : DEFAULT_PREFERENCES.currency;
 
     for (const entityType of ["recurring", "transaction"] as const) {
-      const rows = await db.entities
-        .where("[workspaceId+entityType]")
-        .equals([WORKSPACE_ID, entityType])
-        .toArray();
-
+      const rows = (await tableForType(entityType).toArray()) as StoredRow[];
       for (const row of rows) {
         if (row.deleted) continue;
-        const payload = row.payload as RecurringEntity | TransactionEntity;
-        if (String(payload.currency ?? "").trim()) continue;
-        await putInCurrentTransaction(entityType, { ...payload, currency: accountCurrency });
+        if (String((row as { currency?: string }).currency ?? "").trim()) continue;
+        const payload = payloadFromStored(entityType, row as never);
+        await putInCurrentTransaction(entityType, {
+          ...payload,
+          currency: accountCurrency,
+        });
         updated += 1;
       }
     }
@@ -421,10 +498,14 @@ export async function removeEntity<T extends EntityType>(
   entityType: T,
   id: string,
 ) {
-  const current = await db.entities.get(entityKey(entityType, id));
+  const current = await getStoredRow(entityType, id);
   if (!current || current.deleted) return;
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
-    await putInCurrentTransaction(entityType, current.payload as EntityPayloadMap[T], true);
+  await db.transaction("rw", ...allTypedTables(), async () => {
+    await putInCurrentTransaction(
+      entityType,
+      payloadFromStored(entityType, current) as EntityPayloadMap[T],
+      true,
+    );
   });
   notifyWrite();
 }
@@ -451,42 +532,55 @@ export async function observeRemoteVersion(version: LogicalVersion) {
   }
 }
 
-export async function mergeRemoteEntity(remote: StoredEntity) {
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
+export async function mergeRemoteRow<T extends EntityType>(
+  entityType: T,
+  remote: StoredRowMap[T],
+) {
+  await db.transaction("rw", ...allTypedTables(), async () => {
     await observeRemoteVersion(remote.version);
-    const local = await db.entities.get(remote.key);
+    const local = await getStoredRow(entityType, remote.entityId);
     if (!local || compareVersions(remote.version, local.version) >= 0) {
-      await db.entities.put(remote);
+      await tableForType(entityType).put(remote as never);
       const pending = await db.outbox.get(remote.key);
-      if (pending && compareVersions(remote.version, pending.version) >= 0) {
-        await db.outbox.delete(remote.key);
+      if (pending) {
+        if (!local || compareVersions(remote.version, local.version) >= 0) {
+          await db.outbox.delete(remote.key);
+        }
       }
     }
   });
 }
 
-export async function mergeRemotePage(remoteEntities: StoredEntity[], cursor: number) {
-  await db.transaction(
-    "rw",
-    db.deviceMeta,
-    db.entities,
-    db.outbox,
-    db.syncMeta,
-    async () => {
-      for (const remote of remoteEntities) {
-        await observeRemoteVersion(remote.version);
-        const local = await db.entities.get(remote.key);
-        if (!local || compareVersions(remote.version, local.version) >= 0) {
-          await db.entities.put(remote);
-          const pending = await db.outbox.get(remote.key);
-          if (pending && compareVersions(remote.version, pending.version) >= 0) {
-            await db.outbox.delete(remote.key);
-          }
-        }
+export async function mergeRemotePage<T extends EntityType>(
+  entityType: T,
+  remoteRows: Array<StoredRowMap[T]>,
+  cursor: number,
+) {
+  await db.transaction("rw", ...allTypedTables(), async () => {
+    for (const remote of remoteRows) {
+      await observeRemoteVersion(remote.version);
+      const local = await getStoredRow(entityType, remote.entityId);
+      if (!local || compareVersions(remote.version, local.version) >= 0) {
+        await tableForType(entityType).put(remote as never);
+        const pending = await db.outbox.get(remote.key);
+        if (pending) await db.outbox.delete(remote.key);
       }
-      await db.syncMeta.update(WORKSPACE_ID, { lastPulledRevision: cursor });
-    },
-  );
+    }
+    const meta = await db.syncMeta.get(WORKSPACE_ID);
+    const pulled = {
+      ...EMPTY_PULLED_REVISIONS,
+      ...(meta?.pulledRevisions ?? {}),
+      [entityType]: cursor,
+    };
+    const lastPulledRevision = Math.max(
+      meta?.lastPulledRevision ?? 0,
+      ...Object.values(pulled),
+    );
+    await db.syncMeta.update(WORKSPACE_ID, {
+      pulledRevisions: pulled,
+      lastPulledRevision,
+    });
+  });
 }
 
 export async function acknowledgeOperations(
@@ -507,36 +601,32 @@ export async function enqueueFullUpload(
   entityTypes: readonly EntityType[] = OWNED_ENTITY_TYPES,
 ) {
   const allowed = new Set<string>(entityTypes);
-  await db.transaction("rw", db.deviceMeta, db.entities, db.outbox, async () => {
-    const entities = (await db.entities.toArray()).filter(
-      (row) => row.workspaceId === WORKSPACE_ID && allowed.has(row.entityType),
-    );
+  await db.transaction("rw", ...allTypedTables(), async () => {
     const now = Date.now();
-    for (const entity of entities) {
-      const version = await nextVersion();
-      const payload = sanitizePayload(entity.entityType, entity.payload);
-      const next: StoredEntity = {
-        ...entity,
-        version,
-        payload,
-        serverRevision: 0,
-      };
-      const operation: SyncOperation = {
-        operationId: randomId(),
-        key: entity.key,
-        workspaceId: WORKSPACE_ID,
-        entityType: entity.entityType,
-        entityId: entity.entityId,
-        version,
-        payload,
-        deleted: entity.deleted,
-        status: "pending",
-        attempts: 0,
-        lastError: null,
-        createdAt: now,
-      };
-      await db.entities.put(next);
-      await db.outbox.put(operation);
+    for (const entityType of allowed) {
+      const type = entityType as EntityType;
+      const rows = (await tableForType(type).toArray()) as StoredRow[];
+      for (const entity of rows) {
+        if (entity.workspaceId !== WORKSPACE_ID) continue;
+        const version = await nextVersion();
+        const payload = sanitizePayload(
+          type,
+          payloadFromStored(type, entity as never),
+        );
+        const next = toStoredRow(type, payload, version, entity.deleted, 0);
+        const operation: OutboxEntry = {
+          operationId: randomId(),
+          key: entity.key,
+          entityType: type,
+          entityId: entity.entityId,
+          status: "pending",
+          attempts: 0,
+          lastError: null,
+          createdAt: now,
+        };
+        await tableForType(type).put(next as never);
+        await db.outbox.put(operation);
+      }
     }
   });
   notifyWrite();
@@ -549,23 +639,64 @@ export async function enqueueFullUpload(
 export async function purgeExpiredTombstones(now = Date.now()) {
   const cutoff = now - TOMBSTONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let purged = 0;
-  await db.transaction("rw", db.entities, db.outbox, async () => {
-    const tombstones = await db.entities.filter((row) => row.deleted).toArray();
-    for (const row of tombstones) {
-      if (row.version.timestamp >= cutoff) continue;
-      const pending = await db.outbox.get(row.key);
-      if (pending) continue;
-      await db.entities.delete(row.key);
-      purged += 1;
+  await db.transaction("rw", ...allTypedTables(), async () => {
+    for (const entityType of ALL_ENTITY_TYPES) {
+      const rows = (await tableForType(entityType).toArray()) as StoredRow[];
+      for (const row of rows) {
+        if (!row.deleted) continue;
+        if (row.version.timestamp >= cutoff) continue;
+        const pending = await db.outbox.get(row.key);
+        if (pending) continue;
+        await tableForType(entityType).delete(row.key);
+        purged += 1;
+      }
     }
   });
   return purged;
 }
 
+const ALL_ENTITY_TYPES: EntityType[] = [
+  "category",
+  "paymentMethod",
+  "transaction",
+  "recurring",
+  "lend",
+  "emailMessage",
+  "preferences",
+];
+
 export async function activeEntities<T extends EntityType>(type: T) {
-  const rows = await db.entities
-    .where("[workspaceId+entityType]")
-    .equals([WORKSPACE_ID, type])
-    .toArray();
-  return rows.filter((row) => !row.deleted) as StoredEntity<T>[];
+  const rows = (await tableForType(type).toArray()) as StoredRowMap[T][];
+  return rows.filter((row) => !row.deleted);
 }
+
+/** Flatten all typed stores for UI hydration (includes tombstones). */
+export async function allStoredRows(): Promise<
+  Array<{ entityType: EntityType; row: StoredRow }>
+> {
+  const result: Array<{ entityType: EntityType; row: StoredRow }> = [];
+  for (const entityType of ALL_ENTITY_TYPES) {
+    const rows = (await tableForType(entityType).toArray()) as StoredRow[];
+    for (const row of rows) result.push({ entityType, row });
+  }
+  return result;
+}
+
+/** Build a typed push operation from the current stored row + outbox entry. */
+export async function buildPushOperation(entry: OutboxEntry) {
+  const row = await getStoredRow(entry.entityType, entry.entityId);
+  if (!row) return null;
+  const fields = storedFieldsFromPayload(
+    payloadFromStored(entry.entityType, row as never),
+  );
+  return {
+    operationId: entry.operationId,
+    workspaceId: WORKSPACE_ID,
+    entityId: row.entityId,
+    version: row.version,
+    deleted: row.deleted,
+    ...fields,
+  };
+}
+
+export { ALL_ENTITY_TYPES };

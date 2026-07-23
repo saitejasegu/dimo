@@ -311,6 +311,7 @@ struct SyncMeta: Hashable, Sendable {
   var lastSyncedAt: Int?
   var error: String?
   var syncing: Bool
+  var pulledRevisions: [EntityType: Int] = [:]
 }
 
 struct DeviceMeta: Hashable, Sendable {

@@ -151,6 +151,19 @@ describe("recurring materialization", () => {
         rates: { USD: 1, INR: 100 },
         fetchedAt: Date.now(),
       });
+      for (const [currency, rate] of [
+        ["USD", 1],
+        ["INR", 100],
+        ["EUR", 1],
+      ] as const) {
+        await ctx.db.insert("exchangeRateEntries", {
+          date: "2026-02-28",
+          base: "EUR",
+          currency,
+          rate,
+          fetchedAt: Date.now(),
+        });
+      }
     });
 
     const result = await t.mutation(materializeDue, {
@@ -217,6 +230,19 @@ describe("recurring materialization", () => {
         rates: { USD: 1, INR: 100 },
         fetchedAt: Date.now(),
       });
+      for (const [currency, rate] of [
+        ["USD", 1],
+        ["INR", 100],
+        ["EUR", 1],
+      ] as const) {
+        await ctx.db.insert("exchangeRateEntries", {
+          date: "2026-02-28",
+          base: "EUR",
+          currency,
+          rate,
+          fetchedAt: Date.now(),
+        });
+      }
     });
     expect(await t.mutation(materializeDue, {
       dateKey: "2026-02-28",

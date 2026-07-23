@@ -15,6 +15,8 @@
     "test:watch": "vitest",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
+    "convex:export": "mkdir -p backups && convex export --path backups/dimo-dev-snapshot.zip",
+    "convex:export:prod": "mkdir -p backups && convex export --prod --path backups/dimo-prod-snapshot.zip",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern design --ignore-pattern release --ignore-pattern electron --ignore-pattern ios-native",
     "electron:dev": "concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"wait-on http://127.0.0.1:3000 && ELECTRON_DEV=1 electron .\"",
     "electron:preview": "npm run build && electron .",
@@ -22,6 +24,7 @@
     "electron:dist": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@convex-dev/migrations": "^0.3.5",
     "@convex-dev/workos": "^0.0.3",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",

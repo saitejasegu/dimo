@@ -17,11 +17,11 @@ describe("local database lifecycle", () => {
   it("deletes every dimo-expenses IndexedDB database on wipe", async () => {
     activateUserDatabase("user-a");
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBeGreaterThan(0);
+    expect(await db.paymentMethods.count()).toBeGreaterThan(0);
 
     activateUserDatabase("user-b");
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBeGreaterThan(0);
+    expect(await db.paymentMethods.count()).toBeGreaterThan(0);
 
     await deleteAllLocalDatabases();
 

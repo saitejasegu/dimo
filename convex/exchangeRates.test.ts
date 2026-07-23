@@ -32,18 +32,26 @@ describe("exchangeRates.latest", () => {
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("exchangeRates", {
-        date: "2026-07-19",
-        base: "EUR",
-        rates: { INR: 90, USD: 1.1 },
-        fetchedAt: 1,
-      });
-      await ctx.db.insert("exchangeRates", {
-        date: "2026-07-20",
-        base: "EUR",
-        rates: { INR: 91, USD: 1.12 },
-        fetchedAt: 2,
-      });
+      for (const [date, rates, fetchedAt] of [
+        ["2026-07-19", { INR: 90, USD: 1.1, EUR: 1 }, 1],
+        ["2026-07-20", { INR: 91, USD: 1.12, EUR: 1 }, 2],
+      ] as const) {
+        for (const [currency, rate] of Object.entries(rates)) {
+          await ctx.db.insert("exchangeRateEntries", {
+            date,
+            base: "EUR",
+            currency,
+            rate,
+            fetchedAt,
+          });
+        }
+        await ctx.db.insert("exchangeRates", {
+          date,
+          base: "EUR",
+          rates: { INR: rates.INR, USD: rates.USD },
+          fetchedAt,
+        });
+      }
     });
     expect(await t.query(latest, {})).toEqual({
       date: "2026-07-20",
@@ -57,6 +65,20 @@ describe("exchangeRates.refreshRates", () => {
   it("skips Frankfurter when rates were already fetched today", async () => {
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
+      await ctx.db.insert("exchangeRateEntries", {
+        date: "2026-07-20",
+        base: "EUR",
+        currency: "INR",
+        rate: 91,
+        fetchedAt: Date.now(),
+      });
+      await ctx.db.insert("exchangeRateEntries", {
+        date: "2026-07-20",
+        base: "EUR",
+        currency: "EUR",
+        rate: 1,
+        fetchedAt: Date.now(),
+      });
       await ctx.db.insert("exchangeRates", {
         date: "2026-07-20",
         base: "EUR",
@@ -66,5 +88,37 @@ describe("exchangeRates.refreshRates", () => {
     });
     const result = await t.action(refreshRates, {});
     expect(result).toEqual({ date: "2026-07-20", skipped: true });
+  });
+});
+
+describe("exchangeRateEntries lookups", () => {
+  it("rateOn prefers typed entries and falls back by date", async () => {
+    const t = convexTest(schema, modules);
+    const { rateOn } = await import("./exchangeRates");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("exchangeRateEntries", {
+        date: "2026-02-27",
+        base: "EUR",
+        currency: "USD",
+        rate: 1,
+        fetchedAt: 1,
+      });
+      await ctx.db.insert("exchangeRateEntries", {
+        date: "2026-02-27",
+        base: "EUR",
+        currency: "INR",
+        rate: 90,
+        fetchedAt: 1,
+      });
+      await ctx.db.insert("exchangeRateEntries", {
+        date: "2026-02-27",
+        base: "EUR",
+        currency: "EUR",
+        rate: 1,
+        fetchedAt: 1,
+      });
+      const ratio = await rateOn(ctx, "2026-02-28", "USD", "INR");
+      expect(ratio).toBe(90);
+    });
   });
 });

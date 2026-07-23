@@ -1,12 +1,18 @@
 import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
+import {
+  clearEntityTypeBoth,
+  compareVersions,
+  getTypedRow,
+  writeBlobAndMirror,
+  type Version,
+} from "./compat";
+import type { EntityTypeName } from "./values";
 import { entityTypeValidator, operationValidator } from "./values";
 
 /* Generic Convex functions intentionally use untyped index builders until a
    deployment is linked and Convex generates its schema-specific bindings. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-type Version = { timestamp: number; counter: number; deviceId: string };
 
 type AuthIdentity = {
   tokenIdentifier: string;
@@ -20,12 +26,6 @@ async function requireIdentity(ctx: {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("Not authenticated");
   return identity;
-}
-
-function compareVersions(a: Version, b: Version) {
-  if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-  if (a.counter !== b.counter) return a.counter - b.counter;
-  return a.deviceId.localeCompare(b.deviceId);
 }
 
 function payloadMatches(type: string, payload: Record<string, unknown>) {
@@ -122,7 +122,15 @@ export const push = mutationGeneric({
         throw new Error("Invalid recurring anchor date");
       }
 
-      const current = await ctx.db
+      // Prefer typed row for LWW when present so dual-write stays consistent.
+      const typedCurrent = await getTypedRow(
+        ctx,
+        operation.entityType as EntityTypeName,
+        ownerId,
+        workspaceId,
+        operation.entityId,
+      );
+      const blobCurrent = await ctx.db
         .query("entities")
         .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
           q
@@ -132,21 +140,25 @@ export const push = mutationGeneric({
             .eq("entityId", operation.entityId),
         )
         .unique();
-      const applied = !current || compareVersions(operation.version, current.version) > 0;
+      const currentVersion = (typedCurrent?.version ?? blobCurrent?.version) as
+        | Version
+        | undefined;
+      const currentRevision = (typedCurrent?.revision ??
+        blobCurrent?.revision) as number | undefined;
+      const applied =
+        !currentVersion || compareVersions(operation.version, currentVersion) > 0;
       if (applied) {
         revision += 1;
-        const value = {
+        await writeBlobAndMirror(ctx, {
           ownerId,
           workspaceId,
-          entityType: operation.entityType,
+          entityType: operation.entityType as EntityTypeName,
           entityId: operation.entityId,
           version: operation.version,
-          payload: operation.payload,
+          payload: operation.payload as unknown as Record<string, unknown>,
           deleted: operation.deleted,
           revision,
-        };
-        if (current) await ctx.db.replace(current._id, value);
-        else await ctx.db.insert("entities", value);
+        });
         if (operation.entityType === "preferences" && !operation.deleted) {
           profileUpdate = {
             ...profileUpdate,
@@ -157,7 +169,7 @@ export const push = mutationGeneric({
       acknowledgements.push({
         operationId: operation.operationId,
         applied,
-        revision: applied ? revision : (current?.revision ?? revision),
+        revision: applied ? revision : (currentRevision ?? revision),
       });
     }
 
@@ -257,7 +269,7 @@ export const currentRevision = queryGeneric({
 
 /**
  * Upserts workspace name/email. Prefer client-provided profile (WorkOS user),
- * then preferences entity, then JWT identity claims (often absent for WorkOS).
+ * then preferences (typed table, falling back to blob), then JWT identity.
  * Call on login so existing workspace rows get backfilled.
  */
 export const ensureWorkspaceProfile = mutationGeneric({
@@ -271,7 +283,14 @@ export const ensureWorkspaceProfile = mutationGeneric({
     const ownerId = identity.tokenIdentifier;
     if (workspaceId !== "global") throw new Error("Unsupported workspace");
 
-    const prefs = await ctx.db
+    const typedPrefs = await getTypedRow(
+      ctx,
+      "preferences",
+      ownerId,
+      workspaceId,
+      "preferences",
+    );
+    const blobPrefs = await ctx.db
       .query("entities")
       .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
         q
@@ -285,10 +304,14 @@ export const ensureWorkspaceProfile = mutationGeneric({
     const clientName = name?.trim() ?? "";
     const clientEmail = email?.trim() ?? "";
     const identityProfile = profileFromIdentity(identity);
-    const prefsProfile =
-      prefs && !prefs.deleted
-        ? profileFromPreferences(prefs.payload as Record<string, unknown>)
-        : {};
+    let prefsProfile: { name?: string; email?: string } = {};
+    if (typedPrefs && !typedPrefs.deleted) {
+      prefsProfile = profileFromPreferences(typedPrefs as Record<string, unknown>);
+    } else if (blobPrefs && !blobPrefs.deleted) {
+      prefsProfile = profileFromPreferences(
+        blobPrefs.payload as Record<string, unknown>,
+      );
+    }
     const profile = {
       ...identityProfile,
       ...prefsProfile,
@@ -329,8 +352,8 @@ export const ensureWorkspaceProfile = mutationGeneric({
 });
 
 /**
- * Hard-deletes owner-scoped entities for the given types (paged) so Sync now can
- * re-upload that app's local snapshot without wiping other apps' entity types.
+ * Hard-deletes owner-scoped entities for the given types (paged) from both
+ * typed tables and the legacy blob store.
  */
 export const clearWorkspace = mutationGeneric({
   args: {
@@ -342,7 +365,7 @@ export const clearWorkspace = mutationGeneric({
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
     if (workspaceId !== "global") throw new Error("Unsupported workspace");
-    const types = [...new Set(entityTypes)];
+    const types = [...new Set(entityTypes)] as EntityTypeName[];
     if (types.length === 0) throw new Error("entityTypes must not be empty");
     const take = Math.max(1, Math.min(200, Math.floor(limit ?? 100)));
 
@@ -354,20 +377,15 @@ export const clearWorkspace = mutationGeneric({
         hasMore = true;
         break;
       }
-      const rows = await ctx.db
-        .query("entities")
-        .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
-          q
-            .eq("ownerId", ownerId)
-            .eq("workspaceId", workspaceId)
-            .eq("entityType", entityType),
-        )
-        .take(remaining);
-      for (const row of rows) {
-        await ctx.db.delete(row._id);
-      }
-      deleted += rows.length;
-      if (rows.length === remaining) {
+      const result = await clearEntityTypeBoth(
+        ctx,
+        ownerId,
+        workspaceId,
+        entityType,
+        remaining,
+      );
+      deleted += result.deleted;
+      if (!result.exhausted) {
         hasMore = true;
         break;
       }

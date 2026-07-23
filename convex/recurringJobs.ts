@@ -1,10 +1,9 @@
 import { internalMutationGeneric } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { writeTypedAndMirror } from "./compat";
 import { convertMinorAmount, rateOn } from "./exchangeRates";
 
-/* Generic Convex functions intentionally use untyped index builders until a
-   deployment is linked and Convex generates its schema-specific bindings. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -12,8 +11,11 @@ const PAGE_SIZE = 25;
 const JOB_DEVICE_ID = "convex-recurring-job";
 
 type Frequency = "monthly" | "yearly";
-type RecurringPayload = {
-  id: string;
+type RecurringRow = {
+  ownerId?: string;
+  workspaceId: string;
+  entityId: string;
+  deleted: boolean;
   name: string;
   amountMinor: number;
   categoryId: string;
@@ -21,19 +23,32 @@ type RecurringPayload = {
   frequency: Frequency;
   anchorDate: string;
   paused: boolean;
-  /** Currency the amount is denominated in. Absent = account default currency. */
   currency?: string;
 };
 
 type DefaultCurrency = "INR" | "USD" | "EUR";
 
-/** Read an owner's default currency from their preferences entity (defaults to INR). */
+/** Read an owner's default currency from the typed preferences table. */
 async function ownerDefaultCurrency(
   ctx: { db: any },
   ownerId: string,
   workspaceId: string,
 ): Promise<DefaultCurrency> {
   const prefs = await ctx.db
+    .query("preferences")
+    .withIndex("by_owner_workspace_entity", (q: any) =>
+      q
+        .eq("ownerId", ownerId)
+        .eq("workspaceId", workspaceId)
+        .eq("entityId", "preferences"),
+    )
+    .unique();
+  if (prefs && !prefs.deleted) {
+    const currency = prefs.currency;
+    return currency === "USD" || currency === "EUR" ? currency : "INR";
+  }
+  // Blob fallback during dual-write / pre-backfill.
+  const blob = await ctx.db
     .query("entities")
     .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
       q
@@ -43,7 +58,7 @@ async function ownerDefaultCurrency(
         .eq("entityId", "preferences"),
     )
     .unique();
-  const currency = prefs?.payload?.currency;
+  const currency = blob?.payload?.currency;
   return currency === "USD" || currency === "EUR" ? currency : "INR";
 }
 
@@ -80,7 +95,7 @@ export function istDateKey(now = Date.now()) {
 
 /** Compare calendar dates only. Both the cron date and occurrence use IST. */
 export function isRecurringDueOn(
-  recurring: Pick<RecurringPayload, "anchorDate" | "frequency">,
+  recurring: Pick<RecurringRow, "anchorDate" | "frequency">,
   dateKey: string,
 ) {
   const anchor = parseDateKey(recurring.anchorDate);
@@ -121,8 +136,7 @@ export const materializeDue = internalMutationGeneric({
     if (!parseDateKey(dateKey)) throw new Error("Invalid IST date key");
 
     const page = await ctx.db
-      .query("entities")
-      .withIndex("by_entity_type", (q: any) => q.eq("entityType", "recurring"))
+      .query("recurring")
       .paginate({ cursor: args.cursor ?? null, numItems: PAGE_SIZE });
 
     // One preferences read per owner per page keeps the default-currency lookup cheap.
@@ -136,19 +150,17 @@ export const materializeDue = internalMutationGeneric({
     };
 
     let created = 0;
-    for (const row of page.page) {
+    for (const row of page.page as RecurringRow[]) {
       if (row.deleted || !row.ownerId || row.workspaceId !== "global") continue;
-      const recurring = row.payload as RecurringPayload;
-      if (recurring.paused || !isRecurringDueOn(recurring, dateKey)) continue;
+      if (row.paused || !isRecurringDueOn(row, dateKey)) continue;
 
-      const entityId = recurringTransactionId(recurring.id, dateKey);
+      const entityId = recurringTransactionId(row.entityId, dateKey);
       const existing = await ctx.db
-        .query("entities")
-        .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
+        .query("transactions")
+        .withIndex("by_owner_workspace_entity", (q: any) =>
           q
             .eq("ownerId", row.ownerId)
             .eq("workspaceId", row.workspaceId)
-            .eq("entityType", "transaction")
             .eq("entityId", entityId),
         )
         .unique();
@@ -166,26 +178,26 @@ export const materializeDue = internalMutationGeneric({
 
       // Convert foreign-currency bills into the owner's default currency at that
       // day's rate. Absent/matching currency keeps the legacy straight copy.
-      let defaultCurrency = await defaultCurrencyFor(row.ownerId, row.workspaceId);
-      let amountMinor = recurring.amountMinor;
+      const defaultCurrency = await defaultCurrencyFor(row.ownerId, row.workspaceId);
+      let amountMinor = row.amountMinor;
       let source: {
         sourceCurrency: string;
         sourceAmountMinor: number;
         exchangeRate: number;
       } | null = null;
-      if (recurring.currency && recurring.currency !== "") {
-        if (recurring.currency !== defaultCurrency) {
-          const ratio = await rateOn(ctx, dateKey, recurring.currency, defaultCurrency);
+      if (row.currency && row.currency !== "") {
+        if (row.currency !== defaultCurrency) {
+          const ratio = await rateOn(ctx, dateKey, row.currency, defaultCurrency);
           if (ratio != null) {
             amountMinor = convertMinorAmount(
-              recurring.amountMinor,
-              recurring.currency,
+              row.amountMinor,
+              row.currency,
               defaultCurrency,
               ratio,
             );
             source = {
-              sourceCurrency: recurring.currency,
-              sourceAmountMinor: recurring.amountMinor,
+              sourceCurrency: row.currency,
+              sourceAmountMinor: row.amountMinor,
               exchangeRate: ratio,
             };
           } else {
@@ -193,36 +205,31 @@ export const materializeDue = internalMutationGeneric({
             // Leaving the occurrence absent allows a same-date retry after the
             // rates refresh succeeds.
             console.warn(
-              `materializeDue: no rate ${recurring.currency}->${defaultCurrency} on ${dateKey}; skipping occurrence`,
+              `materializeDue: no rate ${row.currency}->${defaultCurrency} on ${dateKey}; skipping occurrence`,
             );
             continue;
           }
         }
       }
 
-      const payload = {
-        id: entityId,
-        name: recurring.name,
-        amountMinor,
-        occurredAt,
-        categoryId: recurring.categoryId,
-        paymentMethodId: recurring.paymentMethodId,
-        currency: defaultCurrency,
-        ...(source ?? {}),
-      };
-      await ctx.db.insert("entities", {
+      await writeTypedAndMirror(ctx, "transaction", {
         ownerId: row.ownerId,
         workspaceId: row.workspaceId,
-        entityType: "transaction",
         entityId,
         version: {
           timestamp: Date.now(),
           counter: 0,
           deviceId: JOB_DEVICE_ID,
         },
-        payload,
         deleted: false,
         revision,
+        name: row.name,
+        amountMinor,
+        occurredAt,
+        categoryId: row.categoryId,
+        paymentMethodId: row.paymentMethodId,
+        currency: defaultCurrency,
+        ...(source ?? {}),
       });
       if (workspace) {
         await ctx.db.patch(workspace._id, { revision });

@@ -258,6 +258,171 @@ enum AppDatabase {
           .defaults(to: EmailGemmaModelVariant.defaultValue.rawValue)
       }
     }
+    migrator.registerMigration("v6-typed-entities") { db in
+      func createTypedTable(_ name: String, extra: (TableDefinition) -> Void) throws {
+        try db.create(table: name) { t in
+          t.column("key", .text).primaryKey()
+          t.column("workspaceId", .text).notNull()
+          t.column("entityId", .text).notNull()
+          t.column("version", .blob).notNull()
+          t.column("deleted", .boolean).notNull().defaults(to: false)
+          t.column("serverRevision", .integer).notNull().defaults(to: 0)
+          extra(t)
+        }
+        try db.create(
+          index: "\(name)_workspace_entity",
+          on: name,
+          columns: ["workspaceId", "entityId"]
+        )
+        try db.create(
+          index: "\(name)_workspace_revision",
+          on: name,
+          columns: ["workspaceId", "serverRevision"]
+        )
+      }
+
+      try createTypedTable("categories") { t in
+        t.column("name", .text).notNull()
+        t.column("emoji", .text)
+        t.column("monthlyBudgetMinor", .integer)
+        t.column("tint", .text).notNull()
+        t.column("sortOrder", .integer).notNull()
+        t.column("system", .boolean).notNull()
+      }
+      try createTypedTable("paymentMethods") { t in
+        t.column("name", .text).notNull()
+        t.column("type", .text).notNull()
+        t.column("detail", .text).notNull()
+        t.column("archived", .boolean).notNull()
+      }
+      try createTypedTable("transactions") { t in
+        t.column("name", .text).notNull()
+        t.column("amountMinor", .integer).notNull()
+        t.column("occurredAt", .integer).notNull()
+        t.column("categoryId", .text).notNull()
+        t.column("paymentMethodId", .text)
+        t.column("currency", .text)
+        t.column("sourceCurrency", .text)
+        t.column("sourceAmountMinor", .integer)
+        t.column("exchangeRate", .double)
+      }
+      try createTypedTable("recurring") { t in
+        t.column("name", .text).notNull()
+        t.column("amountMinor", .integer).notNull()
+        t.column("categoryId", .text).notNull()
+        t.column("paymentMethodId", .text)
+        t.column("frequency", .text).notNull()
+        t.column("anchorDate", .text).notNull()
+        t.column("paused", .boolean).notNull()
+        t.column("currency", .text)
+      }
+      try createTypedTable("lends") { t in
+        t.column("contactName", .text).notNull()
+        t.column("contactId", .text)
+        t.column("amountMinor", .integer).notNull()
+        t.column("occurredAt", .integer).notNull()
+        t.column("comment", .text).notNull()
+        t.column("kind", .text)
+      }
+      // Named syncedEmailMessages to avoid colliding with device-local emailMessages.
+      try createTypedTable("syncedEmailMessages") { t in
+        t.column("accountId", .text).notNull()
+        t.column("accountEmail", .text).notNull()
+        t.column("gmailMessageId", .text).notNull()
+        t.column("threadId", .text).notNull()
+        t.column("rfcMessageId", .text)
+        t.column("senderName", .text)
+        t.column("senderAddress", .text).notNull()
+        t.column("subject", .text).notNull()
+        t.column("snippet", .text).notNull()
+        t.column("internalDate", .integer).notNull()
+        t.column("normalizedBodyText", .text)
+        t.column("analyzerType", .text)
+        t.column("modelVersion", .text)
+        t.column("promptVersion", .integer)
+        t.column("classification", .text)
+        t.column("merchant", .text)
+        t.column("amount", .text)
+        t.column("currency", .text)
+        t.column("occurredAt", .integer)
+        t.column("categoryId", .text)
+        t.column("paymentMethodId", .text)
+        t.column("paymentLastFour", .text)
+        t.column("reference", .text)
+        t.column("state", .text).notNull()
+        t.column("linkedTransactionId", .text)
+        t.column("analyzedAt", .integer)
+        t.column("reviewedAt", .integer)
+        t.column("createdAt", .integer).notNull()
+        t.column("updatedAt", .integer).notNull()
+      }
+      try createTypedTable("preferences") { t in
+        t.column("profileName", .text).notNull()
+        t.column("profileEmail", .text).notNull()
+        t.column("currency", .text).notNull()
+        t.column("weekStart", .text).notNull()
+        t.column("theme", .text)
+        t.column("navGlassOpacity", .integer)
+        t.column("defaultView", .text).notNull()
+        t.column("defaultStatsRange", .text)
+        t.column("notificationsJSON", .blob).notNull()
+        t.column("defaultPaymentMethodId", .text).notNull()
+      }
+
+      // Migrate legacy blob entities → typed tables.
+      let rows = try Row.fetchAll(db, sql: "SELECT * FROM entities")
+      for row in rows {
+        let key: String = row["key"]
+        let workspaceId: String = row["workspaceId"]
+        let entityTypeRaw: String = row["entityType"]
+        let entityId: String = row["entityId"]
+        let versionData: Data = row["version"]
+        let payloadData: Data = row["payload"]
+        let deleted: Bool = row["deleted"]
+        let serverRevision: Int = row["serverRevision"]
+        guard let entityType = EntityType(rawValue: entityTypeRaw) else { continue }
+        let payload = try PayloadCodec.decode(entityType: entityType, data: payloadData)
+        let version = try PayloadCodec.decoder.decode(LogicalVersion.self, from: versionData)
+        let stored = StoredEntity(
+          key: key,
+          workspaceId: workspaceId,
+          entityType: entityType,
+          entityId: entityId,
+          version: version,
+          payload: payload,
+          deleted: deleted,
+          serverRevision: serverRevision
+        )
+        try TypedEntityStore.save(stored, db: db)
+      }
+
+      // Convert outbox to dirty-key (drop payload + version columns).
+      try db.create(table: "outbox_v6") { t in
+        t.column("key", .text).primaryKey()
+        t.column("operationId", .text).notNull().unique()
+        t.column("workspaceId", .text).notNull()
+        t.column("entityType", .text).notNull()
+        t.column("entityId", .text).notNull()
+        t.column("status", .text).notNull()
+        t.column("attempts", .integer).notNull().defaults(to: 0)
+        t.column("lastError", .text)
+        t.column("createdAt", .integer).notNull()
+      }
+      try db.execute(sql: """
+        INSERT INTO outbox_v6 (key, operationId, workspaceId, entityType, entityId, status, attempts, lastError, createdAt)
+        SELECT key, operationId, workspaceId, entityType, entityId, status, attempts, lastError, createdAt FROM outbox
+        """)
+      try db.drop(table: "outbox")
+      try db.rename(table: "outbox_v6", to: "outbox")
+      try db.create(index: "outbox_status", on: "outbox", columns: ["status"])
+      try db.create(index: "outbox_createdAt", on: "outbox", columns: ["createdAt"])
+
+      try db.alter(table: "syncMeta") { t in
+        t.add(column: "pulledRevisionsJSON", .blob)
+      }
+
+      try db.drop(table: "entities")
+    }
     return migrator
   }
 }

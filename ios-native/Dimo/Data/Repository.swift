@@ -123,14 +123,8 @@ final class Repository: @unchecked Sendable {
       }
 
       for entityType in [EntityType.recurring, .transaction] {
-        let records = try EntityRecord
-          .filter(
-            Column("workspaceId") == workspaceID
-              && Column("entityType") == entityType.rawValue
-          )
-          .fetchAll(db)
-        for record in records {
-          let stored = try record.toStoredEntity()
+        let records = try TypedEntityStore.fetchAll(db: db, type: entityType, workspaceId: workspaceID)
+        for stored in records {
           guard !stored.deleted else { continue }
           switch stored.payload {
           case .recurring(var recurring):
@@ -174,11 +168,8 @@ final class Repository: @unchecked Sendable {
   func removeActiveEntities(entityType: EntityType) throws -> Int {
     var removedCount = 0
     try db.write { db in
-      let records = try EntityRecord
-        .filter(Column("workspaceId") == workspaceID && Column("entityType") == entityType.rawValue)
-        .fetchAll(db)
-      for record in records {
-        let stored = try record.toStoredEntity()
+      let records = try TypedEntityStore.fetchAll(db: db, type: entityType, workspaceId: workspaceID)
+      for stored in records {
         guard !stored.deleted else { continue }
         try putInTransaction(db, entityType: entityType, payload: stored.payload, deleted: true)
         if entityType == .transaction {
@@ -200,7 +191,7 @@ final class Repository: @unchecked Sendable {
     }
   }
 
-  func mergeRemotePage(_ remoteEntities: [StoredEntity], cursor: Int) throws {
+  func mergeRemotePage(_ remoteEntities: [StoredEntity], entityType: EntityType, cursor: Int) throws {
     try db.write { db in
       for remote in remoteEntities {
         try observeRemoteVersion(db, remote.version)
@@ -215,10 +206,7 @@ final class Repository: @unchecked Sendable {
         if shouldApply {
           try EntityRecord.from(remote).save(db)
           if let pending = try OutboxRecord.fetchOne(db, key: remote.key) {
-            let pendingOp = try pending.toSyncOperation()
-            if compareVersions(remote.version, pendingOp.version) >= 0 {
-              try pending.delete(db)
-            }
+            try pending.delete(db)
           }
           if remote.entityType == .emailMessage {
             try projectRemoteEmailMessage(db, remote: remote)
@@ -227,11 +215,18 @@ final class Repository: @unchecked Sendable {
           }
         }
       }
-      if var meta = try SyncMetaRecord.fetchOne(db, key: workspaceID) {
-        meta.lastPulledRevision = cursor
-        try meta.update(db)
+      if var meta = try SyncMetaRecord.fetchOne(db, key: workspaceID)?.toSyncMeta() {
+        meta.pulledRevisions[entityType] = cursor
+        meta.lastPulledRevision = max(meta.lastPulledRevision, cursor)
+        try SyncMetaRecord.from(meta).save(db)
       }
     }
+  }
+
+  /// Compatibility wrapper — updates global cursor only.
+  func mergeRemotePage(_ remoteEntities: [StoredEntity], cursor: Int) throws {
+    let type = remoteEntities.first?.entityType ?? .transaction
+    try mergeRemotePage(remoteEntities, entityType: type, cursor: cursor)
   }
 
   /// Uploads local reviewed/restored email rows that are not yet in the entity store.
@@ -262,15 +257,12 @@ final class Repository: @unchecked Sendable {
   }
 
   func enqueueFullUpload(entityTypes: [EntityType] = Array(EntityType.allCases)) throws {
-    let allowed = Set(entityTypes.map(\.rawValue))
+    let allowed = Set(entityTypes)
     try db.write { db in
-      let entities = try EntityRecord
-        .filter(Column("workspaceId") == workspaceID)
-        .fetchAll(db)
+      let entities = try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
         .filter { allowed.contains($0.entityType) }
       let now = Int(Date().timeIntervalSince1970 * 1000)
-      for record in entities {
-        let entity = try record.toStoredEntity()
+      for entity in entities {
         let version = try nextVersion(db)
         let payload = PayloadSanitizer.sanitize(entityType: entity.entityType, payload: entity.payload)
         var next = entity
@@ -304,12 +296,10 @@ final class Repository: @unchecked Sendable {
   func purgeExpiredTombstones(now: Int = Int(Date().timeIntervalSince1970 * 1000)) throws -> Int {
     let cutoff = now - tombstoneRetentionDays * 24 * 60 * 60 * 1000
     let purged = try db.write { db -> Int in
-      let records = try EntityRecord
-        .filter(Column("workspaceId") == workspaceID && Column("deleted") == true)
-        .fetchAll(db)
+      let records = try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
       var count = 0
-      for record in records {
-        let entity = try record.toStoredEntity()
+      for entity in records {
+        guard entity.deleted else { continue }
         guard entity.version.timestamp < cutoff else { continue }
         if try OutboxRecord.fetchOne(db, key: entity.key) != nil { continue }
         _ = try EntityRecord.deleteOne(db, key: entity.key)
@@ -322,42 +312,52 @@ final class Repository: @unchecked Sendable {
 
   func activeEntities(type: EntityType) throws -> [StoredEntity] {
     try db.read { db in
-      try EntityRecord
-        .filter(Column("workspaceId") == workspaceID && Column("entityType") == type.rawValue)
-        .fetchAll(db)
-        .compactMap { record in
-          let entity = try record.toStoredEntity()
-          return entity.deleted ? nil : entity
-        }
+      try TypedEntityStore.fetchAll(db: db, type: type, workspaceId: workspaceID)
+        .filter { !$0.deleted }
     }
   }
 
   func allEntities() throws -> [StoredEntity] {
     try db.read { db in
-      try EntityRecord
-        .filter(Column("workspaceId") == workspaceID)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
+      try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
     }
   }
 
   func pendingOutbox(limit: Int = 50) throws -> [SyncOperation] {
     try db.read { db in
-      try OutboxRecord
+      let rows = try OutboxRecord
         .filter(Column("status") == OutboxStatus.pending.rawValue)
         .order(Column("createdAt"))
         .limit(limit)
         .fetchAll(db)
-        .map { try $0.toSyncOperation() }
+      var ops: [SyncOperation] = []
+      for row in rows {
+        guard let type = EntityType(rawValue: row.entityType),
+              let stored = try TypedEntityStore.fetchOne(db: db, type: type, key: row.key)
+        else { continue }
+        ops.append(row.toSyncOperation(
+          payload: stored.payload,
+          version: stored.version,
+          deleted: stored.deleted
+        ))
+      }
+      return ops
     }
   }
 
   func blockedOutbox() throws -> SyncOperation? {
     try db.read { db in
-      try OutboxRecord
+      guard let row = try OutboxRecord
         .filter(Column("status") == OutboxStatus.blocked.rawValue)
-        .fetchOne(db)
-        .map { try $0.toSyncOperation() }
+        .fetchOne(db),
+        let type = EntityType(rawValue: row.entityType),
+        let stored = try TypedEntityStore.fetchOne(db: db, type: type, key: row.key)
+      else { return nil }
+      return row.toSyncOperation(
+        payload: stored.payload,
+        version: stored.version,
+        deleted: stored.deleted
+      )
     }
   }
 
@@ -399,10 +399,7 @@ final class Repository: @unchecked Sendable {
   func observeEntities(onChange: @escaping ([StoredEntity]) -> Void) -> DatabaseCancellable {
     ValueObservation
       .tracking { db in
-        try EntityRecord
-          .filter(Column("workspaceId") == workspaceID)
-          .fetchAll(db)
-          .map { try $0.toStoredEntity() }
+        try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
       }
       .start(in: db, scheduling: .async(onQueue: .main)) { error in
         print("observeEntities error: \(error)")
@@ -612,14 +609,12 @@ extension Repository {
   func materializeSyncedEmailMessages(accountId: String) throws {
     try db.write { db in
       guard try EmailAccountRecord.fetchOne(db, key: accountId) != nil else { return }
-      let records = try EntityRecord
-        .filter(
-          Column("workspaceId") == workspaceID
-            && Column("entityType") == EntityType.emailMessage.rawValue
-        )
-        .fetchAll(db)
-      for record in records {
-        let stored = try record.toStoredEntity()
+      let records = try TypedEntityStore.fetchAll(
+        db: db,
+        type: .emailMessage,
+        workspaceId: workspaceID
+      )
+      for stored in records {
         guard !stored.deleted, case .emailMessage(let entity) = stored.payload else { continue }
         guard entity.accountId == accountId else { continue }
         try upsertLocalEmailMessage(db, from: entity, existingOverride: nil)

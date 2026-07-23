@@ -4,13 +4,31 @@ import { db } from "@/data/db";
 import { DEFAULT_PREFERENCES, TOMBSTONE_RETENTION_DAYS, entityKey } from "@/data/model";
 import {
   backfillRecurringCurrencies,
+  getStoredRow,
   initializeLocalDatabase,
   saveEntity,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   purgeExpiredTombstones,
   sanitizePayload,
+  tableForType,
 } from "@/data/repository";
+
+async function totalEntityCount() {
+  let total = 0;
+  for (const type of [
+    "category",
+    "paymentMethod",
+    "transaction",
+    "recurring",
+    "lend",
+    "emailMessage",
+    "preferences",
+  ] as const) {
+    total += await tableForType(type).count();
+  }
+  return total;
+}
 
 describe("local repository", () => {
   beforeEach(async () => {
@@ -21,12 +39,12 @@ describe("local repository", () => {
 
   it("bootstraps cash and preferences exactly once without seed categories", async () => {
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBe(2);
+    expect(await totalEntityCount()).toBe(2);
     expect(await db.outbox.count()).toBe(0);
-    expect(await db.entities.get(entityKey("paymentMethod", "payment-method-cash"))).toBeTruthy();
-    expect(await db.entities.get(entityKey("preferences", "preferences"))).toBeTruthy();
+    expect(await getStoredRow("paymentMethod", "payment-method-cash")).toBeTruthy();
+    expect(await getStoredRow("preferences", "preferences")).toBeTruthy();
     await initializeLocalDatabase();
-    expect(await db.entities.count()).toBe(2);
+    expect(await totalEntityCount()).toBe(2);
     expect(await db.outbox.count()).toBe(0);
   });
 
@@ -60,9 +78,9 @@ describe("local repository", () => {
     await enqueueUnsyncedDefaults();
     expect(await db.outbox.count()).toBe(2);
 
-    const cash = await db.entities.get(entityKey("paymentMethod", "payment-method-cash"));
+    const cash = await getStoredRow("paymentMethod", "payment-method-cash");
     expect(cash).toBeTruthy();
-    await db.entities.put({ ...cash!, serverRevision: 10 });
+    await db.paymentMethods.put({ ...cash!, serverRevision: 10 });
     await db.outbox.clear();
     await enqueueUnsyncedDefaults();
     const pending = await db.outbox.toArray();
@@ -78,8 +96,9 @@ describe("local repository", () => {
     await saveEntity("category", { ...payload, name: "Updated" });
     const second = await db.outbox.get(entityKey("category", payload.id));
     expect(second?.operationId).not.toBe(first?.operationId);
-    expect((second?.payload as typeof payload).name).toBe("Updated");
-    expect(await db.entities.count()).toBe(3);
+    const stored = await getStoredRow("category", payload.id);
+    expect(stored?.name).toBe("Updated");
+    expect(await totalEntityCount()).toBe(3);
   });
 
   it("enqueues every local entity for a full cloud re-upload", async () => {
@@ -87,7 +106,7 @@ describe("local repository", () => {
     await db.outbox.clear();
     expect(await db.outbox.count()).toBe(0);
     await enqueueFullUpload();
-    expect(await db.outbox.count()).toBe(await db.entities.count());
+    expect(await db.outbox.count()).toBe(await totalEntityCount());
     const blocked = await db.outbox.where("status").equals("blocked").count();
     expect(blocked).toBe(0);
   });
@@ -116,10 +135,10 @@ describe("local repository", () => {
     await db.outbox.clear();
 
     expect(await backfillRecurringCurrencies()).toBe(2);
-    const recurring = await db.entities.get(entityKey("recurring", "legacy-recurring"));
-    const transaction = await db.entities.get(entityKey("transaction", "legacy-tx"));
-    expect(recurring?.payload).toMatchObject({ currency: "USD" });
-    expect(transaction?.payload).toMatchObject({ currency: "USD" });
+    const recurring = await getStoredRow("recurring", "legacy-recurring");
+    const transaction = await getStoredRow("transaction", "legacy-tx");
+    expect(recurring).toMatchObject({ currency: "USD" });
+    expect(transaction).toMatchObject({ currency: "USD" });
     expect(await backfillRecurringCurrencies()).toBe(0);
   });
 });
@@ -206,7 +225,7 @@ describe("sanitizePayload foreign-currency fields", () => {
     await saveEntity("transaction", payload);
     const key = entityKey("transaction", payload.id);
     await db.outbox.delete(key);
-    await db.entities.update(key, {
+    await db.transactions.update(key, {
       deleted: true,
       version: {
         timestamp: now - (TOMBSTONE_RETENTION_DAYS + 2) * msPerDay,
@@ -216,24 +235,27 @@ describe("sanitizePayload foreign-currency fields", () => {
     });
 
     const freshKey = entityKey("transaction", "transaction-fresh");
-    await db.entities.put({
+    await db.transactions.put({
       key: freshKey,
       workspaceId: "global",
-      entityType: "transaction",
       entityId: "transaction-fresh",
       version: {
         timestamp: now - 5 * msPerDay,
         counter: 0,
         deviceId: "test",
       },
-      payload: { ...payload, id: "transaction-fresh", name: "Fresh" },
+      name: "Fresh",
+      amountMinor: 100,
+      occurredAt: 1,
+      categoryId: "c1",
+      paymentMethodId: "payment-method-cash",
       deleted: true,
       serverRevision: 1,
     });
 
     const pendingKey = entityKey("transaction", "transaction-pending");
     await saveEntity("transaction", { ...payload, id: "transaction-pending", name: "Pending" });
-    await db.entities.update(pendingKey, {
+    await db.transactions.update(pendingKey, {
       deleted: true,
       version: {
         timestamp: now - (TOMBSTONE_RETENTION_DAYS + 2) * msPerDay,
@@ -243,8 +265,8 @@ describe("sanitizePayload foreign-currency fields", () => {
     });
 
     expect(await purgeExpiredTombstones(now)).toBe(1);
-    expect(await db.entities.get(key)).toBeUndefined();
-    expect(await db.entities.get(freshKey)).toBeTruthy();
-    expect(await db.entities.get(pendingKey)).toBeTruthy();
+    expect(await db.transactions.get(key)).toBeUndefined();
+    expect(await db.transactions.get(freshKey)).toBeTruthy();
+    expect(await db.transactions.get(pendingKey)).toBeTruthy();
   });
 });

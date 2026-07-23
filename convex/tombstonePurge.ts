@@ -1,9 +1,8 @@
 import { internalMutationGeneric } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { TYPED_TABLE_BY_ENTITY, type EntityTypeName } from "./values";
 
-/* Generic Convex functions intentionally use untyped index builders until a
-   deployment is linked and Convex generates its schema-specific bindings. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const PAGE_SIZE = 50;
@@ -29,13 +28,18 @@ export function retentionDays(
   return parsed;
 }
 
+const TYPED_TABLES = [...Object.values(TYPED_TABLE_BY_ENTITY), "entities"] as const;
+
 /**
  * Hard-deletes tombstones older than the configured retention window.
- * Pages across all owners via by_deleted; does not bump workspace revisions.
+ * One `.paginate()` per invocation (Convex limit); continues across typed
+ * tables then the legacy blob via scheduled follow-ups.
+ * Does not bump workspace revisions.
  */
 export const purgeExpired = internalMutationGeneric({
   args: {
     cursor: v.optional(v.union(v.string(), v.null())),
+    tableIndex: v.optional(v.number()),
     /** Optional clock for tests so retention cutoffs stay deterministic. */
     now: v.optional(v.number()),
   },
@@ -43,9 +47,15 @@ export const purgeExpired = internalMutationGeneric({
     const now = args.now ?? Date.now();
     const days = retentionDays();
     const cutoff = now - days * MS_PER_DAY;
+    const tableIndex = args.tableIndex ?? 0;
 
+    if (tableIndex >= TYPED_TABLES.length) {
+      return { purged: 0, hasMore: false, cutoff, days, tableIndex };
+    }
+
+    const table = TYPED_TABLES[tableIndex];
     const page = await ctx.db
-      .query("entities")
+      .query(table)
       .withIndex("by_deleted", (q: any) => q.eq("deleted", true))
       .paginate({ cursor: args.cursor ?? null, numItems: PAGE_SIZE });
 
@@ -57,13 +67,41 @@ export const purgeExpired = internalMutationGeneric({
       }
     }
 
+    let hasMore = false;
+    let nextCursor: string | null = null;
+    let nextTableIndex = tableIndex;
+
     if (!page.isDone) {
+      hasMore = true;
+      nextCursor = page.continueCursor;
+      nextTableIndex = tableIndex;
+    } else if (tableIndex + 1 < TYPED_TABLES.length) {
+      hasMore = true;
+      nextCursor = null;
+      nextTableIndex = tableIndex + 1;
+    }
+
+    if (hasMore) {
       await ctx.scheduler.runAfter(0, internal.tombstonePurge.purgeExpired, {
-        cursor: page.continueCursor,
+        cursor: nextCursor,
+        tableIndex: nextTableIndex,
         now,
       });
     }
 
-    return { purged, hasMore: !page.isDone, cutoff, days };
+    return {
+      purged,
+      hasMore,
+      cutoff,
+      days,
+      tableIndex,
+      nextCursor,
+      nextTableIndex,
+    };
   },
 });
+
+/** Helper for tests / clarity — entity type → typed table. */
+export function typedTableFor(entityType: EntityTypeName) {
+  return TYPED_TABLE_BY_ENTITY[entityType];
+}

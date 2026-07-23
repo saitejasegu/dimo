@@ -7,8 +7,6 @@ import {
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
-/* Generic Convex functions intentionally use untyped index builders until a
-   deployment is linked and Convex generates its schema-specific bindings. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const FRANKFURTER_BASE = "https://api.frankfurter.dev/v1";
@@ -28,14 +26,6 @@ async function requireIdentity(ctx: {
 
 function utcDateKey(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
-}
-
-function normalizeRatesRow(row: RatesRow) {
-  return {
-    date: row.date,
-    base: row.base,
-    rates: { ...row.rates, [row.base]: 1 },
-  };
 }
 
 // Currencies the app can enter and therefore must convert. Kept in sync with
@@ -83,11 +73,114 @@ export function convertMinorAmount(
   return Math.round(major * 10 ** minorUnitDigits(to));
 }
 
+/** Reconstruct a rates map for a date from typed exchangeRateEntries. */
+async function ratesMapForDate(
+  ctx: { db: any },
+  date: string,
+): Promise<RatesRow | null> {
+  const entries = await ctx.db
+    .query("exchangeRateEntries")
+    .withIndex("by_date", (q: any) => q.eq("date", date))
+    .take(64);
+  if (entries.length === 0) return null;
+  const rates: Record<string, number> = {};
+  let base = RATE_BASE;
+  let fetchedAt = 0;
+  for (const entry of entries) {
+    rates[entry.currency] = entry.rate;
+    base = entry.base;
+    fetchedAt = Math.max(fetchedAt, entry.fetchedAt);
+  }
+  rates[base] = 1;
+  return { date, base, rates, fetchedAt };
+}
+
+async function latestRatesDateOnOrBefore(
+  ctx: { db: any },
+  dateKey: string,
+): Promise<string | null> {
+  const exact = await ctx.db
+    .query("exchangeRateEntries")
+    .withIndex("by_date_currency", (q: any) =>
+      q.eq("date", dateKey).eq("currency", RATE_BASE),
+    )
+    .unique();
+  if (exact) return exact.date;
+
+  // Fallback: scan by_date descending for any currency on/before dateKey.
+  const prior = await ctx.db
+    .query("exchangeRateEntries")
+    .withIndex("by_date", (q: any) => q.lte("date", dateKey))
+    .order("desc")
+    .first();
+  return prior?.date ?? null;
+}
+
 /**
- * Major-unit ratio to convert 1 unit of `from` into `to` using a stored rates
- * row. The base currency is implicitly 1. Returns `null` when a currency is
- * missing so callers can fall back rather than store a wrong amount.
+ * Major-unit ratio to convert 1 unit of `from` into `to` using typed entries
+ * (and legacy blob as last-resort fallback during dual-write).
  */
+export async function rateOn(
+  ctx: { db: any },
+  dateKey: string,
+  from: string,
+  to: string,
+): Promise<number | null> {
+  if (from === to) return 1;
+
+  const date = await latestRatesDateOnOrBefore(ctx, dateKey);
+  if (date) {
+    const fromEntry =
+      from === RATE_BASE
+        ? { rate: 1 }
+        : await ctx.db
+            .query("exchangeRateEntries")
+            .withIndex("by_date_currency", (q: any) =>
+              q.eq("date", date).eq("currency", from),
+            )
+            .unique();
+    const toEntry =
+      to === RATE_BASE
+        ? { rate: 1 }
+        : await ctx.db
+            .query("exchangeRateEntries")
+            .withIndex("by_date_currency", (q: any) =>
+              q.eq("date", date).eq("currency", to),
+            )
+            .unique();
+    // Also allow looking up the base row when from/to equals stored base.
+    const row = await ratesMapForDate(ctx, date);
+    if (row) {
+      const unit = (code: string) => (code === row.base ? 1 : row.rates[code]);
+      const fromRate = unit(from);
+      const toRate = unit(to);
+      if (fromRate > 0 && toRate > 0) return toRate / fromRate;
+    }
+    if (fromEntry && toEntry && fromEntry.rate > 0 && toEntry.rate > 0) {
+      return toEntry.rate / fromEntry.rate;
+    }
+  }
+
+  // Legacy blob fallback for pre-backfill rows.
+  const exact = await ctx.db
+    .query("exchangeRates")
+    .withIndex("by_date", (q: any) => q.eq("date", dateKey))
+    .unique();
+  const legacy =
+    exact ??
+    (await ctx.db
+      .query("exchangeRates")
+      .withIndex("by_date", (q: any) => q.lte("date", dateKey))
+      .order("desc")
+      .first());
+  if (!legacy) return null;
+  const unit = (code: string) => (code === legacy.base ? 1 : legacy.rates[code]);
+  const fromRate = unit(from);
+  const toRate = unit(to);
+  if (!(fromRate > 0) || !(toRate > 0)) return null;
+  return toRate / fromRate;
+}
+
 export function ratioFromRow(
   row: Pick<RatesRow, "base" | "rates">,
   from: string,
@@ -101,32 +194,15 @@ export function ratioFromRow(
   return toRate / fromRate;
 }
 
-/**
- * Look up the conversion ratio for `dateKey`, falling back to the most recent
- * row on or before that date. Returns `null` when no usable rate exists.
- */
-export async function rateOn(
-  ctx: { db: any },
-  dateKey: string,
-  from: string,
-  to: string,
-): Promise<number | null> {
-  if (from === to) return 1;
-  const exact = await ctx.db
-    .query("exchangeRates")
-    .withIndex("by_date", (q: any) => q.eq("date", dateKey))
-    .unique();
-  const row: RatesRow | null =
-    exact ??
-    (await ctx.db
-      .query("exchangeRates")
-      .withIndex("by_date", (q: any) => q.lte("date", dateKey))
-      .order("desc")
-      .first());
-  if (!row) return null;
-  return ratioFromRow(row, from, to);
+function normalizeRatesRow(row: RatesRow) {
+  return {
+    date: row.date,
+    base: row.base,
+    rates: { ...row.rates, [row.base]: 1 },
+  };
 }
 
+/** Write typed entries + mirror legacy blob row. */
 export const upsertRates = internalMutationGeneric({
   args: {
     date: v.string(),
@@ -134,21 +210,41 @@ export const upsertRates = internalMutationGeneric({
     rates: v.record(v.string(), v.number()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    const fetchedAt = Date.now();
+    const currencies = new Set([...Object.keys(args.rates), args.base]);
+    for (const currency of currencies) {
+      const rate = currency === args.base ? 1 : args.rates[currency];
+      if (!(rate > 0)) continue;
+      const existing = await ctx.db
+        .query("exchangeRateEntries")
+        .withIndex("by_date_currency", (q: any) =>
+          q.eq("date", args.date).eq("currency", currency),
+        )
+        .unique();
+      const fields = {
+        date: args.date,
+        base: args.base,
+        currency,
+        rate,
+        fetchedAt,
+      };
+      if (existing) await ctx.db.patch(existing._id, fields);
+      else await ctx.db.insert("exchangeRateEntries", fields);
+    }
+
+    // Mirror legacy blob for Android / old clients.
+    const blob = await ctx.db
       .query("exchangeRates")
       .withIndex("by_date", (q: any) => q.eq("date", args.date))
       .unique();
-    const fields = {
+    const blobFields = {
       date: args.date,
       base: args.base,
       rates: args.rates,
-      fetchedAt: Date.now(),
+      fetchedAt,
     };
-    if (existing) {
-      await ctx.db.patch(existing._id, fields);
-    } else {
-      await ctx.db.insert("exchangeRates", fields);
-    }
+    if (blob) await ctx.db.patch(blob._id, blobFields);
+    else await ctx.db.insert("exchangeRates", blobFields);
     return null;
   },
 });
@@ -157,6 +253,14 @@ export const upsertRates = internalMutationGeneric({
 export const latestRow = internalQueryGeneric({
   args: {},
   handler: async (ctx) => {
+    const latestEntry = await ctx.db
+      .query("exchangeRateEntries")
+      .withIndex("by_date")
+      .order("desc")
+      .first();
+    if (latestEntry) {
+      return await ratesMapForDate(ctx, latestEntry.date);
+    }
     return (await ctx.db
       .query("exchangeRates")
       .withIndex("by_date")
@@ -173,6 +277,15 @@ export const latest = queryGeneric({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx);
+    const latestEntry = await ctx.db
+      .query("exchangeRateEntries")
+      .withIndex("by_date")
+      .order("desc")
+      .first();
+    if (latestEntry) {
+      const row = await ratesMapForDate(ctx, latestEntry.date);
+      return row ? normalizeRatesRow(row) : null;
+    }
     const row = (await ctx.db
       .query("exchangeRates")
       .withIndex("by_date")

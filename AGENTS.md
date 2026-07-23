@@ -227,6 +227,8 @@ from derived UI models.
 npm ci
 npm run dev                 # Next.js only
 npm run convex:dev          # separate Convex watcher/codegen
+npm run convex:export       # ZIP snapshot of the linked dev deployment → backups/
+npm run convex:export:prod  # ZIP snapshot of production → backups/
 npm run lint
 npm run test:unit
 npm test                    # unit tests followed by production static build
@@ -239,6 +241,26 @@ Use `npm run lint && npm test` for normal web/backend validation. `npm test`
 does not run lint, Electron tests, or iOS tests. Vitest uses the Node
 environment with `fake-indexeddb`; tests are selector/repository/protocol
 focused, with no browser E2E or Electron suite.
+
+## Convex cloud backups
+
+Convex table data (and optionally file storage) can be snapshotted without a
+custom backup subsystem. Client local DBs (Dexie / GRDB / Room) are separate
+and are not included.
+
+- **Dashboard:** Deployment → Backup & Restore → Backup Now (download the ZIP
+  for long-term copies; Convex keeps manual backups ~7 days). Periodic daily
+  or weekly backups require Convex Pro.
+- **CLI / npm:** `npm run convex:export` (dev) or `npm run convex:export:prod`
+  writes `backups/dimo-*-snapshot.zip` (gitignored). Equivalent raw CLI:
+  `npx convex export --path …` / `npx convex export --prod --path …`.
+- **Restore:** Dashboard Restore on a backup, or `npx convex import` of a
+  downloaded ZIP. Restore replaces deployment table data; take a fresh backup
+  first. Snapshots omit functions/schema (in git under `convex/`), env vars,
+  and pending scheduled jobs.
+
+See [Backup & Restore](https://docs.convex.dev/database/backup-restore) and
+[CLI export](https://docs.convex.dev/cli/reference/export).
 
 For behavior shared by web and iOS, add corresponding tests in both languages.
 For sync changes, cover fresh bootstrap, offline writes/reconnect, conflicting
@@ -265,8 +287,8 @@ named simulator or device UUID for `xcodebuild test`.
 
 - Never hand-edit `convex/_generated/*` or XcodeGen output. After Convex API or
   schema changes, run `npm run convex:dev` to regenerate bindings.
-- `.next/`, `out/`, `release/`, coverage, Xcode projects, DerivedData, local
-  databases, and `.env*` are generated/ignored.
+- `.next/`, `out/`, `release/`, `backups/`, coverage, Xcode projects,
+  DerivedData, local databases, and `.env*` are generated/ignored.
 - `npm run build` rewrites tracked `public/version.json`; account for that
   deliberate diff.
 - `db/`, `drizzle/`, `worker/`, `drizzle.config.ts`, and `examples/d1/` are
