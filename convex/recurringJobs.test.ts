@@ -13,28 +13,42 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const materializeDue = makeFunctionReference<"mutation">(
   "recurringJobs:materializeDue",
 );
+const pushRecurring = makeFunctionReference<"mutation">("syncTyped:pushRecurring");
+const pushPreferences = makeFunctionReference<"mutation">("syncTyped:pushPreferences");
+const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
 
 function recurringOperation(id: string, overrides: Record<string, unknown> = {}) {
   return {
     operationId: `op-${id}`,
     workspaceId: "global",
-    entityType: "recurring" as const,
     entityId: id,
     version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-    payload: {
-      id,
-      name: "Rent",
-      amountMinor: 50_000,
-      categoryId: "category-home",
-      paymentMethodId: "payment-method-cash",
-      frequency: "monthly" as const,
-      anchorDate: "2026-01-31",
-      paused: false,
-      ...overrides,
-    },
     deleted: false,
+    name: "Rent",
+    amountMinor: 50_000,
+    categoryId: "category-home",
+    paymentMethodId: "payment-method-cash",
+    frequency: "monthly" as const,
+    anchorDate: "2026-01-31",
+    paused: false,
+    ...overrides,
   };
 }
+
+const prefsOp = {
+  operationId: "op-prefs",
+  workspaceId: "global",
+  entityId: "preferences",
+  version: { timestamp: 90, counter: 0, deviceId: "device-a" },
+  deleted: false,
+  profileName: "",
+  profileEmail: "",
+  currency: "INR" as const,
+  weekStart: "Mon" as const,
+  defaultView: "home" as const,
+  notifications: { bills: true, budget: true, weekly: false, large: true },
+  defaultPaymentMethodId: "payment-method-cash",
+};
 
 describe("recurring materialization", () => {
   it("derives the calendar day in IST", () => {
@@ -77,9 +91,7 @@ describe("recurring materialization", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    const push = makeFunctionReference<"mutation">("sync:push");
-    const pull = makeFunctionReference<"query">("sync:pull");
-    await t.mutation(push, {
+    await t.mutation(pushRecurring, {
       workspaceId: "global",
       operations: [recurringOperation("rent")],
     });
@@ -95,20 +107,17 @@ describe("recurring materialization", () => {
     expect(first.created).toBe(1);
     expect(second.created).toBe(0);
 
-    const result = await t.query(pull, {
+    const result = await t.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 1,
       limit: 100,
     });
     expect(result.entities).toHaveLength(1);
     expect(result.entities[0]).toMatchObject({
-      entityType: "transaction",
       entityId: recurringTransactionId("rent", "2026-02-28"),
       serverRevision: 2,
-      payload: {
-        name: "Rent",
-        occurredAt: occurrenceTimestampIST("2026-02-28"),
-      },
+      name: "Rent",
+      occurredAt: occurrenceTimestampIST("2026-02-28"),
     });
     expect(result.latestRevision).toBe(2);
   });
@@ -117,40 +126,15 @@ describe("recurring materialization", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    const push = makeFunctionReference<"mutation">("sync:push");
-    const pull = makeFunctionReference<"query">("sync:pull");
-    // Regression: a $23.60 recurring bill must not become ₹23.60.
-    await t.mutation(push, {
+    await t.mutation(pushPreferences, {
       workspaceId: "global",
-      operations: [
-        {
-          operationId: "op-prefs",
-          workspaceId: "global",
-          entityType: "preferences" as const,
-          entityId: "preferences",
-          version: { timestamp: 90, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "preferences",
-            profileName: "",
-            profileEmail: "",
-            currency: "INR",
-            weekStart: "Mon",
-            defaultView: "home",
-            notifications: { bills: true, budget: true, weekly: false, large: true },
-            defaultPaymentMethodId: "payment-method-cash",
-          },
-          deleted: false,
-        },
-        recurringOperation("usd", { currency: "USD", amountMinor: 2_360 }),
-      ],
+      operations: [prefsOp],
+    });
+    await t.mutation(pushRecurring, {
+      workspaceId: "global",
+      operations: [recurringOperation("usd", { currency: "USD", amountMinor: 2_360 })],
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("exchangeRates", {
-        date: "2026-02-28",
-        base: "EUR",
-        rates: { USD: 1, INR: 100 },
-        fetchedAt: Date.now(),
-      });
       for (const [currency, rate] of [
         ["USD", 1],
         ["INR", 100],
@@ -172,14 +156,14 @@ describe("recurring materialization", () => {
     });
     expect(result.created).toBe(1);
 
-    const pulled = await t.query(pull, {
+    const pulled = await t.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 2,
       limit: 100,
     });
     expect(pulled.entities).toHaveLength(1);
     // $23.60 * 100 = ₹2,360 -> 236,000 minor units.
-    expect(pulled.entities[0].payload).toMatchObject({
+    expect(pulled.entities[0]).toMatchObject({
       amountMinor: 236_000,
       currency: "INR",
       sourceCurrency: "USD",
@@ -192,30 +176,13 @@ describe("recurring materialization", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    const push = makeFunctionReference<"mutation">("sync:push");
-    await t.mutation(push, {
+    await t.mutation(pushPreferences, {
       workspaceId: "global",
-      operations: [
-        {
-          operationId: "op-prefs",
-          workspaceId: "global",
-          entityType: "preferences" as const,
-          entityId: "preferences",
-          version: { timestamp: 90, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "preferences",
-            profileName: "",
-            profileEmail: "",
-            currency: "INR",
-            weekStart: "Mon",
-            defaultView: "home",
-            notifications: { bills: true, budget: true, weekly: false, large: true },
-            defaultPaymentMethodId: "payment-method-cash",
-          },
-          deleted: false,
-        },
-        recurringOperation("usd", { currency: "USD", amountMinor: 2_360 }),
-      ],
+      operations: [prefsOp],
+    });
+    await t.mutation(pushRecurring, {
+      workspaceId: "global",
+      operations: [recurringOperation("usd", { currency: "USD", amountMinor: 2_360 })],
     });
 
     expect(await t.mutation(materializeDue, {
@@ -224,12 +191,6 @@ describe("recurring materialization", () => {
     })).toMatchObject({ created: 0 });
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("exchangeRates", {
-        date: "2026-02-28",
-        base: "EUR",
-        rates: { USD: 1, INR: 100 },
-        fetchedAt: Date.now(),
-      });
       for (const [currency, rate] of [
         ["USD", 1],
         ["INR", 100],
@@ -254,8 +215,7 @@ describe("recurring materialization", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    const push = makeFunctionReference<"mutation">("sync:push");
-    await t.mutation(push, {
+    await t.mutation(pushRecurring, {
       workspaceId: "global",
       operations: [
         recurringOperation("paused", { paused: true }),

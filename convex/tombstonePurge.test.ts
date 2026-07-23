@@ -8,8 +8,8 @@ import {
 } from "./tombstonePurge";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
-const push = makeFunctionReference<"mutation">("sync:push");
-const pull = makeFunctionReference<"query">("sync:pull");
+const pushTransactions = makeFunctionReference<"mutation">("syncTyped:pushTransactions");
+const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
 const purgeExpired = makeFunctionReference<"mutation">(
   "tombstonePurge:purgeExpired",
 );
@@ -20,18 +20,14 @@ function transactionOp(overrides: Record<string, unknown> = {}) {
   return {
     operationId: "op-1",
     workspaceId: "global",
-    entityType: "transaction" as const,
     entityId: "transaction-1",
     version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-    payload: {
-      id: "transaction-1",
-      name: "Coffee",
-      amountMinor: 12_300,
-      occurredAt: 100,
-      categoryId: "category-dining",
-      paymentMethodId: "payment-method-cash",
-    },
     deleted: false,
+    name: "Coffee",
+    amountMinor: 12_300,
+    occurredAt: 100,
+    categoryId: "category-dining",
+    paymentMethodId: "payment-method-cash",
     ...overrides,
   };
 }
@@ -62,55 +58,40 @@ describe("tombstonePurge.purgeExpired", () => {
     const freshTs = now - 10 * MS_PER_DAY;
     const expiredTs = now - (DEFAULT_TOMBSTONE_RETENTION_DAYS + 5) * MS_PER_DAY;
 
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, {
       workspaceId: "global",
       operations: [
         transactionOp({
           operationId: "live",
           entityId: "transaction-live",
           version: { timestamp: now, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "transaction-live",
-            name: "Live",
-            amountMinor: 100,
-            occurredAt: now,
-            categoryId: "category-dining",
-            paymentMethodId: "payment-method-cash",
-          },
+          name: "Live",
+          amountMinor: 100,
+          occurredAt: now,
           deleted: false,
         }),
         transactionOp({
           operationId: "fresh-delete",
           entityId: "transaction-fresh",
           version: { timestamp: freshTs, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "transaction-fresh",
-            name: "Fresh",
-            amountMinor: 200,
-            occurredAt: freshTs,
-            categoryId: "category-dining",
-            paymentMethodId: "payment-method-cash",
-          },
+          name: "Fresh",
+          amountMinor: 200,
+          occurredAt: freshTs,
           deleted: true,
         }),
         transactionOp({
           operationId: "expired-delete",
           entityId: "transaction-expired",
           version: { timestamp: expiredTs, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "transaction-expired",
-            name: "Expired",
-            amountMinor: 300,
-            occurredAt: expiredTs,
-            categoryId: "category-dining",
-            paymentMethodId: "payment-method-cash",
-          },
+          name: "Expired",
+          amountMinor: 300,
+          occurredAt: expiredTs,
           deleted: true,
         }),
       ],
     });
 
-    const before = await t.query(pull, {
+    const before = await t.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
@@ -138,8 +119,7 @@ describe("tombstonePurge.purgeExpired", () => {
     }
     expect(totalPurged).toBeGreaterThanOrEqual(1);
 
-
-    const after = await t.query(pull, {
+    const after = await t.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
@@ -155,9 +135,8 @@ describe("tombstonePurge.purgeExpired", () => {
         ?.deleted,
     ).toBe(false);
 
-    // Directly assert the expired tombstone is gone from both stores.
     const leftover = await t.run(async (ctx) => {
-      const typed = await ctx.db
+      return await ctx.db
         .query("transactions")
         .withIndex("by_owner_workspace_entity", (q) =>
           q
@@ -166,19 +145,7 @@ describe("tombstonePurge.purgeExpired", () => {
             .eq("entityId", "transaction-expired"),
         )
         .unique();
-      const blob = await ctx.db
-        .query("entities")
-        .withIndex("by_owner_and_workspace_and_entity", (q) =>
-          q
-            .eq("ownerId", "https://api.workos.com/|purge-user")
-            .eq("workspaceId", "global")
-            .eq("entityType", "transaction")
-            .eq("entityId", "transaction-expired"),
-        )
-        .unique();
-      return { typed, blob };
     });
-    expect(leftover.typed).toBeNull();
-    expect(leftover.blob).toBeNull();
+    expect(leftover).toBeNull();
   });
 });

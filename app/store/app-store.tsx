@@ -13,7 +13,7 @@ import {
 import { useLiveQuery } from "dexie-react-hooks";
 import { useConvex } from "convex/react";
 import { makeFunctionReference } from "convex/server";
-import { activateUserDatabase, db, type SyncMetaRecord } from "@/data/db";
+import { activateUserDatabase, db, EMPTY_PULLED_REVISIONS, type SyncMetaRecord } from "@/data/db";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -800,7 +800,17 @@ export function AppStoreProvider({
     return () => media.removeEventListener("change", apply);
   }, [state.theme]);
   const actions = useMemo(() => createActions(dispatch, () => state), [state]);
-  const sync: SyncState = useMemo(() => ({ workspaceId: WORKSPACE_ID, lastPulledRevision: meta?.lastPulledRevision ?? 0, lastSyncedAt: meta?.lastSyncedAt ?? null, error: meta?.error ?? null, syncing: meta?.syncing ?? false, pending, blocked, configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL) }), [meta, pending, blocked]);
+  const sync: SyncState = useMemo(() => ({
+    workspaceId: WORKSPACE_ID,
+    lastPulledRevision: meta?.lastPulledRevision ?? 0,
+    pulledRevisions: meta?.pulledRevisions ?? { ...EMPTY_PULLED_REVISIONS },
+    lastSyncedAt: meta?.lastSyncedAt ?? null,
+    error: meta?.error ?? null,
+    syncing: meta?.syncing ?? false,
+    pending,
+    blocked,
+    configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL),
+  }), [meta, pending, blocked]);
   const value = useMemo(() => ({
     state: {
       ...state,

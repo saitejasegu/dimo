@@ -1,10 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import {
-  entityTypeValidator,
-  payloadValidator,
-  versionValidator,
-} from "./values";
+import { versionValidator } from "./values";
 
 const syncMeta = {
   // Optional only so pre-auth rows can remain orphaned during rollout. All
@@ -18,31 +14,6 @@ const syncMeta = {
 };
 
 export default defineSchema({
-  // Legacy blob table — kept for Android / old clients during dual-write.
-  entities: defineTable({
-    ownerId: v.optional(v.string()),
-    workspaceId: v.string(),
-    entityType: entityTypeValidator,
-    entityId: v.string(),
-    version: versionValidator,
-    payload: payloadValidator,
-    deleted: v.boolean(),
-    revision: v.number(),
-  })
-    .index("by_entity_type", ["entityType"])
-    .index("by_deleted", ["deleted"])
-    .index("by_owner_and_workspace_and_entity", [
-      "ownerId",
-      "workspaceId",
-      "entityType",
-      "entityId",
-    ])
-    .index("by_owner_and_workspace_and_revision", [
-      "ownerId",
-      "workspaceId",
-      "revision",
-    ]),
-
   categories: defineTable({
     ...syncMeta,
     name: v.string(),
@@ -234,14 +205,6 @@ export default defineSchema({
     /** Email for the account owner. Optional so existing rows keep validating. */
     email: v.optional(v.string()),
   }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
-
-  // Legacy rates blob — kept for Android / old clients during dual-write.
-  exchangeRates: defineTable({
-    date: v.string(),
-    base: v.string(),
-    rates: v.record(v.string(), v.number()),
-    fetchedAt: v.number(),
-  }).index("by_date", ["date"]),
 
   // Typed per-(date, currency) rates. Base is stored as rate 1.
   exchangeRateEntries: defineTable({

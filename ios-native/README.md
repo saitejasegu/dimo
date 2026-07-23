@@ -1,6 +1,6 @@
 # Dimo native iOS
 
-Swift + SwiftUI iOS app for Dimo. Shares the existing Convex + WorkOS backend with the web, Electron, and Android clients.
+Swift + SwiftUI iOS app for Dimo. Shares the existing Convex + WorkOS backend with the web and Electron clients.
 
 Requires **iOS 26** (native Liquid Glass `TabView`).
 
@@ -81,6 +81,6 @@ Bundle id: `app.dimo.ios`.
 - **WorkOS AuthKit PKCE** via `ASWebAuthenticationSession` + Keychain refresh token
 - **Domain/** — 1:1 ports of web selectors / CSV / dates / formatting
 - **Email/** — Gmail OAuth + on-device parse → Local Gemma / OpenRouter analysis; analyzed `emailMessage` rows sync with body; OAuth/OpenRouter secrets stay device-only
-- Category delete tombstones linked transactions only (native parity with Android; web also tombstones linked recurring)
+- Category delete tombstones linked transactions only (web also tombstones linked recurring)
 - Native **Sync now** is ordinary sync; full cloud replacement is a separate explicit action
 - Domain tests: `DimoTests/DomainTests.swift`

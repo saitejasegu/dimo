@@ -331,7 +331,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
   func currentRevision(workspaceId: String) async throws -> Double {
     try await firstValue(
       client.subscribe(
-        to: "sync:currentRevision",
+        to: "syncTyped:currentRevision",
         with: ["workspaceId": workspaceId]
       )
     )
@@ -411,7 +411,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     let args = mutableArgs
     let _: EnsureResult = try await withTimeout(seconds: 45) {
       try await self.client.mutation(
-        "sync:ensureWorkspaceProfile",
+        "syncTyped:ensureWorkspaceProfile",
         with: args
       )
     }
@@ -421,7 +421,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     let encodedTypes: [ConvexEncodable?] = entityTypes.map { $0 as ConvexEncodable? }
     return try await withTimeout(seconds: 45) {
       try await self.client.mutation(
-        "sync:clearWorkspace",
+        "syncTyped:clearWorkspace",
         with: [
           "workspaceId": workspaceId,
           "entityTypes": encodedTypes,
@@ -438,7 +438,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
   }
 
   func subscribeRevision(workspaceId: String, onChange: @escaping (Double) -> Void) -> AnyCancellable {
-    client.subscribe(to: "sync:currentRevision", with: ["workspaceId": workspaceId])
+    client.subscribe(to: "syncTyped:currentRevision", with: ["workspaceId": workspaceId])
       .removeDuplicates()
       .sink(
         receiveCompletion: { _ in },

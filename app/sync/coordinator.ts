@@ -1,5 +1,5 @@
 import { ConvexReactClient } from "convex/react";
-import { makeFunctionReference } from "convex/server";
+import { makeFunctionReference, type FunctionReference } from "convex/server";
 import { db, EMPTY_PULLED_REVISIONS } from "@/data/db";
 import {
   WORKSPACE_ID,
@@ -46,7 +46,7 @@ type PullArgs = {
   limit: number;
 };
 
-const PUSH_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
+const PUSH_REF: Record<EntityType, FunctionReference<"mutation">> = {
   category: makeFunctionReference<"mutation">("syncTyped:pushCategories"),
   paymentMethod: makeFunctionReference<"mutation">("syncTyped:pushPaymentMethods"),
   transaction: makeFunctionReference<"mutation">("syncTyped:pushTransactions"),
@@ -56,7 +56,10 @@ const PUSH_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
   preferences: makeFunctionReference<"mutation">("syncTyped:pushPreferences"),
 };
 
-const PULL_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
+const PULL_REF: Record<
+  EntityType,
+  FunctionReference<"query", "public", PullArgs, PullPage>
+> = {
   category: makeFunctionReference<"query", PullArgs, PullPage>("syncTyped:pullCategories"),
   paymentMethod: makeFunctionReference<"query", PullArgs, PullPage>(
     "syncTyped:pullPaymentMethods",
@@ -75,18 +78,18 @@ const PULL_REF: Record<EntityType, ReturnType<typeof makeFunctionReference>> = {
 };
 
 const revisionRef = makeFunctionReference<"query", { workspaceId: string }, number>(
-  "sync:currentRevision",
+  "syncTyped:currentRevision",
 );
 const ensureProfileRef = makeFunctionReference<
   "mutation",
   { workspaceId: string; name?: string; email?: string },
   { created: boolean; updated: boolean; name: string | null; email: string | null }
->("sync:ensureWorkspaceProfile");
+>("syncTyped:ensureWorkspaceProfile");
 const clearRef = makeFunctionReference<"mutation", {
   workspaceId: string;
   entityTypes: CloudEntityType[];
   limit?: number;
-}, ClearResult>("sync:clearWorkspace");
+}, ClearResult>("syncTyped:clearWorkspace");
 
 /** Only treat known client/server validation failures as permanent. */
 export function isPermanentSyncError(message: string) {

@@ -102,7 +102,7 @@ function allTypedTables() {
     db.outbox,
     db.deviceMeta,
     db.syncMeta,
-  ] as const;
+  ];
 }
 
 async function ensureDevice(): Promise<DeviceMetaRecord> {
@@ -328,7 +328,7 @@ function toStoredRow<T extends EntityType>(
     deleted,
     serverRevision,
     ...storedFieldsFromPayload(clean),
-  } as StoredRowMap[T];
+  } as unknown as StoredRowMap[T];
 }
 
 async function putLocalOnly<T extends EntityType>(
@@ -370,7 +370,7 @@ async function putInCurrentTransaction<T extends EntityType>(
 
 export async function initializeLocalDatabase() {
   await db.open();
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     const device = await ensureDevice();
     const shouldReplayCloudSnapshot = device.bootstrapVersion < 4;
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
@@ -425,7 +425,7 @@ export async function enqueueUnsyncedDefaults() {
     { entityType: "preferences", payload: DEFAULT_PREFERENCES },
   ];
   let enqueued = false;
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     for (const { entityType, payload } of defaults) {
       const existing = await getStoredRow(entityType, payload.id);
       if (!existing || existing.deleted || existing.serverRevision > 0) continue;
@@ -444,7 +444,7 @@ export async function saveEntity<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
 ) {
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     await putInCurrentTransaction(entityType, payload);
   });
   notifyWrite();
@@ -454,7 +454,7 @@ export async function saveEntity<T extends EntityType>(
 export async function saveEntities(
   entities: Array<{ entityType: EntityType; payload: EntityPayload }>,
 ) {
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     for (const entity of entities) {
       await putInCurrentTransaction(entity.entityType, entity.payload);
     }
@@ -469,7 +469,7 @@ export async function saveEntities(
  */
 export async function backfillRecurringCurrencies() {
   let updated = 0;
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     const preferences = await getStoredRow("preferences", "preferences");
     const accountCurrency =
       preferences && !preferences.deleted
@@ -500,7 +500,7 @@ export async function removeEntity<T extends EntityType>(
 ) {
   const current = await getStoredRow(entityType, id);
   if (!current || current.deleted) return;
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     await putInCurrentTransaction(
       entityType,
       payloadFromStored(entityType, current) as EntityPayloadMap[T],
@@ -536,7 +536,7 @@ export async function mergeRemoteRow<T extends EntityType>(
   entityType: T,
   remote: StoredRowMap[T],
 ) {
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     await observeRemoteVersion(remote.version);
     const local = await getStoredRow(entityType, remote.entityId);
     if (!local || compareVersions(remote.version, local.version) >= 0) {
@@ -556,7 +556,7 @@ export async function mergeRemotePage<T extends EntityType>(
   remoteRows: Array<StoredRowMap[T]>,
   cursor: number,
 ) {
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     for (const remote of remoteRows) {
       await observeRemoteVersion(remote.version);
       const local = await getStoredRow(entityType, remote.entityId);
@@ -601,7 +601,7 @@ export async function enqueueFullUpload(
   entityTypes: readonly EntityType[] = OWNED_ENTITY_TYPES,
 ) {
   const allowed = new Set<string>(entityTypes);
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     const now = Date.now();
     for (const entityType of allowed) {
       const type = entityType as EntityType;
@@ -639,7 +639,7 @@ export async function enqueueFullUpload(
 export async function purgeExpiredTombstones(now = Date.now()) {
   const cutoff = now - TOMBSTONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let purged = 0;
-  await db.transaction("rw", ...allTypedTables(), async () => {
+  await db.transaction("rw", allTypedTables(), async () => {
     for (const entityType of ALL_ENTITY_TYPES) {
       const rows = (await tableForType(entityType).toArray()) as StoredRow[];
       for (const row of rows) {

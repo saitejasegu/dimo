@@ -28,12 +28,12 @@ export function retentionDays(
   return parsed;
 }
 
-const TYPED_TABLES = [...Object.values(TYPED_TABLE_BY_ENTITY), "entities"] as const;
+const TYPED_TABLES = Object.values(TYPED_TABLE_BY_ENTITY);
 
 /**
  * Hard-deletes tombstones older than the configured retention window.
  * One `.paginate()` per invocation (Convex limit); continues across typed
- * tables then the legacy blob via scheduled follow-ups.
+ * tables via scheduled follow-ups.
  * Does not bump workspace revisions.
  */
 export const purgeExpired = internalMutationGeneric({

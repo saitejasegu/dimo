@@ -51,4 +51,3 @@ next-env.d.ts
 ios-native/DerivedData
 *.xcuserstate
 xcuserdata/
-android-sdk/

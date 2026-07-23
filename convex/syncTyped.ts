@@ -1,10 +1,11 @@
 import { mutationGeneric, queryGeneric } from "convex/server";
 import { v } from "convex/values";
 import {
-  clearEntityTypeBoth,
+  clearEntityType,
   compareVersions,
   getTypedRow,
-  writeTypedAndMirror,
+  hasAnyTypedEntity,
+  writeTyped,
   type Version,
 } from "./compat";
 import type { EntityTypeName } from "./values";
@@ -179,7 +180,7 @@ async function pushTypedBatch<T extends TypedOpBase>(
         revision,
         ...toTypedFields(operation),
       };
-      await writeTypedAndMirror(ctx, entityType, typedRow);
+      await writeTyped(ctx, entityType, typedRow);
       if (entityType === "preferences" && !operation.deleted) {
         profileUpdate = {
           ...profileUpdate,
@@ -653,11 +654,89 @@ export const pullPreferences = queryGeneric({
     ),
 });
 
+/** Shared workspace revision for client subscriptions. */
+export const currentRevision = queryGeneric({
+  args: { workspaceId: v.string() },
+  handler: async (ctx, { workspaceId }) => {
+    const identity = await requireIdentity(ctx);
+    const ownerId = identity.tokenIdentifier;
+    if (workspaceId !== "global") throw new Error("Unsupported workspace");
+    const workspace = await loadWorkspace(ctx, ownerId, workspaceId);
+    return workspace?.revision ?? 0;
+  },
+});
+
 /**
- * Clear typed + blob rows for the given entity types (paged). Shared by web
- * Sync now / account wipe; old blob-only clear is replaced with dual clear.
+ * Upserts workspace name/email. Prefer client-provided profile (WorkOS user),
+ * then typed preferences, then JWT identity.
  */
-export const clearWorkspaceTyped = mutationGeneric({
+export const ensureWorkspaceProfile = mutationGeneric({
+  args: {
+    workspaceId: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+  },
+  handler: async (ctx, { workspaceId, name, email }) => {
+    const identity = await requireIdentity(ctx);
+    const ownerId = identity.tokenIdentifier;
+    if (workspaceId !== "global") throw new Error("Unsupported workspace");
+
+    const typedPrefs = await getTypedRow(
+      ctx,
+      "preferences",
+      ownerId,
+      workspaceId,
+      "preferences",
+    );
+
+    const clientName = name?.trim() ?? "";
+    const clientEmail = email?.trim() ?? "";
+    const identityProfile = profileFromIdentity(identity);
+    let prefsProfile: { name?: string; email?: string } = {};
+    if (typedPrefs && !typedPrefs.deleted) {
+      prefsProfile = profileFromPreferences(typedPrefs as Record<string, unknown>);
+    }
+    const profile = {
+      ...identityProfile,
+      ...prefsProfile,
+      ...(clientName ? { name: clientName } : {}),
+      ...(clientEmail ? { email: clientEmail } : {}),
+    };
+
+    const workspace = await loadWorkspace(ctx, ownerId, workspaceId);
+
+    if (!workspace) {
+      await ctx.db.insert("workspaces", {
+        ownerId,
+        workspaceId,
+        revision: 0,
+        ...profile,
+      });
+      return {
+        created: true,
+        updated: true,
+        name: profile.name ?? null,
+        email: profile.email ?? null,
+      };
+    }
+
+    const patch: { name?: string; email?: string } = {};
+    if (profile.name && profile.name !== workspace.name) patch.name = profile.name;
+    if (profile.email && profile.email !== workspace.email) patch.email = profile.email;
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(workspace._id, patch);
+    }
+    return {
+      created: false,
+      updated: Object.keys(patch).length > 0,
+      name: patch.name ?? workspace.name ?? null,
+      email: patch.email ?? workspace.email ?? null,
+    };
+  },
+});
+
+/** Hard-deletes owner-scoped typed rows for the given types (paged). */
+export const clearWorkspace = mutationGeneric({
   args: {
     workspaceId: v.string(),
     entityTypes: v.array(entityTypeValidator),
@@ -679,7 +758,7 @@ export const clearWorkspaceTyped = mutationGeneric({
         hasMore = true;
         break;
       }
-      const result = await clearEntityTypeBoth(
+      const result = await clearEntityType(
         ctx,
         ownerId,
         workspaceId,
@@ -694,14 +773,8 @@ export const clearWorkspaceTyped = mutationGeneric({
     }
 
     if (!hasMore) {
-      // Reset workspace revision only when every entity type is gone.
-      const leftoverBlob = await ctx.db
-        .query("entities")
-        .withIndex("by_owner_and_workspace_and_revision", (q: any) =>
-          q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
-        )
-        .first();
-      if (!leftoverBlob) {
+      const leftover = await hasAnyTypedEntity(ctx, ownerId, workspaceId);
+      if (!leftover) {
         const workspace = await loadWorkspace(ctx, ownerId, workspaceId);
         if (workspace && workspace.revision !== 0) {
           await ctx.db.patch(workspace._id, { revision: 0 });

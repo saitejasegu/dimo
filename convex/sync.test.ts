@@ -5,36 +5,44 @@ import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
-const push = makeFunctionReference<"mutation">("sync:push");
-const pull = makeFunctionReference<"query">("sync:pull");
-const currentRevision = makeFunctionReference<"query">("sync:currentRevision");
-const clearWorkspace = makeFunctionReference<"mutation">("sync:clearWorkspace");
+const pushTransactions = makeFunctionReference<"mutation">("syncTyped:pushTransactions");
+const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
+const pushRecurring = makeFunctionReference<"mutation">("syncTyped:pushRecurring");
+const pullRecurring = makeFunctionReference<"query">("syncTyped:pullRecurring");
+const pushLends = makeFunctionReference<"mutation">("syncTyped:pushLends");
+const pullLends = makeFunctionReference<"query">("syncTyped:pullLends");
+const pushEmailMessages = makeFunctionReference<"mutation">("syncTyped:pushEmailMessages");
+const pullEmailMessages = makeFunctionReference<"query">("syncTyped:pullEmailMessages");
+const pushPreferences = makeFunctionReference<"mutation">("syncTyped:pushPreferences");
+const pushCategories = makeFunctionReference<"mutation">("syncTyped:pushCategories");
+const pullCategories = makeFunctionReference<"query">("syncTyped:pullCategories");
+const currentRevision = makeFunctionReference<"query">("syncTyped:currentRevision");
+const clearWorkspace = makeFunctionReference<"mutation">("syncTyped:clearWorkspace");
+const ensureWorkspaceProfile = makeFunctionReference<"mutation">(
+  "syncTyped:ensureWorkspaceProfile",
+);
 
-const operation = {
+const txOp = {
   operationId: "op-1",
   workspaceId: "global",
-  entityType: "transaction" as const,
   entityId: "transaction-1",
   version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-  payload: {
-    id: "transaction-1",
-    name: "Coffee",
-    amountMinor: 12_300,
-    occurredAt: 100,
-    categoryId: "category-dining",
-    paymentMethodId: "payment-method-cash",
-  },
   deleted: false,
+  name: "Coffee",
+  amountMinor: 12_300,
+  occurredAt: 100,
+  categoryId: "category-dining",
+  paymentMethodId: "payment-method-cash",
 };
 
-describe("Convex sync protocol", () => {
+describe("Convex typed sync protocol", () => {
   it("rejects every sync endpoint without authentication", async () => {
     const t = convexTest(schema, modules);
     await expect(
-      t.mutation(push, { workspaceId: "global", operations: [operation] }),
+      t.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] }),
     ).rejects.toThrow("Not authenticated");
     await expect(
-      t.query(pull, { workspaceId: "global", afterRevision: 0, limit: 100 }),
+      t.query(pullTransactions, { workspaceId: "global", afterRevision: 0, limit: 100 }),
     ).rejects.toThrow("Not authenticated");
     await expect(
       t.query(currentRevision, { workspaceId: "global" }),
@@ -48,13 +56,23 @@ describe("Convex sync protocol", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    const first = await t.mutation(push, { workspaceId: "global", operations: [operation] });
-    const duplicate = await t.mutation(push, { workspaceId: "global", operations: [operation] });
+    const first = await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [txOp],
+    });
+    const duplicate = await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [txOp],
+    });
     expect(first.acknowledgements[0].applied).toBe(true);
     expect(duplicate.acknowledgements[0].applied).toBe(false);
-    const result = await t.query(pull, { workspaceId: "global", afterRevision: 0, limit: 100 });
+    const result = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
     expect(result.entities).toHaveLength(1);
-    expect(result.entities[0].payload.name).toBe("Coffee");
+    expect(result.entities[0].name).toBe("Coffee");
     expect(result.latestRevision).toBe(1);
   });
 
@@ -62,75 +80,85 @@ describe("Convex sync protocol", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|currency-user",
     });
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, {
       workspaceId: "global",
       operations: [
         {
-          ...operation,
-          payload: {
-            ...operation.payload,
-            amountMinor: 227_611,
-            currency: "INR",
-            sourceCurrency: "USD",
-            sourceAmountMinor: 2_360,
-            exchangeRate: 96.44538771223525,
-          },
-        },
-        {
-          operationId: "op-recurring",
-          workspaceId: "global",
-          entityType: "recurring",
-          entityId: "recurring-1",
-          version: { timestamp: 101, counter: 0, deviceId: "device-a" },
-          payload: {
-            id: "recurring-1",
-            name: "Cursor",
-            amountMinor: 2_360,
-            categoryId: "category-software",
-            paymentMethodId: "payment-method-cash",
-            frequency: "monthly",
-            anchorDate: "2026-07-31",
-            paused: false,
-            currency: "USD",
-          },
-          deleted: false,
-        },
-      ],
-    });
-
-    const result = await t.query(pull, {
-      workspaceId: "global",
-      afterRevision: 0,
-      limit: 100,
-    });
-    expect(result.entities.map((entity: { payload: unknown }) => entity.payload)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
+          ...txOp,
+          amountMinor: 227_611,
           currency: "INR",
           sourceCurrency: "USD",
           sourceAmountMinor: 2_360,
           exchangeRate: 96.44538771223525,
-        }),
-        expect.objectContaining({ currency: "USD", amountMinor: 2_360 }),
-      ]),
-    );
+        },
+      ],
+    });
+    await t.mutation(pushRecurring, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "op-recurring",
+          workspaceId: "global",
+          entityId: "recurring-1",
+          version: { timestamp: 101, counter: 0, deviceId: "device-a" },
+          deleted: false,
+          name: "Cursor",
+          amountMinor: 2_360,
+          categoryId: "category-software",
+          paymentMethodId: "payment-method-cash",
+          frequency: "monthly",
+          anchorDate: "2026-07-31",
+          paused: false,
+          currency: "USD",
+        },
+      ],
+    });
+
+    const txs = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    const recurring = await t.query(pullRecurring, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(txs.entities[0]).toMatchObject({
+      currency: "INR",
+      sourceCurrency: "USD",
+      sourceAmountMinor: 2_360,
+      exchangeRate: 96.44538771223525,
+    });
+    expect(recurring.entities[0]).toMatchObject({ currency: "USD", amountMinor: 2_360 });
   });
 
   it("keeps a newer tombstone over a stale update", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    await t.mutation(push, { workspaceId: "global", operations: [operation] });
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
+    await t.mutation(pushTransactions, {
       workspaceId: "global",
-      operations: [{ ...operation, operationId: "delete", deleted: true, version: { ...operation.version, timestamp: 200 } }],
+      operations: [
+        {
+          ...txOp,
+          operationId: "delete",
+          deleted: true,
+          version: { ...txOp.version, timestamp: 200 },
+        },
+      ],
     });
-    const stale = await t.mutation(push, {
+    const stale = await t.mutation(pushTransactions, {
       workspaceId: "global",
-      operations: [{ ...operation, operationId: "stale", payload: { ...operation.payload, name: "Stale" } }],
+      operations: [{ ...txOp, operationId: "stale", name: "Stale" }],
     });
     expect(stale.acknowledgements[0].applied).toBe(false);
-    const result = await t.query(pull, { workspaceId: "global", afterRevision: 0, limit: 100 });
+    const result = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
     expect(result.entities[0].deleted).toBe(true);
   });
 
@@ -139,8 +167,8 @@ describe("Convex sync protocol", () => {
     const alice = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|alice" });
     const bob = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|bob" });
 
-    await alice.mutation(push, { workspaceId: "global", operations: [operation] });
-    const bobBefore = await bob.query(pull, {
+    await alice.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
+    const bobBefore = await bob.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
@@ -148,26 +176,22 @@ describe("Convex sync protocol", () => {
     expect(bobBefore.entities).toEqual([]);
     expect(bobBefore.latestRevision).toBe(0);
 
-    await bob.mutation(push, {
+    await bob.mutation(pushTransactions, {
       workspaceId: "global",
-      operations: [{
-        ...operation,
-        operationId: "bob-op",
-        payload: { ...operation.payload, name: "Bob's coffee" },
-      }],
+      operations: [{ ...txOp, operationId: "bob-op", name: "Bob's coffee" }],
     });
-    const aliceResult = await alice.query(pull, {
+    const aliceResult = await alice.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
     });
-    const bobResult = await bob.query(pull, {
+    const bobResult = await bob.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
     });
-    expect(aliceResult.entities[0].payload.name).toBe("Coffee");
-    expect(bobResult.entities[0].payload.name).toBe("Bob's coffee");
+    expect(aliceResult.entities[0].name).toBe("Coffee");
+    expect(bobResult.entities[0].name).toBe("Bob's coffee");
     expect(aliceResult.latestRevision).toBe(1);
     expect(bobResult.latestRevision).toBe(1);
   });
@@ -177,14 +201,10 @@ describe("Convex sync protocol", () => {
     const alice = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|alice" });
     const bob = base.withIdentity({ tokenIdentifier: "https://api.workos.com/|bob" });
 
-    await alice.mutation(push, { workspaceId: "global", operations: [operation] });
-    await bob.mutation(push, {
+    await alice.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
+    await bob.mutation(pushTransactions, {
       workspaceId: "global",
-      operations: [{
-        ...operation,
-        operationId: "bob-op",
-        payload: { ...operation.payload, name: "Bob's coffee" },
-      }],
+      operations: [{ ...txOp, operationId: "bob-op", name: "Bob's coffee" }],
     });
 
     const cleared = await alice.mutation(clearWorkspace, {
@@ -194,7 +214,7 @@ describe("Convex sync protocol", () => {
     expect(cleared.deleted).toBe(1);
     expect(cleared.hasMore).toBe(false);
 
-    const aliceAfter = await alice.query(pull, {
+    const aliceAfter = await alice.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
@@ -202,7 +222,7 @@ describe("Convex sync protocol", () => {
     expect(aliceAfter.entities).toEqual([]);
     expect(aliceAfter.latestRevision).toBe(0);
 
-    const bobAfter = await bob.query(pull, {
+    const bobAfter = await bob.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
@@ -215,17 +235,16 @@ describe("Convex sync protocol", () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    await t.mutation(push, { workspaceId: "global", operations: [operation] });
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
+    await t.mutation(pushLends, {
       workspaceId: "global",
-      operations: [{
-        operationId: "lend-1",
-        workspaceId: "global",
-        entityType: "lend",
-        entityId: "lend-1",
-        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-        payload: {
-          id: "lend-1",
+      operations: [
+        {
+          operationId: "lend-1",
+          workspaceId: "global",
+          entityId: "lend-1",
+          version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+          deleted: false,
           contactName: "Sam",
           contactId: "cn-sam",
           amountMinor: 5000,
@@ -233,8 +252,7 @@ describe("Convex sync protocol", () => {
           comment: "",
           kind: "lent",
         },
-        deleted: false,
-      }],
+      ],
     });
 
     const cleared = await t.mutation(clearWorkspace, {
@@ -244,31 +262,36 @@ describe("Convex sync protocol", () => {
     expect(cleared.deleted).toBe(1);
     expect(cleared.hasMore).toBe(false);
 
-    const result = await t.query(pull, {
+    const txs = await t.query(pullTransactions, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
     });
-    expect(result.entities).toHaveLength(1);
-    expect(result.entities[0].entityType).toBe("lend");
-    expect(result.latestRevision).toBe(2);
+    const lends = await t.query(pullLends, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(txs.entities).toHaveLength(0);
+    expect(lends.entities).toHaveLength(1);
+    expect(lends.entities[0].entityId).toBe("lend-1");
+    expect(lends.latestRevision).toBe(2);
   });
 
   it("preserves native-owned emailMessage rows when clearing web-owned types", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
-    await t.mutation(push, { workspaceId: "global", operations: [operation] });
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
+    await t.mutation(pushEmailMessages, {
       workspaceId: "global",
-      operations: [{
-        operationId: "email-1",
-        workspaceId: "global",
-        entityType: "emailMessage",
-        entityId: "10:accountsubmsg-1",
-        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-        payload: {
-          id: "10:accountsubmsg-1",
+      operations: [
+        {
+          operationId: "email-1",
+          workspaceId: "global",
+          entityId: "10:accountsubmsg-1",
+          version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+          deleted: false,
           accountId: "accountsub",
           accountEmail: "user@example.com",
           gmailMessageId: "msg-1",
@@ -288,8 +311,7 @@ describe("Convex sync protocol", () => {
           createdAt: 100,
           updatedAt: 100,
         },
-        deleted: false,
-      }],
+      ],
     });
 
     const cleared = await t.mutation(clearWorkspace, {
@@ -299,19 +321,18 @@ describe("Convex sync protocol", () => {
     expect(cleared.deleted).toBe(1);
     expect(cleared.hasMore).toBe(false);
 
-    const result = await t.query(pull, {
+    const emails = await t.query(pullEmailMessages, {
       workspaceId: "global",
       afterRevision: 0,
       limit: 100,
     });
-    expect(result.entities).toHaveLength(1);
-    expect(result.entities[0].entityType).toBe("emailMessage");
-    expect(result.entities[0].payload).toMatchObject({
+    expect(emails.entities).toHaveLength(1);
+    expect(emails.entities[0]).toMatchObject({
       state: "added",
       linkedTransactionId: "tx-1",
       normalizedBodyText: "Full receipt body with every line of the email.",
     });
-    expect(result.latestRevision).toBe(2);
+    expect(emails.latestRevision).toBe(2);
   });
 
   it("stores name and email on the workspace from auth and preferences", async () => {
@@ -320,23 +341,22 @@ describe("Convex sync protocol", () => {
       name: "Auth Name",
       email: "auth@example.com",
     });
-    await t.mutation(push, { workspaceId: "global", operations: [operation] });
+    await t.mutation(pushTransactions, { workspaceId: "global", operations: [txOp] });
     const afterAuth = await t.run(async (ctx) => {
       return await ctx.db.query("workspaces").first();
     });
     expect(afterAuth?.name).toBe("Auth Name");
     expect(afterAuth?.email).toBe("auth@example.com");
 
-    await t.mutation(push, {
+    await t.mutation(pushPreferences, {
       workspaceId: "global",
-      operations: [{
-        operationId: "prefs-1",
-        workspaceId: "global",
-        entityType: "preferences",
-        entityId: "preferences",
-        version: { timestamp: 200, counter: 0, deviceId: "device-a" },
-        payload: {
-          id: "preferences",
+      operations: [
+        {
+          operationId: "prefs-1",
+          workspaceId: "global",
+          entityId: "preferences",
+          version: { timestamp: 200, counter: 0, deviceId: "device-a" },
+          deleted: false,
           profileName: "Profile Name",
           profileEmail: "profile@example.com",
           currency: "INR",
@@ -348,8 +368,7 @@ describe("Convex sync protocol", () => {
           notifications: { bills: true, budget: true, weekly: false, large: true },
           defaultPaymentMethodId: "payment-method-cash",
         },
-        deleted: false,
-      }],
+      ],
     });
     const afterPrefs = await t.run(async (ctx) => {
       return await ctx.db.query("workspaces").first();
@@ -359,14 +378,10 @@ describe("Convex sync protocol", () => {
   });
 
   it("backfills workspace name and email on login for existing rows", async () => {
-    const ensureWorkspaceProfile = makeFunctionReference<"mutation">(
-      "sync:ensureWorkspaceProfile",
-    );
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",
     });
 
-    // Pre-create a workspace row without name/email (legacy shape).
     await t.run(async (ctx) => {
       await ctx.db.insert("workspaces", {
         ownerId: "https://api.workos.com/|user-a",
@@ -375,7 +390,6 @@ describe("Convex sync protocol", () => {
       });
     });
 
-    // WorkOS access tokens omit name/email claims; clients pass the user profile.
     const result = await t.mutation(ensureWorkspaceProfile, {
       workspaceId: "global",
       name: "Login Name",
@@ -397,145 +411,39 @@ describe("Convex sync protocol", () => {
   });
 });
 
-describe("typed sync + dual-write bridge", () => {
-  const pushTransactions = makeFunctionReference<"mutation">("syncTyped:pushTransactions");
-  const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
-  const pushCategories = makeFunctionReference<"mutation">("syncTyped:pushCategories");
-  const pullCategories = makeFunctionReference<"query">("syncTyped:pullCategories");
-
-  it("typed push is visible to blob pull and vice versa", async () => {
-    const t = convexTest(schema, modules).withIdentity({
-      tokenIdentifier: "https://api.workos.com/|bridge-user",
-    });
-
-    await t.mutation(pushTransactions, {
-      workspaceId: "global",
-      operations: [{
-        operationId: "typed-1",
-        workspaceId: "global",
-        entityId: "transaction-typed",
-        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-        deleted: false,
-        name: "Typed coffee",
-        amountMinor: 500,
-        occurredAt: 100,
-        categoryId: "category-dining",
-        paymentMethodId: "payment-method-cash",
-      }],
-    });
-
-    const blobPull = await t.query(pull, {
-      workspaceId: "global",
-      afterRevision: 0,
-      limit: 100,
-    });
-    expect(blobPull.entities).toHaveLength(1);
-    expect(blobPull.entities[0]).toMatchObject({
-      entityType: "transaction",
-      entityId: "transaction-typed",
-      payload: { name: "Typed coffee", amountMinor: 500 },
-    });
-
-    await t.mutation(push, {
-      workspaceId: "global",
-      operations: [{
-        ...operation,
-        operationId: "blob-1",
-        entityId: "transaction-blob",
-        payload: { ...operation.payload, id: "transaction-blob", name: "Blob coffee" },
-      }],
-    });
-
-    const typedPull = await t.query(pullTransactions, {
-      workspaceId: "global",
-      afterRevision: 0,
-      limit: 100,
-    });
-    expect(typedPull.entities.map((e: { entityId: string }) => e.entityId).sort()).toEqual([
-      "transaction-blob",
-      "transaction-typed",
-    ]);
-  });
-
-  it("delete on typed protocol tombstones both stores", async () => {
-    const t = convexTest(schema, modules).withIdentity({
-      tokenIdentifier: "https://api.workos.com/|bridge-del",
-    });
-    await t.mutation(pushTransactions, {
-      workspaceId: "global",
-      operations: [{
-        operationId: "create",
-        workspaceId: "global",
-        entityId: "transaction-1",
-        version: { timestamp: 100, counter: 0, deviceId: "device-a" },
-        deleted: false,
-        name: "Coffee",
-        amountMinor: 500,
-        occurredAt: 100,
-        categoryId: "c1",
-        paymentMethodId: null,
-      }],
-    });
-    await t.mutation(pushTransactions, {
-      workspaceId: "global",
-      operations: [{
-        operationId: "delete",
-        workspaceId: "global",
-        entityId: "transaction-1",
-        version: { timestamp: 200, counter: 0, deviceId: "device-a" },
-        deleted: true,
-        name: "Coffee",
-        amountMinor: 500,
-        occurredAt: 100,
-        categoryId: "c1",
-        paymentMethodId: null,
-      }],
-    });
-
-    const blob = await t.query(pull, { workspaceId: "global", afterRevision: 0, limit: 100 });
-    expect(blob.entities[0].deleted).toBe(true);
-    const typed = await t.query(pullTransactions, {
-      workspaceId: "global",
-      afterRevision: 0,
-      limit: 100,
-    });
-    expect(typed.entities[0].deleted).toBe(true);
-  });
-
+describe("typed sync cross-table ordering", () => {
   it("orders revisions across typed tables from the shared workspace counter", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|cross-table",
     });
     await t.mutation(pushCategories, {
       workspaceId: "global",
-      operations: [{
-        operationId: "cat",
-        workspaceId: "global",
-        entityId: "category-1",
-        version: { timestamp: 100, counter: 0, deviceId: "a" },
-        deleted: false,
-        name: "Food",
-        emoji: "🍽",
-        monthlyBudgetMinor: null,
-        tint: "neutral",
-        sortOrder: 0,
-        system: false,
-      }],
+      operations: [
+        {
+          operationId: "cat",
+          workspaceId: "global",
+          entityId: "category-1",
+          version: { timestamp: 100, counter: 0, deviceId: "a" },
+          deleted: false,
+          name: "Food",
+          emoji: "🍽",
+          monthlyBudgetMinor: null,
+          tint: "green",
+          sortOrder: 0,
+          system: false,
+        },
+      ],
     });
     await t.mutation(pushTransactions, {
       workspaceId: "global",
-      operations: [{
-        operationId: "tx",
-        workspaceId: "global",
-        entityId: "transaction-1",
-        version: { timestamp: 101, counter: 0, deviceId: "a" },
-        deleted: false,
-        name: "Lunch",
-        amountMinor: 1000,
-        occurredAt: 100,
-        categoryId: "category-1",
-        paymentMethodId: null,
-      }],
+      operations: [
+        {
+          ...txOp,
+          operationId: "tx",
+          entityId: "transaction-1",
+          version: { timestamp: 101, counter: 0, deviceId: "a" },
+        },
+      ],
     });
 
     const cats = await t.query(pullCategories, {
@@ -550,7 +458,52 @@ describe("typed sync + dual-write bridge", () => {
     });
     expect(cats.entities[0].serverRevision).toBe(1);
     expect(txs.entities[0].serverRevision).toBe(2);
-    expect(cats.latestRevision).toBe(2);
-    expect(txs.latestRevision).toBe(2);
+  });
+
+  it("delete on typed protocol tombstones the row", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|bridge-del",
+    });
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "create",
+          workspaceId: "global",
+          entityId: "transaction-1",
+          version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+          deleted: false,
+          name: "Coffee",
+          amountMinor: 500,
+          occurredAt: 100,
+          categoryId: "c1",
+          paymentMethodId: null,
+        },
+      ],
+    });
+    await t.mutation(pushTransactions, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "delete",
+          workspaceId: "global",
+          entityId: "transaction-1",
+          version: { timestamp: 200, counter: 0, deviceId: "device-a" },
+          deleted: true,
+          name: "Coffee",
+          amountMinor: 500,
+          occurredAt: 100,
+          categoryId: "c1",
+          paymentMethodId: null,
+        },
+      ],
+    });
+
+    const typed = await t.query(pullTransactions, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(typed.entities[0].deleted).toBe(true);
   });
 });

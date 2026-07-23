@@ -45,12 +45,6 @@ describe("exchangeRates.latest", () => {
             fetchedAt,
           });
         }
-        await ctx.db.insert("exchangeRates", {
-          date,
-          base: "EUR",
-          rates: { INR: rates.INR, USD: rates.USD },
-          fetchedAt,
-        });
       }
     });
     expect(await t.query(latest, {})).toEqual({
@@ -77,12 +71,6 @@ describe("exchangeRates.refreshRates", () => {
         base: "EUR",
         currency: "EUR",
         rate: 1,
-        fetchedAt: Date.now(),
-      });
-      await ctx.db.insert("exchangeRates", {
-        date: "2026-07-20",
-        base: "EUR",
-        rates: { INR: 91 },
         fetchedAt: Date.now(),
       });
     });

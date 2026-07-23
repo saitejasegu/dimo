@@ -3,13 +3,13 @@ import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 import { explodePayloadForTest } from "./migrations";
-import { mirrorToTyped, payloadFromTyped } from "./compat";
+import { payloadFromTyped, writeTyped } from "./compat";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
-const push = makeFunctionReference<"mutation">("sync:push");
+const pushTransactions = makeFunctionReference<"mutation">("syncTyped:pushTransactions");
 const pullTransactions = makeFunctionReference<"query">("syncTyped:pullTransactions");
 
-describe("backfill parity helpers", () => {
+describe("typed storage helpers", () => {
   it("explodes payload id into entityId fields", () => {
     expect(
       explodePayloadForTest({
@@ -47,48 +47,24 @@ describe("backfill parity helpers", () => {
     expect(payload).toMatchObject({ id: "transaction-1", name: "Coffee", amountMinor: 500 });
   });
 
-  it("migrates a blob-only row into the typed table via mirrorToTyped", async () => {
+  it("writes a typed row that typed pull can read", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|backfill",
     });
     await t.run(async (ctx) => {
-      await ctx.db.insert("entities", {
-        ownerId: "https://api.workos.com/|backfill",
-        workspaceId: "global",
-        entityType: "transaction",
-        entityId: "legacy-tx",
-        version: { timestamp: 50, counter: 0, deviceId: "old" },
-        payload: {
-          id: "legacy-tx",
-          name: "Legacy",
-          amountMinor: 250,
-          occurredAt: 50,
-          categoryId: "c1",
-          paymentMethodId: null,
-        },
-        deleted: false,
-        revision: 3,
-      });
-      await mirrorToTyped(ctx, "transaction", {
+      await writeTyped(ctx, "transaction", {
         ownerId: "https://api.workos.com/|backfill",
         workspaceId: "global",
         entityId: "legacy-tx",
         version: { timestamp: 50, counter: 0, deviceId: "old" },
-        payload: {
-          id: "legacy-tx",
-          name: "Legacy",
-          amountMinor: 250,
-          occurredAt: 50,
-          categoryId: "c1",
-          paymentMethodId: null,
-        },
         deleted: false,
         revision: 3,
+        name: "Legacy",
+        amountMinor: 250,
+        occurredAt: 50,
+        categoryId: "c1",
+        paymentMethodId: null,
       });
-    });
-
-    // Also seed workspace revision so pull works.
-    await t.run(async (ctx) => {
       await ctx.db.insert("workspaces", {
         ownerId: "https://api.workos.com/|backfill",
         workspaceId: "global",
@@ -110,28 +86,24 @@ describe("backfill parity helpers", () => {
     });
   });
 
-  it("blob push after backfill stays mirrored for typed pull", async () => {
+  it("typed push lands for typed pull", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|backfill2",
     });
-    await t.mutation(push, {
+    await t.mutation(pushTransactions, {
       workspaceId: "global",
       operations: [
         {
           operationId: "op-1",
           workspaceId: "global",
-          entityType: "transaction",
           entityId: "tx-1",
           version: { timestamp: 1, counter: 0, deviceId: "d" },
-          payload: {
-            id: "tx-1",
-            name: "Tea",
-            amountMinor: 100,
-            occurredAt: 1,
-            categoryId: "c1",
-            paymentMethodId: null,
-          },
           deleted: false,
+          name: "Tea",
+          amountMinor: 100,
+          occurredAt: 1,
+          categoryId: "c1",
+          paymentMethodId: null,
         },
       ],
     });

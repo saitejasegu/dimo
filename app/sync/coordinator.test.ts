@@ -14,8 +14,8 @@ describe("isPermanentSyncError", () => {
     expect(isPermanentSyncError("Not authenticated")).toBe(false);
     expect(isPermanentSyncError("JWT invalid signature")).toBe(false);
     expect(isPermanentSyncError("NetworkError: Failed to fetch")).toBe(false);
-    expect(isPermanentSyncError("Could not find public function for 'sync:clearWorkspace'")).toBe(
-      false,
-    );
+    expect(
+      isPermanentSyncError("Could not find public function for 'syncTyped:clearWorkspace'"),
+    ).toBe(false);
   });
 });

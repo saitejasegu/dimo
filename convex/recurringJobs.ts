@@ -1,7 +1,7 @@
 import { internalMutationGeneric } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { writeTypedAndMirror } from "./compat";
+import { writeTyped } from "./compat";
 import { convertMinorAmount, rateOn } from "./exchangeRates";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -47,19 +47,7 @@ async function ownerDefaultCurrency(
     const currency = prefs.currency;
     return currency === "USD" || currency === "EUR" ? currency : "INR";
   }
-  // Blob fallback during dual-write / pre-backfill.
-  const blob = await ctx.db
-    .query("entities")
-    .withIndex("by_owner_and_workspace_and_entity", (q: any) =>
-      q
-        .eq("ownerId", ownerId)
-        .eq("workspaceId", workspaceId)
-        .eq("entityType", "preferences")
-        .eq("entityId", "preferences"),
-    )
-    .unique();
-  const currency = blob?.payload?.currency;
-  return currency === "USD" || currency === "EUR" ? currency : "INR";
+  return "INR";
 }
 
 type DateParts = { year: number; month: number; day: number };
@@ -212,7 +200,7 @@ export const materializeDue = internalMutationGeneric({
         }
       }
 
-      await writeTypedAndMirror(ctx, "transaction", {
+      await writeTyped(ctx, "transaction", {
         ownerId: row.ownerId,
         workspaceId: row.workspaceId,
         entityId,

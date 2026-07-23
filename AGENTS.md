@@ -16,7 +16,7 @@ Convex agent skills for common tasks can be installed by running
 
 Dimo is a local-first personal spending tracker for expenses, categories and
 budgets, payment methods, recurring bills, stats, CSV import/export, lending, and
-account preferences. It has four clients sharing one authenticated Convex
+account preferences. It has three clients sharing one authenticated Convex
 backend:
 
 | Surface | Runtime and local store | Entry points |
@@ -24,7 +24,6 @@ backend:
 | Web | Next.js 16, React 19, Tailwind 4, Dexie/IndexedDB | `app/page.tsx`, `app/auth/AuthRoot.tsx` |
 | Desktop | Hardened Electron wrapper around the static web export | `electron/main.mjs`, `electron/preload.cjs` |
 | iOS | SwiftUI, GRDB/SQLite, iOS 26+ | `ios-native/Dimo/App/DimoApp.swift`, `RootView.swift` |
-| Android | Kotlin, Jetpack Compose, Room/SQLite | `android-native/app/.../MainActivity.kt`, `RootView.kt` |
 | Cloud | Convex sync API authenticated by WorkOS AuthKit | `convex/schema.ts`, `values.ts`, `sync.ts`, `auth.config.ts` |
 
 Next.js uses `output: "export"` and produces `out/`; do not add API routes,
@@ -41,10 +40,10 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
 # Data architecture
 
 - The application is local-first. Dexie is authoritative on web/Electron;
-  GRDB is authoritative on iOS; Room/SQLite is authoritative on Android. UI
-  models are projections of observed local data, not the persistence contract.
+  GRDB is authoritative on iOS. UI models are projections of observed local
+  data, not the persistence contract.
 - Local databases are account-scoped: `dimo-expenses:{WorkOS userId}` in
-  IndexedDB, `dimo-{userId}.sqlite` on iOS, and `dimo-{userId}.db` on Android.
+  IndexedDB and `dimo-{userId}.sqlite` on iOS.
 - Entity types are `category`, `paymentMethod`, `transaction`, `recurring`,
   `lend`, and singleton `preferences` (`id == "preferences"`). Workspace ID is
   currently the constant `"global"`.
@@ -67,9 +66,8 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
   `app/data/model.ts`, repository/sanitizers, `convex/values.ts`,
   `convex/schema.ts`, `convex/sync.ts`,
   `ios-native/Dimo/Data/Model/Entities.swift`,
-  `Data/PayloadSanitizer.swift`, `Sync/ConvexAPI.swift`, and the Android
-  mirrors under `android-native/app/src/main/java/app/dimo/android/`.
-- Swift/Kotlin values sent to Convex `v.number()` fields must be encoded as
+  `Data/PayloadSanitizer.swift`, and `Sync/ConvexAPI.swift`.
+- Swift values sent to Convex `v.number()` fields must be encoded as
   floating JSON numbers (`Double` / wire doubles); integer-typed encodings
   produce Convex `$integer` and fail validation.
 - `preferences.defaultView` is currently normalized to `home`. The last-used
@@ -122,7 +120,6 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
 | `ios-native/Dimo/Store/AppStore.swift` | Native UI state and mutation orchestration |
 | `ios-native/Dimo/Sync/`, `Auth/` | Native Convex protocol/coordinator and WorkOS session |
 | `ios-native/Dimo/Features/` | Native SwiftUI screens and forms |
-| `android-native/` | Kotlin/Compose client (Room, sync, auth, domain, UI) |
 | `store/` | App Store listing and submission material |
 
 TypeScript alias `@/*` resolves only to `app/*`. Put reusable business logic in
@@ -155,8 +152,7 @@ from derived UI models.
 
 ## Lending
 
-- Native iOS and Android are the lending writers; web and Electron must remain
-  read-only.
+- Native iOS is the lending writer; web and Electron must remain read-only.
 - Group people by address-book `contactId`, never display name. Legacy missing
   IDs fall back to the name. Contact names/IDs may sync; photos are read
   on-device and must never be persisted or synced.
@@ -180,17 +176,6 @@ from derived UI models.
 - Never put WorkOS API keys or client secrets in iOS config. Convex URL and
   public WorkOS client ID are expected to be public.
 - Native domain tests live in `ios-native/DimoTests/DomainTests.swift`.
-
-## Native Android
-
-- All Android application code lives under `android-native/` (Gradle root).
-- Parity target is the iOS client: four primary tabs (Home, Stats, Budgets,
-  Lending) plus Settings/Account; Recurring is reached from Home/expense
-  editor rather than a fifth tab.
-- Runtime config uses product flavors `prod` / `dev` (`CONVEX_URL`,
-  `WORKOS_CLIENT_ID`). Redirect URI is `dimo://callback`.
-- Domain unit tests live under
-  `android-native/app/src/test/java/app/dimo/android/domain/`.
 
 ## Web and design system
 
@@ -245,8 +230,8 @@ focused, with no browser E2E or Electron suite.
 ## Convex cloud backups
 
 Convex table data (and optionally file storage) can be snapshotted without a
-custom backup subsystem. Client local DBs (Dexie / GRDB / Room) are separate
-and are not included.
+custom backup subsystem. Client local DBs (Dexie / GRDB) are separate and are
+not included.
 
 - **Dashboard:** Deployment → Backup & Restore → Backup Now (download the ZIP
   for long-term copies; Convex keeps manual backups ~7 days). Periodic daily

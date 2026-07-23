@@ -7,9 +7,8 @@ Personal spending tracker — expenses, budgets, recurring bills, lending, and s
 | Web | Next.js 16, React 19, Dexie / IndexedDB | Static export to `out/` |
 | Desktop | Electron wrapping the same export | `electron/` |
 | iOS | SwiftUI + GRDB SQLite | `app.dimo.ios` · `ios-native/` |
-| Android | Kotlin + Jetpack Compose + Room | `app.dimo.android` · `android-native/` |
 
-Web, desktop, iOS, and Android share the same Convex backend and WorkOS account. Lending records are created and managed on native iOS and Android, then shown read-only on web and desktop.
+Web, desktop, and iOS share the same Convex backend and WorkOS account. Lending records are created and managed on native iOS, then shown read-only on web and desktop.
 
 ## Features
 
@@ -19,7 +18,7 @@ Web, desktop, iOS, and Android share the same Convex backend and WorkOS account.
 - Activity list, stats ranges, and CSV import / export
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
 - Read-only lending summary and activity on web, desktop, and responsive mobile web
-- **Native iOS & Android:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
+- **Native iOS:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
 - **Native iOS:** Liquid Glass tab UI (iOS 26+); optional Gmail → AI expense / refund suggestions (on-device Local Gemma or user-supplied OpenRouter)
 
 ## Architecture
@@ -30,9 +29,8 @@ Web, desktop, iOS, and Android share the same Convex backend and WorkOS account.
 | --- | --- |
 | Web / Electron | IndexedDB via Dexie (`dimo-expenses:{WorkOS userId}`) |
 | Native iOS | SQLite via GRDB (`dimo-{userId}.sqlite`) |
-| Native Android | SQLite via Room (`dimo-{userId}.db`) |
 
-Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS and Android own lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The web app requires WorkOS + Convex configuration and authentication; native clients remain usable offline and sync when configured.
+Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS owns lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The web app requires WorkOS + Convex configuration and authentication; native clients remain usable offline and sync when configured.
 
 ### Sync
 
@@ -57,7 +55,6 @@ app/             Next.js UI, features, IndexedDB data layer, sync coordinator
 convex/          Schema, sync pull/push, WorkOS JWT config
 electron/        Desktop shell
 ios-native/      SwiftUI iOS app (see ios-native/README.md)
-android-native/  Kotlin/Compose Android app (see android-native/README.md)
 store/           App Store listing copy and submission notes
 public/          Static assets
 ```
@@ -68,7 +65,6 @@ public/          Static assets
 - Convex account (cloud sync)
 - WorkOS AuthKit with Google and Apple social login
 - For native iOS: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen), iOS 26 SDK
-- For native Android: Android SDK (API 35) and NDK for ConvexMobile
 
 ## Local development (web)
 
@@ -139,19 +135,6 @@ Config: `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist (`ConvexURL`
 
 App Store listing copy and submission steps: [store/SUBMIT.md](store/SUBMIT.md), `store/listing.json`.
 
-## Native Android (`android-native/`)
-
-Kotlin / Compose client with iOS feature parity (Home, Stats, Budgets, Lending; Recurring from Home / expense editor). Full setup: [android-native/README.md](android-native/README.md). Testing notes: [android-native/TESTING.md](android-native/TESTING.md).
-
-```bash
-cd android-native
-# create local.properties with sdk.dir=/path/to/Android/sdk
-./gradlew :app:assembleProdDebug
-./gradlew :app:testProdDebugUnitTest
-```
-
-Product flavors `prod` / `dev` set `CONVEX_URL` and `WORKOS_CLIENT_ID`. Register `dimo://callback` on the WorkOS public client used for Android.
-
 ## Fresh install
 
 A new local database seeds Cash as the default payment method and default preferences only — no starter categories, transactions, or recurring rows. Users add categories themselves (budgets are optional on each category).
@@ -172,4 +155,4 @@ Tombstones are retained indefinitely so a long-offline device cannot resurrect d
 
 ## Platform notes
 
-Electron ships the static `out/` export. Sync runs while the process is open; suspended iOS / Android background execution is not included. Prefer separate WorkOS application records per surface (web, desktop, mobile) so each can use the right client ID, redirect URI, and session policy.
+Electron ships the static `out/` export. Sync runs while the process is open; suspended iOS background execution is not included. Prefer separate WorkOS application records per surface (web, desktop, mobile) so each can use the right client ID, redirect URI, and session policy.

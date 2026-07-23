@@ -179,26 +179,6 @@ export const preferencesValidator = v.object({
   defaultPaymentMethodId: v.string(),
 });
 
-export const payloadValidator = v.union(
-  categoryValidator,
-  paymentMethodValidator,
-  transactionValidator,
-  recurringValidator,
-  lendValidator,
-  emailMessageValidator,
-  preferencesValidator,
-);
-
-export const operationValidator = v.object({
-  operationId: v.string(),
-  workspaceId: v.string(),
-  entityType: entityTypeValidator,
-  entityId: v.string(),
-  version: versionValidator,
-  payload: payloadValidator,
-  deleted: v.boolean(),
-});
-
 /** Shared sync envelope for typed per-entity push operations (no nested payload). */
 const typedOpMeta = {
   operationId: v.string(),

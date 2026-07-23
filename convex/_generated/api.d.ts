@@ -13,7 +13,6 @@ import type * as crons from "../crons.js";
 import type * as exchangeRates from "../exchangeRates.js";
 import type * as migrations from "../migrations.js";
 import type * as recurringJobs from "../recurringJobs.js";
-import type * as sync from "../sync.js";
 import type * as syncTyped from "../syncTyped.js";
 import type * as tombstonePurge from "../tombstonePurge.js";
 import type * as values from "../values.js";
@@ -30,7 +29,6 @@ declare const fullApi: ApiFromModules<{
   exchangeRates: typeof exchangeRates;
   migrations: typeof migrations;
   recurringJobs: typeof recurringJobs;
-  sync: typeof sync;
   syncTyped: typeof syncTyped;
   tombstonePurge: typeof tombstonePurge;
   values: typeof values;
