@@ -40,10 +40,12 @@ final class SessionController {
   func signOut() async throws {
     tokenRefresher?.stop()
     tokenRefresher = nil
+    let signedOutUserId = userId
     await appStore?.tearDown()
-    if let userId {
-      try await GmailCredentialVault().removeAll(dimoUserId: userId)
-      try await OpenRouterCredentialVault().remove(dimoUserId: userId)
+    if let signedOutUserId {
+      try await GmailCredentialVault().removeAll(dimoUserId: signedOutUserId)
+      try await OpenRouterCredentialVault().remove(dimoUserId: signedOutUserId)
+      ExpenseReminderStore.clear(userId: signedOutUserId)
     }
     try AppDatabase.deleteAllLocalDatabases()
     await authProvider.signOut()

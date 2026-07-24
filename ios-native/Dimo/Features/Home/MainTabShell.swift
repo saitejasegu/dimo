@@ -140,6 +140,9 @@ struct MainTabShell: View {
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { store.sceneBecameActive() }
     }
+    .onChange(of: store.emailFeatureStore.pendingPurchaseCount) { _, _ in
+      Task { await store.refreshExpenseReminderSchedule() }
+    }
     .onChange(of: tab) { _, newTab in
       store.setView(viewKey(for: newTab))
     }

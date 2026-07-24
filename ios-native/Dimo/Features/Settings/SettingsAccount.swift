@@ -76,6 +76,8 @@ struct SettingsScreen: View {
           LazyVStack(alignment: .leading, spacing: 14) {
             preferencesCard
 
+            remindersCard
+
             PaymentMethodsManager(store: store)
 
             transactionDataCard
@@ -196,6 +198,87 @@ struct SettingsScreen: View {
       }
     }
     .settingsCard()
+  }
+
+  private var remindersCard: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      Text("Reminders")
+        .font(DimoFont.display(16, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+
+      Toggle(
+        isOn: Binding(
+          get: { store.expenseReminder.enabled },
+          set: { enabled in
+            Task { await store.updateExpenseReminder { $0.enabled = enabled } }
+          }
+        )
+      ) {
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Daily expense reminder")
+            .font(DimoFont.body(13, weight: .medium))
+            .foregroundStyle(Theme.ink)
+          Text("Remind me to log expenses, and review purchases when any are waiting.")
+            .font(DimoFont.body(11))
+            .foregroundStyle(Theme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .tint(Theme.green)
+
+      if store.expenseReminder.enabled {
+        HStack {
+          Text("Reminder time")
+            .font(DimoFont.body(13, weight: .medium))
+            .foregroundStyle(Theme.ink)
+          Spacer()
+          DatePicker(
+            "Reminder time",
+            selection: Binding(
+              get: { reminderTimeDate },
+              set: { date in
+                let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
+                Task {
+                  await store.updateExpenseReminder {
+                    $0.hour = comps.hour ?? $0.hour
+                    $0.minute = comps.minute ?? $0.minute
+                  }
+                }
+              }
+            ),
+            displayedComponents: .hourAndMinute
+          )
+          .labelsHidden()
+          .tint(Theme.green)
+        }
+
+        if store.expenseReminderAuthorization == .denied {
+          Button {
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+              UIApplication.shared.open(url)
+            }
+          } label: {
+            Label(
+              "Notifications are off. Open Settings to allow reminders.",
+              systemImage: "bell.slash.fill"
+            )
+            .font(DimoFont.body(11, weight: .medium))
+            .foregroundStyle(Theme.warn)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+    .settingsCard()
+  }
+
+  private var reminderTimeDate: Date {
+    var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+    components.hour = store.expenseReminder.hour
+    components.minute = store.expenseReminder.minute
+    return Calendar.current.date(from: components) ?? Date()
   }
 
   private var transactionDataCard: some View {

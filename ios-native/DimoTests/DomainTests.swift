@@ -3827,6 +3827,46 @@ final class OpenRouterPolicyTests: XCTestCase {
   }
 }
 
+final class ExpenseReminderTests: XCTestCase {
+  func testCopyWithoutPendingPurchases() {
+    XCTAssertEqual(ExpenseReminderCopy.title(pendingPurchaseCount: 0), "Log today's expenses")
+    XCTAssertEqual(
+      ExpenseReminderCopy.body(pendingPurchaseCount: 0),
+      "Take a moment to add anything you spent today."
+    )
+  }
+
+  func testCopyWithPendingPurchasesUsesSingularAndPlural() {
+    XCTAssertEqual(
+      ExpenseReminderCopy.title(pendingPurchaseCount: 1),
+      "Expenses and reviews waiting"
+    )
+    XCTAssertEqual(
+      ExpenseReminderCopy.body(pendingPurchaseCount: 1),
+      "Take a moment to add anything you spent today. You also have 1 purchase waiting for review."
+    )
+    XCTAssertEqual(
+      ExpenseReminderCopy.body(pendingPurchaseCount: 3),
+      "Take a moment to add anything you spent today. You also have 3 purchases waiting for review."
+    )
+  }
+
+  func testSettingsClampHourAndMinute() {
+    let settings = ExpenseReminderSettings(enabled: true, hour: 30, minute: 99).clamped
+    XCTAssertEqual(settings.hour, 23)
+    XCTAssertEqual(settings.minute, 59)
+  }
+
+  func testSettingsRoundTripInUserDefaults() {
+    let userId = "expense-reminder-test-\(UUID().uuidString)"
+    defer { ExpenseReminderStore.clear(userId: userId) }
+
+    let saved = ExpenseReminderSettings(enabled: true, hour: 9, minute: 15)
+    ExpenseReminderStore.save(saved, userId: userId)
+    XCTAssertEqual(ExpenseReminderStore.load(userId: userId), saved)
+  }
+}
+
 private final class OpenRouterStubURLProtocol: URLProtocol, @unchecked Sendable {
   nonisolated(unsafe) static var handler:
     (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?

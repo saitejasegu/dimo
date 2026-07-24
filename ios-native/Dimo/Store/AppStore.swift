@@ -38,6 +38,9 @@ final class AppStore {
   var navGlassOpacity: Double = 40
   var defaultStatsRange: StatsRange = .oneYear
   var notifications = NotificationSettings(bills: true, budget: true, weekly: false, large: true)
+  /// Device-local daily expense reminder (not synced).
+  var expenseReminder = ExpenseReminderSettings.default
+  var expenseReminderAuthorization: ExpenseReminderAuthorization = .notDetermined
   var dataReady = false
   var syncMeta: SyncMeta?
   var pendingCount = 0
@@ -107,6 +110,10 @@ final class AppStore {
       let entities = try repo.allEntities()
       hydrate(entities: entities)
       dataReady = true
+      expenseReminder = ExpenseReminderStore.load(userId: userId)
+      ExpenseReminderRouter.store = self
+      await refreshExpenseReminderAuthorization()
+      await refreshExpenseReminderSchedule()
 
       // Start Convex before email so OpenRouter/Gemma work cannot delay sync.
       remoteStartTask?.cancel()
@@ -126,6 +133,7 @@ final class AppStore {
         transactions: transactions,
         currency: currency
       )
+      await refreshExpenseReminderSchedule()
     } catch {
       showToast(error.localizedDescription)
     }
@@ -180,14 +188,52 @@ final class AppStore {
     coordinator = nil
     repository = nil
     convexClient = nil
+    if ExpenseReminderRouter.store === self {
+      ExpenseReminderRouter.store = nil
+    }
+    ExpenseReminderScheduler.cancel()
   }
 
   func sceneBecameActive() {
     emailController?.sceneBecameActive()
     Task {
+      await refreshExpenseReminderAuthorization()
+      await refreshExpenseReminderSchedule()
       await coordinator?.request()
       await refreshExchangeRates()
     }
+  }
+
+  func updateExpenseReminder(mutate: (inout ExpenseReminderSettings) -> Void) async {
+    var next = expenseReminder
+    mutate(&next)
+    next = next.clamped
+    if next.enabled, expenseReminderAuthorization != .authorized {
+      let allowed = await ExpenseReminderScheduler.requestAuthorizationIfNeeded()
+      await refreshExpenseReminderAuthorization()
+      if !allowed {
+        next.enabled = false
+        expenseReminder = next
+        ExpenseReminderStore.save(next, userId: userId)
+        ExpenseReminderScheduler.cancel()
+        showToast("Enable notifications for Dimo in Settings to get reminders.")
+        return
+      }
+    }
+    expenseReminder = next
+    ExpenseReminderStore.save(next, userId: userId)
+    await refreshExpenseReminderSchedule()
+  }
+
+  func refreshExpenseReminderSchedule() async {
+    await ExpenseReminderScheduler.apply(
+      settings: expenseReminder,
+      pendingPurchaseCount: emailFeatureStore.pendingPurchaseCount
+    )
+  }
+
+  func refreshExpenseReminderAuthorization() async {
+    expenseReminderAuthorization = await ExpenseReminderScheduler.authorizationStatus()
   }
 
   /// Pull the latest ECB rates from Convex into state (and the offline cache).
