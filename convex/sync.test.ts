@@ -306,6 +306,7 @@ describe("Convex typed sync protocol", () => {
           amount: "10.00",
           currency: "INR",
           state: "added",
+          purchaseGroupId: "email-purchase-group-1",
           linkedTransactionId: "tx-1",
           reviewedAt: 100,
           createdAt: 100,
@@ -329,6 +330,7 @@ describe("Convex typed sync protocol", () => {
     expect(emails.entities).toHaveLength(1);
     expect(emails.entities[0]).toMatchObject({
       state: "added",
+      purchaseGroupId: "email-purchase-group-1",
       linkedTransactionId: "tx-1",
       normalizedBodyText: "Full receipt body with every line of the email.",
     });

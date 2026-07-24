@@ -330,16 +330,35 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       dismissSuggestion: { [weak self] suggestionId in
         try self?.repository.dismissEmailSuggestion(messageKey: suggestionId)
       },
+      dismissSuggestions: { [weak self] suggestionIds in
+        try self?.repository.dismissEmailSuggestions(messageKeys: suggestionIds)
+      },
       restoreSuggestion: { [weak self] suggestionId in
         try self?.repository.restoreDismissedEmailSuggestion(messageKey: suggestionId)
+      },
+      restoreSuggestions: { [weak self] suggestionIds in
+        try self?.repository.restoreDismissedEmailSuggestions(messageKeys: suggestionIds)
+      },
+      separateSuggestions: { [weak self] suggestionIds in
+        try self?.repository.separateEmailSuggestions(messageKeys: suggestionIds)
+      },
+      linkLateSuggestion: { [weak self] suggestionId, sourceId in
+        try self?.repository.linkLateEmailSuggestion(
+          messageKey: suggestionId,
+          reviewedSourceKey: sourceId
+        )
+      },
+      keepLateSuggestionSeparate: { [weak self] suggestionId in
+        try self?.repository.keepLateEmailSuggestionSeparate(messageKey: suggestionId)
       },
       acceptPurchase: { [weak self] draft in
         guard let self else { return }
         try await self.acceptPurchase(draft)
       },
       linkPurchaseToTransaction: { [weak self] suggestionId, transactionId in
-        try self?.repository.linkEmailSuggestionToTransaction(
-          messageKey: suggestionId,
+        let sourceIds = self?.store.purchaseReview?.sourceMessageIDs ?? []
+        try self?.repository.linkEmailSuggestionsToTransaction(
+          messageKeys: sourceIds.isEmpty ? [suggestionId] : sourceIds,
           transactionId: transactionId
         )
       },
@@ -431,6 +450,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   }
 
   private func startObservations() {
+    _ = try? repository.reconcilePendingPurchaseGroups()
     accountRecords = (try? repository.emailAccounts()) ?? []
     suggestionRecords = (try? repository.emailSuggestions()) ?? []
     messageSummaries = (try? repository.emailMessageSummaries()) ?? []
@@ -1586,8 +1606,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       paused: false,
       currency: currency.rawValue
     ) : nil
-    try repository.acceptEmailSuggestion(
-      messageKey: draft.suggestionID,
+    let sourceIds = draft.sourceMessageIDs.isEmpty ? [draft.suggestionID] : draft.sourceMessageIDs
+    try repository.acceptEmailSuggestions(
+      messageKeys: sourceIds,
       transaction: transaction,
       recurring: recurring
     )
@@ -1682,7 +1703,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     let accountEmail = Dictionary(uniqueKeysWithValues: accountRecords.map { ($0.id, $0.emailAddress) })
     let categoryNames = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
     let methods = Dictionary(uniqueKeysWithValues: paymentMethods.map { ($0.id, $0) })
-    store.suggestions = suggestionRecords.compactMap { message in
+    let individual: [EmailUISuggestion] = suggestionRecords.compactMap {
+      message -> EmailUISuggestion? in
       guard let analyzerKind = message.analyzerType,
             analyzerKind == .gemma || analyzerKind == .openRouter,
             let classification = message.classification,
@@ -1765,6 +1787,72 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         preselectedRefundTransactionID: refundMatches.preselectedTransactionId
       )
     }
+    store.suggestions = groupedSuggestions(individual, records: suggestionRecords)
+  }
+
+  private func groupedSuggestions(
+    _ suggestions: [EmailUISuggestion],
+    records: [EmailMessageRecordModel]
+  ) -> [EmailUISuggestion] {
+    let recordById = Dictionary(uniqueKeysWithValues: records.map { ($0.key, $0) })
+    let reviewedRecords = (try? repository.reviewedEmailPurchaseSources()) ?? []
+    var grouped: [String: [EmailUISuggestion]] = [:]
+    for suggestion in suggestions {
+      let record = recordById[suggestion.id]
+      let sharedGroup = record?.purchaseGroupId.flatMap { $0 == suggestion.id ? nil : $0 }
+      grouped[sharedGroup ?? suggestion.id, default: []].append(suggestion)
+    }
+
+    return grouped.values.compactMap { members -> EmailUISuggestion? in
+      let ordered = members.sorted {
+        if $0.kind != $1.kind { return $0.kind == .purchase }
+        return $0.receivedAt > $1.receivedAt
+      }
+      guard var primary = ordered.first else { return nil }
+      let isPurchaseGroup = ordered.count > 1
+        && ordered.contains(where: { $0.kind == .purchase })
+        && ordered.contains(where: { $0.kind == .debit })
+      if isPurchaseGroup {
+        let debit = ordered.first { $0.kind == .debit }
+        primary.groupID = recordById[primary.id]?.purchaseGroupId
+        primary.sourceMessageIDs = ordered.map(\.id)
+        primary.sourceSenders = ordered.map(\.sender)
+        primary.sources = ordered.map {
+          EmailUISourceSummary(id: $0.id, sender: $0.sender, subject: $0.subject)
+        }
+        primary.paymentMethodID = debit?.paymentMethodID ?? primary.paymentMethodID
+        primary.paymentMethodLabel = debit?.paymentMethodLabel ?? primary.paymentMethodLabel
+        primary.paymentLastFour = debit?.paymentLastFour ?? primary.paymentLastFour
+        primary.occurredAt = debit?.occurredAt ?? primary.occurredAt
+        primary.possibleDuplicateDescriptions = Array(
+          Set(ordered.flatMap(\.possibleDuplicateDescriptions))
+        ).sorted()
+      } else {
+        primary.sourceMessageIDs = [primary.id]
+        primary.sourceSenders = [primary.sender]
+        primary.sources = [
+          EmailUISourceSummary(id: primary.id, sender: primary.sender, subject: primary.subject),
+        ]
+      }
+
+      if primary.status == .pendingPurchase,
+         primary.sourceMessageIDs.count == 1,
+         let pending = recordById[primary.id],
+         let reviewed = EmailPurchaseGroupingSelector.uniqueReviewedMatch(
+           for: pending,
+           reviewed: reviewedRecords
+         ),
+         let transactionId = reviewed.linkedTransactionId,
+         let transaction = transactions.first(where: { $0.id == transactionId }) {
+        primary.lateMatch = EmailUILatePurchaseMatch(
+          reviewedSourceMessageID: reviewed.key,
+          transactionID: transactionId,
+          transactionName: transaction.name
+        )
+      }
+      return primary
+    }
+    .sorted { $0.receivedAt > $1.receivedAt }
   }
 
   private func publishAllEmails() {
@@ -1794,10 +1882,14 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   /// The retained source email for a transaction the user accepted from an
   /// email suggestion, or nil when none is linked or it left this device.
   func sourceEmailDetail(forTransactionId transactionId: String) -> EmailUIEmailDetail? {
-    guard let message = try? repository.emailMessage(linkedTransactionId: transactionId) else {
-      return nil
+    sourceEmailDetails(forTransactionId: transactionId).first
+  }
+
+  func sourceEmailDetails(forTransactionId transactionId: String) -> [EmailUIEmailDetail] {
+    guard let messages = try? repository.emailMessages(linkedTransactionId: transactionId) else {
+      return []
     }
-    return try? loadEmailDetail(messageId: message.key)
+    return messages.compactMap { try? loadEmailDetail(messageId: $0.key) }
   }
 
   private func loadEmailDetail(messageId: String) throws -> EmailUIEmailDetail {

@@ -156,6 +156,7 @@ export interface EmailMessageEntity {
   paymentLastFour?: string | null;
   reference?: string | null;
   state: "added" | "dismissed" | "refundApplied" | "pendingPurchase" | "pendingRefund";
+  purchaseGroupId?: string | null;
   linkedTransactionId?: string | null;
   analyzedAt?: number | null;
   reviewedAt?: number | null;

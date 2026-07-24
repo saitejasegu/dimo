@@ -158,7 +158,7 @@ struct ExpenseEditorSheet: View {
   @State private var merchantSuggestions: [MerchantSuggestion] = []
   @State private var selectedMerchantSuggestion: String?
   @State private var fieldRowWidth: CGFloat = 0
-  @State private var sourceEmail: EmailUIEmailDetail?
+  @State private var sourceEmails: [EmailUIEmailDetail] = []
   @State private var presentedSourceEmail: EmailUIEmailDetail?
   @State private var duplicateMatches: [EmailDuplicateTransactionMatch] = []
   @FocusState private var merchantFieldFocused: Bool
@@ -174,8 +174,8 @@ struct ExpenseEditorSheet: View {
           emailSuggestionContext(emailDraft)
         }
 
-        if let sourceEmail {
-          sourceEmailRow(sourceEmail)
+        if !sourceEmails.isEmpty {
+          sourceEmailRows
         }
 
         VStack(spacing: 4) {
@@ -370,7 +370,12 @@ struct ExpenseEditorSheet: View {
   private func emailSuggestionContext(_ draft: EmailUIPurchaseReviewDraft) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
-        Label(draft.accountEmail, systemImage: "envelope.fill")
+        Label(
+          draft.sourceMessageIDs.count > 1
+            ? "\(draft.sourceMessageIDs.count) emails · \(draft.accountEmail)"
+            : draft.accountEmail,
+          systemImage: draft.sourceMessageIDs.count > 1 ? "envelope.stack.fill" : "envelope.fill"
+        )
         Spacer(minLength: 8)
         Label(
           draft.analyzer.title,
@@ -404,39 +409,47 @@ struct ExpenseEditorSheet: View {
     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
   }
 
-  private func sourceEmailRow(_ detail: EmailUIEmailDetail) -> some View {
-    Button { presentedSourceEmail = detail } label: {
-      HStack(spacing: 10) {
-        Image(systemName: "envelope.fill")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Theme.green)
-          .frame(width: 30, height: 30)
-          .background(Theme.greenSoft)
-          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+  private var sourceEmailRows: some View {
+    VStack(spacing: 8) {
+      ForEach(sourceEmails) { detail in
+        Button { presentedSourceEmail = detail } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "envelope.fill")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(Theme.green)
+              .frame(width: 30, height: 30)
+              .background(Theme.greenSoft)
+              .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-        VStack(alignment: .leading, spacing: 1) {
-          Text("Added from email")
-            .font(DimoFont.body(11, weight: .semibold))
-            .foregroundStyle(Theme.ink)
-          Text(detail.subject.isEmpty ? detail.sender : detail.subject)
-            .font(DimoFont.body(11))
-            .foregroundStyle(Theme.muted)
-            .lineLimit(1)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(
+                sourceEmails.count == 1
+                  ? "Added from email"
+                  : "Added from \(sourceEmails.count) emails"
+              )
+              .font(DimoFont.body(11, weight: .semibold))
+              .foregroundStyle(Theme.ink)
+              Text(detail.subject.isEmpty ? detail.sender : detail.subject)
+                .font(DimoFont.body(11))
+                .foregroundStyle(Theme.muted)
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Theme.faint)
+          }
+          .padding(10)
+          .background(Theme.canvas)
+          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+          .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-        Image(systemName: "chevron.right")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(Theme.faint)
+        .buttonStyle(.plain)
+        .accessibilityLabel("View source email \(detail.subject)")
       }
-      .padding(10)
-      .background(Theme.canvas)
-      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-      .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("View the source email for this expense")
   }
 
   private var availablePaymentMethods: [PaymentMethodOption] {
@@ -712,7 +725,7 @@ struct ExpenseEditorSheet: View {
         date = Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
       }
       isRecurring = false
-      sourceEmail = store.sourceEmail(forTransactionId: id)
+      sourceEmails = store.sourceEmails(forTransactionId: id)
     case .recurring(let id):
       guard let item = store.recurring.first(where: { $0.id == id }) else { return }
       entryCurrency = item.currency ?? store.currency.rawValue

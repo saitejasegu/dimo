@@ -524,6 +524,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["paymentLastFour"] = e.paymentLastFour
       dict["reference"] = e.reference
       dict["state"] = e.state
+      dict["purchaseGroupId"] = e.purchaseGroupId
       dict["linkedTransactionId"] = e.linkedTransactionId
       dict["analyzedAt"] = e.analyzedAt.map { Double($0) }
       dict["reviewedAt"] = e.reviewedAt.map { Double($0) }

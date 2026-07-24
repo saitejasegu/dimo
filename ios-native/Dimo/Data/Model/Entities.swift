@@ -229,6 +229,9 @@ struct EmailMessageEntity: Codable, Hashable, Sendable, Identifiable {
   var reference: String?
   /// Wire values: added, dismissed, refundApplied, pendingPurchase, pendingRefund.
   var state: String
+  /// Shared by purchase/debit emails representing one expense. When equal to
+  /// this email's `id`, the user explicitly chose to keep it separate.
+  var purchaseGroupId: String?
   var linkedTransactionId: String?
   var analyzedAt: Int?
   var reviewedAt: Int?

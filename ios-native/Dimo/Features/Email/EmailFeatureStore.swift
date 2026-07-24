@@ -5,6 +5,7 @@ enum EmailSuggestionFilter: String, CaseIterable, Identifiable, Sendable {
   case purchases
   case refunds
   case awaitingAnalysis
+  case errors
   case reviewed
   case all
 
@@ -15,13 +16,14 @@ enum EmailSuggestionFilter: String, CaseIterable, Identifiable, Sendable {
     case .purchases: return "Purchases"
     case .refunds: return "Refunds"
     case .awaitingAnalysis: return "Awaiting analysis"
+    case .errors: return "Errors"
     case .reviewed: return "Reviewed"
     case .all: return "All"
     }
   }
 
   var displaysMessages: Bool {
-    self == .awaitingAnalysis || self == .all
+    self == .awaitingAnalysis || self == .errors || self == .all
   }
 }
 
@@ -237,6 +239,27 @@ struct EmailUISuggestion: Identifiable, Hashable, Sendable {
   var isFullRefund = true
   var refundCandidates: [EmailUIRefundCandidate] = []
   var preselectedRefundTransactionID: String?
+  var groupID: String? = nil
+  var sourceMessageIDs: [String] = []
+  var sourceSenders: [String] = []
+  var sources: [EmailUISourceSummary] = []
+  var lateMatch: EmailUILatePurchaseMatch? = nil
+
+  var actionMessageIDs: [String] {
+    sourceMessageIDs.isEmpty ? [id] : sourceMessageIDs
+  }
+}
+
+struct EmailUISourceSummary: Identifiable, Hashable, Sendable {
+  var id: String
+  var sender: String
+  var subject: String
+}
+
+struct EmailUILatePurchaseMatch: Hashable, Sendable {
+  var reviewedSourceMessageID: String
+  var transactionID: String
+  var transactionName: String
 }
 
 enum EmailUIModelState: Equatable, Sendable {
@@ -264,6 +287,8 @@ enum EmailUIModelState: Equatable, Sendable {
 
 struct EmailUIPurchaseReviewDraft: Identifiable, Equatable, Sendable {
   var suggestionID: String
+  var groupID: String? = nil
+  var sourceMessageIDs: [String] = []
   var merchant: String
   var amount: String
   var occurredAt: Date
@@ -300,7 +325,12 @@ struct EmailFeatureActions {
   var disconnectAccount: (_ accountID: String) async throws -> Void = { _ in }
   var refresh: (_ accountID: String?) async throws -> Void = { _ in }
   var dismissSuggestion: (_ suggestionID: String) async throws -> Void = { _ in }
+  var dismissSuggestions: (_ suggestionIDs: [String]) async throws -> Void = { _ in }
   var restoreSuggestion: (_ suggestionID: String) async throws -> Void = { _ in }
+  var restoreSuggestions: (_ suggestionIDs: [String]) async throws -> Void = { _ in }
+  var separateSuggestions: (_ suggestionIDs: [String]) async throws -> Void = { _ in }
+  var linkLateSuggestion: (_ suggestionID: String, _ reviewedSourceID: String) async throws -> Void = { _, _ in }
+  var keepLateSuggestionSeparate: (_ suggestionID: String) async throws -> Void = { _ in }
   var acceptPurchase: (_ draft: EmailUIPurchaseReviewDraft) async throws -> Void = { _ in }
   var linkPurchaseToTransaction: (_ suggestionID: String, _ transactionID: String) async throws -> Void = { _, _ in }
   var applyFullRefund: (_ suggestionID: String, _ transactionID: String) async throws -> Void = { _, _ in }
@@ -368,6 +398,7 @@ final class EmailFeatureStore {
   var purchaseReview: EmailUIPurchaseReviewDraft?
   var refundReview: EmailUIRefundReview?
   var emailDetail: EmailUIEmailDetail?
+  var sourcePickerSuggestion: EmailUISuggestion?
   var isRefreshing = false
   var isReanalyzing = false
   var requiresCellularDownloadConfirmation = false
@@ -414,6 +445,15 @@ final class EmailFeatureStore {
     self.actions = actions
   }
 
+  /// Pending purchase/debit suggestions waiting for review. Used for the Email
+  /// tab badge and Purchases filter count.
+  var pendingPurchaseCount: Int {
+    suggestions.count { suggestion in
+      suggestion.status == .pendingPurchase
+        && (suggestion.kind == .purchase || suggestion.kind == .debit)
+    }
+  }
+
   var filteredSuggestions: [EmailUISuggestion] {
     suggestions.filter { suggestion in
       switch selectedFilter {
@@ -424,7 +464,7 @@ final class EmailFeatureStore {
           && (suggestion.kind == .purchase || suggestion.kind == .debit)
       case .refunds:
         return suggestion.status == .pendingRefund && suggestion.kind == .refund
-      case .awaitingAnalysis:
+      case .awaitingAnalysis, .errors:
         return false
       case .reviewed:
         return suggestion.status.isReviewed
@@ -436,6 +476,8 @@ final class EmailFeatureStore {
     switch selectedFilter {
     case .awaitingAnalysis:
       return allEmails.filter { $0.analysisState == .pending }
+    case .errors:
+      return allEmails.filter { $0.analysisState == .failed }
     case .all:
       return allEmails
     case .purchases, .refunds, .reviewed:
@@ -443,8 +485,12 @@ final class EmailFeatureStore {
     }
   }
 
+  var analysisErrorCount: Int {
+    allEmails.count { $0.analysisState == .failed }
+  }
+
   var hasFailedAnalyses: Bool {
-    allEmails.contains { $0.analysisState == .failed }
+    analysisErrorCount > 0
   }
 
   var activeAnalyzerTitle: String {
@@ -461,6 +507,22 @@ final class EmailFeatureStore {
 
   func presentEmail(id: String) {
     run { self.emailDetail = try await self.actions.loadEmailDetail(id) }
+  }
+
+  func presentSources(for suggestion: EmailUISuggestion) {
+    if suggestion.actionMessageIDs.count == 1 {
+      presentEmail(id: suggestion.id)
+    } else {
+      sourcePickerSuggestion = suggestion
+    }
+  }
+
+  func presentSourceEmail(id: String) {
+    sourcePickerSuggestion = nil
+    Task {
+      await Task.yield()
+      presentEmail(id: id)
+    }
   }
 
   func dismissEmailDetail() {
@@ -495,6 +557,8 @@ final class EmailFeatureStore {
     case .purchase, .debit:
       purchaseReview = EmailUIPurchaseReviewDraft(
         suggestionID: suggestion.id,
+        groupID: suggestion.groupID,
+        sourceMessageIDs: suggestion.actionMessageIDs,
         merchant: suggestion.merchant ?? "",
         amount: Self.decimalText(suggestion.amount),
         occurredAt: suggestion.occurredAt ?? suggestion.receivedAt,
@@ -528,8 +592,42 @@ final class EmailFeatureStore {
     run { try await self.actions.dismissSuggestion(suggestionID) }
   }
 
+  func dismissSuggestion(_ suggestion: EmailUISuggestion) {
+    if suggestion.actionMessageIDs.count == 1 {
+      dismissSuggestion(suggestion.id)
+    } else {
+      run { try await self.actions.dismissSuggestions(suggestion.actionMessageIDs) }
+    }
+  }
+
   func restoreSuggestion(_ suggestionID: String) {
     run { try await self.actions.restoreSuggestion(suggestionID) }
+  }
+
+  func restoreSuggestion(_ suggestion: EmailUISuggestion) {
+    if suggestion.actionMessageIDs.count == 1 {
+      restoreSuggestion(suggestion.id)
+    } else {
+      run { try await self.actions.restoreSuggestions(suggestion.actionMessageIDs) }
+    }
+  }
+
+  func separateSuggestion(_ suggestion: EmailUISuggestion) {
+    run { try await self.actions.separateSuggestions(suggestion.actionMessageIDs) }
+  }
+
+  func linkLateSuggestion(_ suggestion: EmailUISuggestion) {
+    guard let match = suggestion.lateMatch else { return }
+    run {
+      try await self.actions.linkLateSuggestion(
+        suggestion.id,
+        match.reviewedSourceMessageID
+      )
+    }
+  }
+
+  func keepLateSuggestionSeparate(_ suggestion: EmailUISuggestion) {
+    run { try await self.actions.keepLateSuggestionSeparate(suggestion.id) }
   }
 
   func acceptPurchase(_ draft: EmailUIPurchaseReviewDraft) {

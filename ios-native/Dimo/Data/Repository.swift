@@ -669,16 +669,30 @@ extension Repository {
     }
   }
 
-  /// The retained source email for a transaction the user accepted from an
-  /// email suggestion, if it is still stored on this device.
-  func emailMessage(linkedTransactionId: String) throws -> EmailMessageRecordModel? {
+  /// Retained source emails for a transaction accepted from one or more
+  /// grouped suggestions, with the merchant receipt before the bank debit.
+  func emailMessages(linkedTransactionId: String) throws -> [EmailMessageRecordModel] {
     try db.read { db in
       try EmailMessageRecord
         .filter(Column("linkedTransactionId") == linkedTransactionId)
-        .order(Column("updatedAt").desc)
-        .fetchOne(db)?
-        .toModel()
+        .fetchAll(db)
+        .map { try $0.toModel() }
+        .sorted {
+          if $0.classification != $1.classification {
+            if $0.classification == .purchase { return true }
+            if $1.classification == .purchase { return false }
+          }
+          if $0.internalDate != $1.internalDate {
+            return $0.internalDate < $1.internalDate
+          }
+          return $0.key < $1.key
+        }
     }
+  }
+
+  /// Compatibility helper for existing single-source callers.
+  func emailMessage(linkedTransactionId: String) throws -> EmailMessageRecordModel? {
+    try emailMessages(linkedTransactionId: linkedTransactionId).first
   }
 
   func emailAnalysisSettings() throws -> EmailAnalysisSettings {
@@ -766,6 +780,22 @@ extension Repository {
       guard record.reviewedAt == nil, record.normalizedBodyText != nil else {
         throw EmailRepositoryError.suggestionAlreadyReviewed
       }
+      let now = emailNowMilliseconds()
+      if let groupId = record.purchaseGroupId, groupId != record.key {
+        let members = try EmailMessageRecord
+          .filter(Column("purchaseGroupId") == groupId)
+          .fetchAll(db)
+        for var member in members {
+          member.purchaseGroupId = nil
+          member.updatedAt = now
+          try member.update(db)
+          try putSyncedEmailMessage(db, message: member)
+        }
+        guard let refreshed = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
+          throw EmailRepositoryError.messageNotFound
+        }
+        record = refreshed
+      }
       record.analysisProviderOverride = providerOverride?.rawValue
       record.analyzerType = nil
       record.modelVersion = nil
@@ -782,7 +812,7 @@ extension Repository {
       record.state = EmailSuggestionState.pendingAnalysis.rawValue
       record.linkedTransactionId = nil
       record.analyzedAt = nil
-      record.updatedAt = emailNowMilliseconds()
+      record.updatedAt = now
       try record.update(db)
     }
   }
@@ -803,13 +833,80 @@ extension Repository {
   ) throws -> [EmailMessageRecordModel] {
     try db.read { db in
       let states = emailSuggestionStates(matching: filter)
-      return try EmailMessageRecord
+      var rows = try EmailMessageRecord
         .filter(states.contains(Column("state")))
         .order(Column("internalDate").desc)
         .limit(max(0, limit))
         .fetchAll(db)
+      let visibleGroupIds = Set(rows.compactMap { row in
+        row.purchaseGroupId.flatMap { $0 == row.key ? nil : $0 }
+      })
+      if !visibleGroupIds.isEmpty {
+        let existingKeys = Set(rows.map(\.key))
+        let missingMembers = try EmailMessageRecord
+          .filter(
+            states.contains(Column("state"))
+              && visibleGroupIds.contains(Column("purchaseGroupId"))
+          )
+          .fetchAll(db)
+          .filter { !existingKeys.contains($0.key) }
+        rows.append(contentsOf: missingMembers)
+      }
+      return try rows
+        .sorted {
+          if $0.internalDate != $1.internalDate {
+            return $0.internalDate > $1.internalDate
+          }
+          return $0.key < $1.key
+        }
         .map { try $0.toModel() }
     }
+  }
+
+  /// Reviewed purchase/debit sources used only for deterministic late-email
+  /// matching. This is intentionally not limited by the visible feed page.
+  func reviewedEmailPurchaseSources() throws -> [EmailMessageRecordModel] {
+    try db.read { db in
+      try EmailMessageRecord
+        .filter(
+          Column("state") == EmailSuggestionState.added.rawValue
+            && Column("linkedTransactionId") != nil
+        )
+        .fetchAll(db)
+        .map { try $0.toModel() }
+        .filter {
+          $0.classification == .purchase || $0.classification == .debit
+        }
+    }
+  }
+
+  /// Reconciles eligible pending rows that were analyzed before grouping was
+  /// available, or arrived through sync without a group decision.
+  @discardableResult
+  func reconcilePendingPurchaseGroups() throws -> Int {
+    let groupedPairs = try db.write { db -> Int in
+      let candidateKeys = try EmailMessageRecord
+        .filter(
+          Column("state") == EmailSuggestionState.pendingPurchase.rawValue
+            && Column("purchaseGroupId") == nil
+        )
+        .order(Column("internalDate").asc, Column("key").asc)
+        .fetchAll(db)
+        .map(\.key)
+      var count = 0
+      for key in candidateKeys {
+        guard let before = try EmailMessageRecord.fetchOne(db, key: key),
+              before.purchaseGroupId == nil else { continue }
+        try reconcilePendingPurchaseGroup(db, around: key, now: emailNowMilliseconds())
+        if let after = try EmailMessageRecord.fetchOne(db, key: key),
+           after.purchaseGroupId != nil {
+          count += 1
+        }
+      }
+      return count
+    }
+    if groupedPairs > 0 { notifyWrite() }
+    return groupedPairs
   }
 
   /// Pass an account ID with a small limit (normally one) while iterating the
@@ -850,6 +947,12 @@ extension Repository {
         .fetchAll(db)
       let now = emailNowMilliseconds()
       for var row in rows {
+        if row.purchaseGroupId != nil, row.purchaseGroupId != row.key {
+          row.purchaseGroupId = nil
+          row.updatedAt = now
+          try row.update(db)
+          try putSyncedEmailMessage(db, message: row)
+        }
         row.analysisProviderOverride = nil
         row.analyzerType = nil
         row.modelVersion = nil
@@ -936,6 +1039,9 @@ extension Repository {
         record.state = EmailSuggestionState.unactionable.rawValue
       }
       try record.update(db)
+      if analysis.classification == .purchase || analysis.classification == .debit {
+        try reconcilePendingPurchaseGroup(db, around: record.key, now: now)
+      }
     }
   }
 
@@ -976,38 +1082,47 @@ extension Repository {
   }
 
   func dismissEmailSuggestion(messageKey: String) throws {
-    try finishEmailSuggestion(messageKey: messageKey, state: .dismissed)
+    try dismissEmailSuggestions(messageKeys: [messageKey])
+  }
+
+  func dismissEmailSuggestions(messageKeys: [String]) throws {
+    try finishEmailSuggestions(messageKeys: messageKeys, state: .dismissed)
   }
 
   /// Restores the analyzed result to the review queue. Body text is retained
   /// through dismissal and Convex sync so restore does not need to rebuild it.
   func restoreDismissedEmailSuggestion(messageKey: String) throws {
+    try restoreDismissedEmailSuggestions(messageKeys: [messageKey])
+  }
+
+  func restoreDismissedEmailSuggestions(messageKeys: [String]) throws {
     let now = emailNowMilliseconds()
     try db.write { db in
-      guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
-        throw EmailRepositoryError.messageNotFound
+      var messages = try emailMessagesForAction(db, messageKeys: messageKeys)
+      if messages.count > 1 { try validatePurchaseGroup(messages) }
+      for index in messages.indices {
+        guard messages[index].state == EmailSuggestionState.dismissed.rawValue else {
+          throw EmailRepositoryError.invalidSuggestionState
+        }
+        guard let rawClassification = messages[index].classification,
+              let classification = EmailMessageClassification(rawValue: rawClassification)
+        else {
+          throw EmailRepositoryError.invalidAnalysis
+        }
+        switch classification {
+        case .purchase, .debit:
+          messages[index].state = EmailSuggestionState.pendingPurchase.rawValue
+        case .refund:
+          messages[index].state = EmailSuggestionState.pendingRefund.rawValue
+        case .irrelevant:
+          throw EmailRepositoryError.invalidSuggestionState
+        }
+        messages[index].linkedTransactionId = nil
+        messages[index].reviewedAt = nil
+        messages[index].updatedAt = now
+        try messages[index].update(db)
+        try putSyncedEmailMessage(db, message: messages[index])
       }
-      guard message.state == EmailSuggestionState.dismissed.rawValue else {
-        throw EmailRepositoryError.invalidSuggestionState
-      }
-      guard let rawClassification = message.classification,
-            let classification = EmailMessageClassification(rawValue: rawClassification)
-      else {
-        throw EmailRepositoryError.invalidAnalysis
-      }
-      switch classification {
-      case .purchase, .debit:
-        message.state = EmailSuggestionState.pendingPurchase.rawValue
-      case .refund:
-        message.state = EmailSuggestionState.pendingRefund.rawValue
-      case .irrelevant:
-        throw EmailRepositoryError.invalidSuggestionState
-      }
-      message.linkedTransactionId = nil
-      message.reviewedAt = nil
-      message.updatedAt = now
-      try message.update(db)
-      try putSyncedEmailMessage(db, message: message)
     }
     notifyWrite()
   }
@@ -1101,17 +1216,32 @@ extension Repository {
     transaction: TransactionEntity,
     recurring: RecurringEntity? = nil
   ) throws {
+    try acceptEmailSuggestions(
+      messageKeys: [messageKey],
+      transaction: transaction,
+      recurring: recurring
+    )
+  }
+
+  func acceptEmailSuggestions(
+    messageKeys: [String],
+    transaction: TransactionEntity,
+    recurring: RecurringEntity? = nil
+  ) throws {
     guard transaction.amountMinor > 0 else { throw EmailRepositoryError.invalidAnalysis }
     try db.write { db in
-      guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
-        throw EmailRepositoryError.messageNotFound
-      }
-      guard message.reviewedAt == nil else { throw EmailRepositoryError.suggestionAlreadyReviewed }
-      guard message.state == EmailSuggestionState.pendingPurchase.rawValue,
-            message.classification == EmailMessageClassification.purchase.rawValue
-              || message.classification == EmailMessageClassification.debit.rawValue
-      else {
-        throw EmailRepositoryError.invalidSuggestionState
+      var messages = try emailMessagesForAction(db, messageKeys: messageKeys)
+      try validatePurchaseGroup(messages)
+      for message in messages {
+        guard message.reviewedAt == nil else {
+          throw EmailRepositoryError.suggestionAlreadyReviewed
+        }
+        guard message.state == EmailSuggestionState.pendingPurchase.rawValue,
+              message.classification == EmailMessageClassification.purchase.rawValue
+                || message.classification == EmailMessageClassification.debit.rawValue
+        else {
+          throw EmailRepositoryError.invalidSuggestionState
+        }
       }
       try validateEmailSuggestionIdentifiers(
         db,
@@ -1150,12 +1280,14 @@ extension Repository {
       try device.update(db)
 
       let now = emailNowMilliseconds()
-      message.state = EmailSuggestionState.added.rawValue
-      message.linkedTransactionId = transaction.id
-      message.reviewedAt = now
-      message.updatedAt = now
-      try message.update(db)
-      try putSyncedEmailMessage(db, message: message)
+      for index in messages.indices {
+        messages[index].state = EmailSuggestionState.added.rawValue
+        messages[index].linkedTransactionId = transaction.id
+        messages[index].reviewedAt = now
+        messages[index].updatedAt = now
+        try messages[index].update(db)
+        try putSyncedEmailMessage(db, message: messages[index])
+      }
     }
     notifyWrite()
   }
@@ -1164,16 +1296,29 @@ extension Repository {
   /// recorded. The existing transaction is left unchanged; the email row is
   /// marked reviewed/linked and dual-written into the synced emailMessage entity.
   func linkEmailSuggestionToTransaction(messageKey: String, transactionId: String) throws {
+    try linkEmailSuggestionsToTransaction(
+      messageKeys: [messageKey],
+      transactionId: transactionId
+    )
+  }
+
+  func linkEmailSuggestionsToTransaction(
+    messageKeys: [String],
+    transactionId: String
+  ) throws {
     try db.write { db in
-      guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
-        throw EmailRepositoryError.messageNotFound
-      }
-      guard message.reviewedAt == nil else { throw EmailRepositoryError.suggestionAlreadyReviewed }
-      guard message.state == EmailSuggestionState.pendingPurchase.rawValue,
-            message.classification == EmailMessageClassification.purchase.rawValue
-              || message.classification == EmailMessageClassification.debit.rawValue
-      else {
-        throw EmailRepositoryError.invalidSuggestionState
+      var messages = try emailMessagesForAction(db, messageKeys: messageKeys)
+      try validatePurchaseGroup(messages)
+      for message in messages {
+        guard message.reviewedAt == nil else {
+          throw EmailRepositoryError.suggestionAlreadyReviewed
+        }
+        guard message.state == EmailSuggestionState.pendingPurchase.rawValue,
+              message.classification == EmailMessageClassification.purchase.rawValue
+                || message.classification == EmailMessageClassification.debit.rawValue
+        else {
+          throw EmailRepositoryError.invalidSuggestionState
+        }
       }
       guard let record = try EntityRecord.fetchOne(
         db,
@@ -1186,10 +1331,100 @@ extension Repository {
       }
 
       let now = emailNowMilliseconds()
-      message.state = EmailSuggestionState.added.rawValue
-      message.linkedTransactionId = transactionId
-      message.reviewedAt = now
-      message.updatedAt = now
+      for index in messages.indices {
+        messages[index].state = EmailSuggestionState.added.rawValue
+        messages[index].linkedTransactionId = transactionId
+        messages[index].reviewedAt = now
+        messages[index].updatedAt = now
+        try messages[index].update(db)
+        try putSyncedEmailMessage(db, message: messages[index])
+      }
+    }
+    notifyWrite()
+  }
+
+  /// Links a late-arriving counterpart only after the user confirms the
+  /// deterministic match to a reviewed source email.
+  func linkLateEmailSuggestion(
+    messageKey: String,
+    reviewedSourceKey: String
+  ) throws {
+    try db.write { db in
+      guard var pending = try EmailMessageRecord.fetchOne(db, key: messageKey),
+            var source = try EmailMessageRecord.fetchOne(db, key: reviewedSourceKey)
+      else {
+        throw EmailRepositoryError.messageNotFound
+      }
+      let pendingModel = try pending.toModel()
+      let sourceModel = try source.toModel()
+      guard pending.state == EmailSuggestionState.pendingPurchase.rawValue,
+            pending.reviewedAt == nil,
+            pending.linkedTransactionId == nil,
+            source.state == EmailSuggestionState.added.rawValue,
+            source.reviewedAt != nil,
+            let transactionId = source.linkedTransactionId,
+            EmailPurchaseGroupingSelector.isEligiblePair(pendingModel, sourceModel)
+      else {
+        throw EmailRepositoryError.invalidSuggestionState
+      }
+      guard try emailActiveEntity(db, type: .transaction, id: transactionId) != nil else {
+        throw EmailRepositoryError.transactionNotFound
+      }
+
+      let now = emailNowMilliseconds()
+      let groupId = EmailPurchaseGroupingSelector.groupId(pending.key, source.key)
+      source.purchaseGroupId = groupId
+      source.updatedAt = now
+      pending.purchaseGroupId = groupId
+      pending.state = EmailSuggestionState.added.rawValue
+      pending.linkedTransactionId = transactionId
+      pending.reviewedAt = now
+      pending.updatedAt = now
+      try source.update(db)
+      try pending.update(db)
+      try putSyncedEmailMessage(db, message: source)
+      try putSyncedEmailMessage(db, message: pending)
+    }
+    notifyWrite()
+  }
+
+  /// Persists the user's decision that automatically grouped emails are two
+  /// distinct purchases. Self group IDs prevent future reconciliation.
+  func separateEmailSuggestions(messageKeys: [String]) throws {
+    try db.write { db in
+      var messages = try emailMessagesForAction(db, messageKeys: messageKeys)
+      try validatePurchaseGroup(messages)
+      guard messages.count > 1,
+            messages.allSatisfy({
+              $0.state == EmailSuggestionState.pendingPurchase.rawValue
+                && $0.reviewedAt == nil
+            }) else {
+        throw EmailRepositoryError.invalidSuggestionState
+      }
+      let now = emailNowMilliseconds()
+      for index in messages.indices {
+        messages[index].purchaseGroupId = messages[index].key
+        messages[index].updatedAt = now
+        try messages[index].update(db)
+        try putSyncedEmailMessage(db, message: messages[index])
+      }
+    }
+    notifyWrite()
+  }
+
+  /// Keeps a late candidate in the ordinary purchase flow and suppresses any
+  /// future automatic match for this email.
+  func keepLateEmailSuggestionSeparate(messageKey: String) throws {
+    try db.write { db in
+      guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
+        throw EmailRepositoryError.messageNotFound
+      }
+      guard message.state == EmailSuggestionState.pendingPurchase.rawValue,
+            message.reviewedAt == nil else {
+        throw EmailRepositoryError.invalidSuggestionState
+      }
+      message.purchaseGroupId = message.key
+      message.updatedAt = emailNowMilliseconds()
       try message.update(db)
       try putSyncedEmailMessage(db, message: message)
     }
@@ -1324,30 +1559,139 @@ extension Repository {
     allowedStates: Set<EmailSuggestionState> = [.pendingPurchase, .pendingRefund],
     retainBody: Bool = false
   ) throws {
+    try finishEmailSuggestions(
+      messageKeys: [messageKey],
+      state: state,
+      allowedStates: allowedStates,
+      retainBody: retainBody
+    )
+  }
+
+  private func finishEmailSuggestions(
+    messageKeys: [String],
+    state: EmailSuggestionState,
+    allowedStates: Set<EmailSuggestionState> = [.pendingPurchase, .pendingRefund],
+    retainBody: Bool = false
+  ) throws {
     try db.write { db in
-      guard var message = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
-        throw EmailRepositoryError.messageNotFound
-      }
-      guard message.reviewedAt == nil else { throw EmailRepositoryError.suggestionAlreadyReviewed }
-      guard let current = EmailSuggestionState(rawValue: message.state), allowedStates.contains(current) else {
-        throw EmailRepositoryError.invalidSuggestionState
-      }
+      var messages = try emailMessagesForAction(db, messageKeys: messageKeys)
+      if messages.count > 1 { try validatePurchaseGroup(messages) }
       let now = emailNowMilliseconds()
-      message.state = state.rawValue
-      // Keep the full body for synced reviewed/dismissed rows so Convex and
-      // Restore retain the complete email text, not only the snippet. Also keep
-      // it when the caller explicitly asks (e.g. unactionable / not-a-transaction).
-      if !retainBody, !emailSyncedSuggestionStates().contains(state.rawValue) {
-        message.normalizedBodyText = nil
-      }
-      message.reviewedAt = now
-      message.updatedAt = now
-      try message.update(db)
-      if emailSyncedSuggestionStates().contains(state.rawValue) {
-        try putSyncedEmailMessage(db, message: message)
+      for index in messages.indices {
+        guard messages[index].reviewedAt == nil else {
+          throw EmailRepositoryError.suggestionAlreadyReviewed
+        }
+        guard let current = EmailSuggestionState(rawValue: messages[index].state),
+              allowedStates.contains(current) else {
+          throw EmailRepositoryError.invalidSuggestionState
+        }
+        messages[index].state = state.rawValue
+        // Keep the full body for synced reviewed/dismissed rows so Convex and
+        // Restore retain the complete email text, not only the snippet.
+        if !retainBody, !emailSyncedSuggestionStates().contains(state.rawValue) {
+          messages[index].normalizedBodyText = nil
+        }
+        messages[index].reviewedAt = now
+        messages[index].updatedAt = now
+        try messages[index].update(db)
+        if emailSyncedSuggestionStates().contains(state.rawValue) {
+          try putSyncedEmailMessage(db, message: messages[index])
+        }
       }
     }
     notifyWrite()
+  }
+
+  private func emailMessagesForAction(
+    _ db: Database,
+    messageKeys: [String]
+  ) throws -> [EmailMessageRecord] {
+    let keys = Array(Set(messageKeys))
+    guard !keys.isEmpty, keys.count == messageKeys.count else {
+      throw EmailRepositoryError.invalidSuggestionState
+    }
+    var messages = try keys.map { key -> EmailMessageRecord in
+      guard let message = try EmailMessageRecord.fetchOne(db, key: key) else {
+        throw EmailRepositoryError.messageNotFound
+      }
+      return message
+    }
+    let sharedGroupIds = Set(messages.compactMap { message in
+      message.purchaseGroupId.flatMap { $0 == message.key ? nil : $0 }
+    })
+    guard sharedGroupIds.count <= 1 else {
+      throw EmailRepositoryError.invalidSuggestionState
+    }
+    if let groupId = sharedGroupIds.first {
+      guard messages.allSatisfy({ $0.purchaseGroupId == groupId }) else {
+        throw EmailRepositoryError.invalidSuggestionState
+      }
+      messages = try EmailMessageRecord
+        .filter(Column("purchaseGroupId") == groupId)
+        .fetchAll(db)
+    }
+    return messages.sorted { $0.key < $1.key }
+  }
+
+  private func validatePurchaseGroup(_ messages: [EmailMessageRecord]) throws {
+    guard !messages.isEmpty else { throw EmailRepositoryError.invalidSuggestionState }
+    if messages.count == 1 {
+      let message = messages[0]
+      guard message.purchaseGroupId == nil || message.purchaseGroupId == message.key else {
+        throw EmailRepositoryError.invalidSuggestionState
+      }
+      return
+    }
+    let groupIds = Set(messages.compactMap(\.purchaseGroupId))
+    let classifications = Set(messages.compactMap(\.classification))
+    guard messages.count == 2,
+          classifications == Set([
+            EmailMessageClassification.purchase.rawValue,
+            EmailMessageClassification.debit.rawValue,
+          ]),
+          Set(messages.map(\.accountId)).count == 1,
+          groupIds.count == 1,
+          let groupId = groupIds.first,
+          groupId == EmailPurchaseGroupingSelector.groupId(
+            messages[0].key,
+            messages[1].key
+          ),
+          messages.allSatisfy({
+            $0.purchaseGroupId == groupId && groupId != $0.key
+          }) else {
+      throw EmailRepositoryError.invalidSuggestionState
+    }
+  }
+
+  private func reconcilePendingPurchaseGroup(
+    _ db: Database,
+    around messageKey: String,
+    now: Int
+  ) throws {
+    guard let target = try EmailMessageRecord.fetchOne(db, key: messageKey) else {
+      throw EmailRepositoryError.messageNotFound
+    }
+    let pending = try EmailMessageRecord
+      .filter(
+        Column("state") == EmailSuggestionState.pendingPurchase.rawValue
+          && Column("accountId") == target.accountId
+      )
+      .order(Column("internalDate").desc)
+      .fetchAll(db)
+      .map { try $0.toModel() }
+    guard let pair = EmailPurchaseGroupingSelector.reciprocalPendingPair(
+      containing: messageKey,
+      messages: pending
+    ) else { return }
+    for key in pair.messageIds {
+      guard var message = try EmailMessageRecord.fetchOne(db, key: key) else {
+        throw EmailRepositoryError.messageNotFound
+      }
+      message.purchaseGroupId = pair.groupId
+      message.updatedAt = now
+      try message.update(db)
+      try putSyncedEmailMessage(db, message: message)
+    }
   }
 
   private func validateEmailSuggestionIdentifiers(
@@ -1441,6 +1785,7 @@ extension Repository {
       paymentLastFour: message.paymentLastFour,
       reference: message.reference,
       state: message.state,
+      purchaseGroupId: message.purchaseGroupId,
       linkedTransactionId: message.linkedTransactionId,
       analyzedAt: message.analyzedAt,
       reviewedAt: message.reviewedAt,
@@ -1504,6 +1849,7 @@ extension Repository {
       paymentLastFour: entity.paymentLastFour,
       reference: entity.reference,
       state: entity.state,
+      purchaseGroupId: entity.purchaseGroupId,
       linkedTransactionId: entity.linkedTransactionId,
       analyzedAt: entity.analyzedAt,
       reviewedAt: entity.reviewedAt,

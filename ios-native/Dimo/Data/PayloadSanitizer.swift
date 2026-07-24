@@ -121,6 +121,7 @@ enum PayloadSanitizer {
         paymentLastFour: nonempty(value.paymentLastFour),
         reference: nonempty(value.reference),
         state: allowedStates.contains(value.state) ? value.state : EmailSuggestionState.dismissed.rawValue,
+        purchaseGroupId: nonempty(value.purchaseGroupId),
         linkedTransactionId: nonempty(value.linkedTransactionId),
         analyzedAt: value.analyzedAt.map { Int(Double($0).rounded()) },
         reviewedAt: value.reviewedAt.map { Int(Double($0).rounded()) },

@@ -406,6 +406,7 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
   var paymentLastFour: String?
   var reference: String?
   var state: String
+  var purchaseGroupId: String?
   var linkedTransactionId: String?
   var analyzedAt: Int?
   var reviewedAt: Int?
@@ -445,6 +446,7 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
         paymentLastFour: paymentLastFour,
         reference: reference,
         state: state,
+        purchaseGroupId: purchaseGroupId,
         linkedTransactionId: linkedTransactionId,
         analyzedAt: analyzedAt,
         reviewedAt: reviewedAt,
@@ -491,6 +493,7 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
       paymentLastFour: e.paymentLastFour,
       reference: e.reference,
       state: e.state,
+      purchaseGroupId: e.purchaseGroupId,
       linkedTransactionId: e.linkedTransactionId,
       analyzedAt: e.analyzedAt,
       reviewedAt: e.reviewedAt,

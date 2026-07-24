@@ -1,7 +1,12 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/data/db";
-import { DEFAULT_PREFERENCES, TOMBSTONE_RETENTION_DAYS, entityKey } from "@/data/model";
+import {
+  DEFAULT_PREFERENCES,
+  TOMBSTONE_RETENTION_DAYS,
+  entityKey,
+  type EmailMessageEntity,
+} from "@/data/model";
 import {
   backfillRecurringCurrencies,
   getStoredRow,
@@ -70,6 +75,31 @@ describe("local repository", () => {
       sanitizePayload("preferences", olderPreferences as typeof DEFAULT_PREFERENCES)
         .defaultStatsRange,
     ).toBe("1Y");
+  });
+
+  it("preserves and normalizes native email purchase group ids", () => {
+    const message: EmailMessageEntity = {
+      id: "message-1",
+      accountId: "account-1",
+      accountEmail: "person@example.com",
+      gmailMessageId: "gmail-1",
+      threadId: "thread-1",
+      senderAddress: "store@example.com",
+      subject: "Receipt",
+      snippet: "Paid 10.00",
+      internalDate: 100,
+      state: "pendingPurchase",
+      purchaseGroupId: "  email-purchase-group-1  ",
+      createdAt: 100,
+      updatedAt: 100,
+    };
+    expect(sanitizePayload("emailMessage", message).purchaseGroupId).toBe(
+      "email-purchase-group-1",
+    );
+    expect(
+      sanitizePayload("emailMessage", { ...message, purchaseGroupId: " " })
+        .purchaseGroupId,
+    ).toBeNull();
   });
 
   it("enqueues bootstrap defaults only when they were never pulled from the server", async () => {

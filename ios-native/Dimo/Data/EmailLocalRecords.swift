@@ -80,6 +80,7 @@ struct EmailMessageRecord: Codable, FetchableRecord, PersistableRecord {
   var paymentLastFour: String?
   var reference: String?
   var state: String
+  var purchaseGroupId: String?
   var linkedTransactionId: String?
   var analyzedAt: Int?
   var reviewedAt: Int?
@@ -140,6 +141,7 @@ struct EmailMessageRecord: Codable, FetchableRecord, PersistableRecord {
       paymentLastFour: paymentLastFour,
       reference: reference,
       state: decodedState,
+      purchaseGroupId: purchaseGroupId,
       linkedTransactionId: linkedTransactionId,
       analyzedAt: analyzedAt,
       reviewedAt: reviewedAt,
@@ -175,6 +177,7 @@ struct EmailMessageRecord: Codable, FetchableRecord, PersistableRecord {
       paymentLastFour: nil,
       reference: nil,
       state: EmailSuggestionState.pendingAnalysis.rawValue,
+      purchaseGroupId: nil,
       linkedTransactionId: nil,
       analyzedAt: nil,
       reviewedAt: nil,

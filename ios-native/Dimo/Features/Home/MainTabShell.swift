@@ -54,25 +54,36 @@ struct MainTabShell: View {
 
   private var tabShell: some View {
     TabView(selection: $tab) {
-      Tab(AppTab.home.title, systemImage: AppTab.home.systemImage, value: .home) {
+      Tab(value: .home) {
         HomeScreen(store: store) {
           openSettings()
         }
+      } label: {
+        tabLabel(.home)
       }
-      Tab(AppTab.stats.title, systemImage: AppTab.stats.systemImage, value: .stats) {
+      Tab(value: .stats) {
         StatsScreen(store: store)
+      } label: {
+        tabLabel(.stats)
       }
-      Tab(AppTab.budgets.title, systemImage: AppTab.budgets.systemImage, value: .budgets) {
+      Tab(value: .budgets) {
         BudgetsScreen(store: store)
+      } label: {
+        tabLabel(.budgets)
       }
-      Tab(AppTab.lending.title, systemImage: AppTab.lending.systemImage, value: .lending) {
+      Tab(value: .lending) {
         LendingScreen(store: store)
+      } label: {
+        tabLabel(.lending)
       }
-      Tab(AppTab.email.title, systemImage: AppTab.email.systemImage, value: .email) {
+      Tab(value: .email) {
         EmailScreen(store: store.emailFeatureStore) {
           openSettings(.email)
         }
+      } label: {
+        tabLabel(.email)
       }
+      .badge(store.emailFeatureStore.pendingPurchaseCount)
     }
     .tint(Theme.green)
     .tabBarMinimizeBehavior(.never)
@@ -141,6 +152,15 @@ struct MainTabShell: View {
 
   private var showsFAB: Bool {
     tab == .home || tab == .budgets || tab == .lending
+  }
+
+  private func tabLabel(_ tab: AppTab) -> some View {
+    Label {
+      Text(tab.title)
+    } icon: {
+      Image(systemName: tab.systemImage)
+        .font(.system(size: 17, weight: .medium))
+    }
   }
 
   private func openSettings(_ section: SettingsSection = .preferences) {

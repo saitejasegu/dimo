@@ -478,6 +478,10 @@ final class AppStore {
     emailController?.sourceEmailDetail(forTransactionId: id)
   }
 
+  func sourceEmails(forTransactionId id: String) -> [EmailUIEmailDetail] {
+    emailController?.sourceEmailDetails(forTransactionId: id) ?? []
+  }
+
   func deleteTransaction(_ id: String) {
     try? repository?.removeEntity(entityType: .transaction, id: id)
     closeDetail()

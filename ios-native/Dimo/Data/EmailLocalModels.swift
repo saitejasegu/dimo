@@ -259,6 +259,7 @@ struct EmailMessageRecordModel: Codable, Hashable, Sendable, Identifiable {
   var paymentLastFour: String?
   var reference: String?
   var state: EmailSuggestionState
+  var purchaseGroupId: String?
   var linkedTransactionId: String?
   var analyzedAt: Int?
   var reviewedAt: Int?

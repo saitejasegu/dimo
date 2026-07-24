@@ -42,12 +42,18 @@ struct EmailScreen: View {
               ForEach(store.filteredSuggestions) { suggestion in
                 EmailSuggestionCard(
                   suggestion: suggestion,
-                  onOpen: { store.presentEmail(id: suggestion.id) },
+                  onOpen: { store.presentSources(for: suggestion) },
                   onReview: { store.review(suggestion) },
-                  onDismiss: { store.dismissSuggestion(suggestion.id) },
+                  onDismiss: { store.dismissSuggestion(suggestion) },
                   onRestore: suggestion.status == .dismissed
-                    ? { store.restoreSuggestion(suggestion.id) }
-                    : nil
+                    ? { store.restoreSuggestion(suggestion) }
+                    : nil,
+                  onLinkLate: suggestion.lateMatch == nil
+                    ? nil
+                    : { store.linkLateSuggestion(suggestion) },
+                  onKeepLateSeparate: suggestion.lateMatch == nil
+                    ? nil
+                    : { store.keepLateSuggestionSeparate(suggestion) }
                 )
               }
             }
@@ -67,6 +73,29 @@ struct EmailScreen: View {
     .background(Theme.canvas.ignoresSafeArea())
     .sheet(item: $store.emailDetail) { detail in
       EmailDetailSheet(detail: detail, onClose: store.dismissEmailDetail)
+    }
+    .confirmationDialog(
+      "Source emails",
+      isPresented: Binding(
+        get: { store.sourcePickerSuggestion != nil },
+        set: { if !$0 { store.sourcePickerSuggestion = nil } }
+      ),
+      presenting: store.sourcePickerSuggestion
+    ) { suggestion in
+      ForEach(suggestion.sources) { source in
+        Button(source.subject.isEmpty ? source.sender : source.subject) {
+          store.presentSourceEmail(id: source.id)
+        }
+      }
+      if suggestion.actionMessageIDs.count > 1, !suggestion.status.isReviewed {
+        Button("Show separately") {
+          store.sourcePickerSuggestion = nil
+          store.separateSuggestion(suggestion)
+        }
+      }
+      Button("Cancel", role: .cancel) { store.sourcePickerSuggestion = nil }
+    } message: { suggestion in
+      Text("\(suggestion.sources.count) emails were grouped into this suggestion.")
     }
     .sheet(item: $store.refundReview) { initialReview in
       RefundReviewSheet(
@@ -364,6 +393,7 @@ struct EmailScreen: View {
     case .purchases: return "cart"
     case .refunds: return "arrow.uturn.backward.circle"
     case .awaitingAnalysis: return "hourglass"
+    case .errors: return "exclamationmark.triangle"
     case .reviewed: return "checkmark.circle"
     }
   }
@@ -374,6 +404,7 @@ struct EmailScreen: View {
     case .purchases: return "No purchase suggestions"
     case .refunds: return "No refund suggestions"
     case .awaitingAnalysis: return "No emails awaiting analysis"
+    case .errors: return "No analysis errors"
     case .reviewed: return "Nothing reviewed yet"
     }
   }
@@ -386,6 +417,8 @@ struct EmailScreen: View {
       return "Email scanning is best effort and is not real time. Tap an account above to refresh."
     case .awaitingAnalysis:
       return "Fetched emails waiting for analysis will appear here."
+    case .errors:
+      return "Emails that could not be analyzed will appear here with retry options."
     case .reviewed:
       return "Suggestions you add, dismiss, or apply will appear here."
     }
@@ -415,19 +448,15 @@ struct EmailScreen: View {
     case .all:
       return store.allEmails.count
     case .purchases:
-      return store.suggestions.count { suggestion in
-        if suggestion.status == .pendingPurchase,
-           suggestion.kind == .purchase || suggestion.kind == .debit {
-          return true
-        }
-        return false
-      }
+      return store.pendingPurchaseCount
     case .refunds:
       return store.suggestions.count {
         $0.status == .pendingRefund && $0.kind == .refund
       }
     case .awaitingAnalysis:
       return store.allEmails.count { $0.analysisState == .pending }
+    case .errors:
+      return store.analysisErrorCount
     case .reviewed:
       return store.suggestions.count { $0.status.isReviewed }
     }

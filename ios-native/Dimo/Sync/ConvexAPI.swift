@@ -98,6 +98,7 @@ struct WireEmailMessage: Codable, Sendable {
   var paymentLastFour: String?
   var reference: String?
   var state: String
+  var purchaseGroupId: String?
   var linkedTransactionId: String?
   var analyzedAt: Double?
   var reviewedAt: Double?
@@ -220,6 +221,7 @@ enum WirePayload {
         "paymentLastFour": e.paymentLastFour as Any? ?? NSNull(),
         "reference": e.reference as Any? ?? NSNull(),
         "state": e.state,
+        "purchaseGroupId": e.purchaseGroupId as Any? ?? NSNull(),
         "linkedTransactionId": e.linkedTransactionId as Any? ?? NSNull(),
         "analyzedAt": e.analyzedAt.map { Double($0) as Any } ?? NSNull(),
         "reviewedAt": e.reviewedAt.map { Double($0) as Any } ?? NSNull(),
@@ -343,6 +345,7 @@ enum WirePayload {
         paymentLastFour: wire.paymentLastFour,
         reference: wire.reference,
         state: wire.state,
+        purchaseGroupId: wire.purchaseGroupId,
         linkedTransactionId: wire.linkedTransactionId,
         analyzedAt: wire.analyzedAt.map { Int($0) },
         reviewedAt: wire.reviewedAt.map { Int($0) },

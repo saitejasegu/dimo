@@ -140,6 +140,7 @@ export default defineSchema({
       v.literal("pendingPurchase"),
       v.literal("pendingRefund"),
     ),
+    purchaseGroupId: v.optional(v.union(v.string(), v.null())),
     linkedTransactionId: v.optional(v.union(v.string(), v.null())),
     analyzedAt: v.optional(v.union(v.number(), v.null())),
     reviewedAt: v.optional(v.union(v.number(), v.null())),

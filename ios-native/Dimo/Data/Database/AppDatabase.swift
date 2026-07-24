@@ -91,7 +91,9 @@ enum AppDatabase {
     return url
   }
 
-  private static var migrator: DatabaseMigrator {
+  /// Internal so migration compatibility can be verified against an in-memory
+  /// pre-v7 database in DimoTests.
+  static var migrator: DatabaseMigrator {
     var migrator = DatabaseMigrator()
     migrator.registerMigration("v1") { db in
       try db.create(table: "entities") { t in
@@ -422,6 +424,14 @@ enum AppDatabase {
       }
 
       try db.drop(table: "entities")
+    }
+    migrator.registerMigration("v7-email-purchase-groups") { db in
+      try db.alter(table: "emailMessages") { table in
+        table.add(column: "purchaseGroupId", .text)
+      }
+      try db.alter(table: "syncedEmailMessages") { table in
+        table.add(column: "purchaseGroupId", .text)
+      }
     }
     return migrator
   }

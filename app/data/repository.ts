@@ -266,6 +266,7 @@ export function sanitizePayload<T extends EntityType>(
         paymentLastFour: optionalString(value.paymentLastFour),
         reference: optionalString(value.reference),
         state,
+        purchaseGroupId: optionalString(value.purchaseGroupId),
         linkedTransactionId: optionalString(value.linkedTransactionId),
         analyzedAt: optionalNumber(value.analyzedAt),
         reviewedAt: optionalNumber(value.reviewedAt),

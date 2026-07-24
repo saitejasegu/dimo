@@ -214,6 +214,10 @@ enum EmailSuggestionSelectors {
     .map(\.0)
   }
 
+  static func merchantSimilarity(_ lhs: String?, _ rhs: String?) -> Double {
+    stringSimilarity(lhs, rhs)
+  }
+
   private static func paymentMethodContains(
     lastFour: String,
     method: PaymentMethodOption
@@ -242,7 +246,10 @@ enum EmailSuggestionSelectors {
   }
 
   private static func normalizedTokens(_ value: String) -> Set<String> {
-    let folded = value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    let folded = value.folding(
+      options: [.caseInsensitive, .diacriticInsensitive],
+      locale: Locale(identifier: "en_US_POSIX")
+    )
     return Set(
       folded
         .components(separatedBy: CharacterSet.alphanumerics.inverted)

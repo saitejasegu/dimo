@@ -434,11 +434,12 @@ final class RepositoryBootstrapTests: XCTestCase {
 
     let cashKey = entityKey(type: .paymentMethod, id: SeedData.cashPaymentMethod.id)
     try queue.write { db in
-      guard var record = try EntityRecord.fetchOne(db, key: cashKey) else {
+      guard let record = try EntityRecord.fetchOne(db, key: cashKey) else {
         return XCTFail("missing cash seed")
       }
-      record.serverRevision = 10
-      try record.update(db)
+      var stored = try record.toStoredEntity()
+      stored.serverRevision = 10
+      try EntityRecord.from(stored).save(db)
       try OutboxRecord.deleteAll(db)
     }
     try repo.enqueueUnsyncedDefaults()
@@ -820,6 +821,44 @@ final class SanitizerTests: XCTestCase {
     }
     XCTAssertNil(recurring.currency)
   }
+
+  func testEmailPurchaseGroupRoundTripsAndLegacyPayloadDefaultsToNil() throws {
+    let required: [String: Any] = [
+      "id": "email-1",
+      "accountId": "gmail-account",
+      "accountEmail": "person@example.com",
+      "gmailMessageId": "gmail-1",
+      "threadId": "thread-1",
+      "senderAddress": "merchant@example.com",
+      "subject": "Receipt",
+      "snippet": "Paid 10.00",
+      "internalDate": 1_000.0,
+      "state": "pendingPurchase",
+      "createdAt": 1_000.0,
+      "updatedAt": 1_000.0,
+    ]
+    guard case .emailMessage(let legacy) = try WirePayload.decode(
+      entityType: .emailMessage,
+      dict: required
+    ) else {
+      return XCTFail("expected email message")
+    }
+    XCTAssertNil(legacy.purchaseGroupId)
+
+    var grouped = required
+    grouped["purchaseGroupId"] = "email-purchase-group"
+    guard case .emailMessage(let decoded) = try WirePayload.decode(
+      entityType: .emailMessage,
+      dict: grouped
+    ) else {
+      return XCTFail("expected grouped email message")
+    }
+    XCTAssertEqual(decoded.purchaseGroupId, "email-purchase-group")
+    XCTAssertEqual(
+      WirePayload.encode(.emailMessage(decoded))["purchaseGroupId"] as? String,
+      "email-purchase-group"
+    )
+  }
 }
 
 final class BudgetSelectorTests: XCTestCase {
@@ -1022,14 +1061,30 @@ final class EmailFeatureStoreTests: XCTestCase {
     XCTAssertEqual(EmailSuggestionFilter.allCases.last, .all)
     XCTAssertEqual(
       EmailSuggestionFilter.allCases,
-      [.purchases, .refunds, .awaitingAnalysis, .reviewed, .all]
+      [.purchases, .refunds, .awaitingAnalysis, .errors, .reviewed, .all]
     )
 
     store.selectedFilter = .awaitingAnalysis
     XCTAssertEqual(store.filteredEmails.map(\.id), ["pending"])
 
+    store.selectedFilter = .errors
+    XCTAssertTrue(store.filteredEmails.isEmpty)
+
     store.selectedFilter = .all
     XCTAssertEqual(store.filteredEmails.map(\.id), ["pending", "analyzed"])
+  }
+
+  @MainActor
+  func testPendingPurchaseCountIgnoresRefundsAndReviewed() {
+    let store = EmailFeatureStore(suggestions: [
+      suggestion(id: "buy", kind: .purchase, status: .pendingPurchase),
+      suggestion(id: "debit", kind: .debit, status: .pendingPurchase),
+      suggestion(id: "refund", kind: .refund, status: .pendingRefund),
+      suggestion(id: "added", kind: .purchase, status: .added),
+    ])
+
+    XCTAssertEqual(store.pendingPurchaseCount, 2)
+    XCTAssertEqual(store.filteredSuggestions.map(\.id), ["buy", "debit"])
   }
 
   @MainActor
@@ -1040,9 +1095,15 @@ final class EmailFeatureStoreTests: XCTestCase {
     ])
 
     XCTAssertTrue(store.hasFailedAnalyses)
+    XCTAssertEqual(store.analysisErrorCount, 1)
+
+    store.selectedFilter = .errors
+    XCTAssertEqual(store.filteredEmails.map(\.id), ["failed"])
 
     store.allEmails = [emailMessage(id: "analyzed", analysisState: .analyzed)]
     XCTAssertFalse(store.hasFailedAnalyses)
+    XCTAssertEqual(store.analysisErrorCount, 0)
+    XCTAssertTrue(store.filteredEmails.isEmpty)
   }
 
   func testOpenRouterProvenanceBadgeIncludesModelName() {
@@ -1060,6 +1121,38 @@ final class EmailFeatureStoreTests: XCTestCase {
       EmailUIAnalyzer.gemma.provenanceTitle(modelVersion: "gemma-3-270m"),
       "Gemma"
     )
+  }
+
+  @MainActor
+  func testGroupedPurchaseCountsOnceButAllFeedKeepsBothEmails() {
+    var grouped = suggestion(id: "receipt", kind: .purchase, status: .pendingPurchase)
+    grouped.groupID = "email-purchase-group"
+    grouped.sourceMessageIDs = ["receipt", "bank"]
+    grouped.sourceSenders = ["Food App", "Bank"]
+    grouped.sources = [
+      EmailUISourceSummary(id: "receipt", sender: "Food App", subject: "Receipt"),
+      EmailUISourceSummary(id: "bank", sender: "Bank", subject: "Debit alert"),
+    ]
+    grouped.merchant = "Food App"
+    grouped.paymentMethodID = "payment-card"
+
+    let store = EmailFeatureStore(
+      suggestions: [grouped],
+      allEmails: [
+        emailMessage(id: "receipt", analysisState: .analyzed),
+        emailMessage(id: "bank", analysisState: .analyzed),
+      ]
+    )
+
+    XCTAssertEqual(store.filteredSuggestions.map(\.id), ["receipt"])
+    store.review(grouped)
+    XCTAssertEqual(store.purchaseReview?.groupID, grouped.groupID)
+    XCTAssertEqual(store.purchaseReview?.sourceMessageIDs, ["receipt", "bank"])
+    XCTAssertEqual(store.purchaseReview?.merchant, "Food App")
+    XCTAssertEqual(store.purchaseReview?.paymentMethodID, "payment-card")
+
+    store.selectedFilter = .all
+    XCTAssertEqual(store.filteredEmails.map(\.id), ["receipt", "bank"])
   }
 
   private func emailMessage(
@@ -1775,6 +1868,312 @@ final class EmailDuplicateMatchTests: XCTestCase {
   }
 }
 
+final class EmailPurchaseGroupingSelectorTests: XCTestCase {
+  private func message(
+    id: String,
+    accountId: String = "gmail-account",
+    classification: EmailMessageClassification,
+    amount: String = "17.00",
+    currency: Currency = .INR,
+    internalDate: Int,
+    merchant: String,
+    subject: String = "Transaction",
+    paymentLastFour: String? = nil,
+    reference: String? = nil,
+    purchaseGroupId: String? = nil,
+    state: EmailSuggestionState = .pendingPurchase,
+    linkedTransactionId: String? = nil,
+    reviewedAt: Int? = nil
+  ) -> EmailMessageRecordModel {
+    EmailMessageRecordModel(
+      key: id,
+      accountId: accountId,
+      gmailMessageId: id,
+      threadId: "thread-\(id)",
+      rfcMessageId: nil,
+      senderName: merchant,
+      senderAddress: "\(id)@example.com",
+      subject: subject,
+      snippet: "Paid \(amount)",
+      internalDate: internalDate,
+      normalizedBodyText: "Paid \(amount)",
+      analysisProviderOverride: nil,
+      analyzerType: .gemma,
+      modelVersion: "test-gemma",
+      promptVersion: 1,
+      classification: classification,
+      merchant: merchant,
+      amount: amount,
+      currency: currency,
+      occurredAt: internalDate,
+      categoryId: "food",
+      paymentMethodId: nil,
+      paymentLastFour: paymentLastFour,
+      reference: reference,
+      state: state,
+      purchaseGroupId: purchaseGroupId,
+      linkedTransactionId: linkedTransactionId,
+      analyzedAt: internalDate,
+      reviewedAt: reviewedAt,
+      createdAt: internalDate,
+      updatedAt: internalDate
+    )
+  }
+
+  func testGroupsClosePurchaseAndDebitDespiteDifferentMerchants() {
+    let purchase = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "Thalairaj Biryani"
+    )
+    let debit = message(
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      merchant: "Food Delivery Payments"
+    )
+
+    let match = EmailPurchaseGroupingSelector.reciprocalPendingPair(
+      containing: purchase.key,
+      messages: [purchase, debit]
+    )
+
+    XCTAssertEqual(match?.purchaseMessageId, purchase.key)
+    XCTAssertEqual(match?.debitMessageId, debit.key)
+    XCTAssertEqual(
+      match?.groupId,
+      EmailPurchaseGroupingSelector.groupId(purchase.key, debit.key)
+    )
+  }
+
+  func testGroupsWiderGapOnlyWithCorroboratingEvidence() {
+    let purchase = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "Restaurant",
+      paymentLastFour: "1234"
+    )
+    let corroboratedDebit = message(
+      id: "bank",
+      classification: .debit,
+      internalDate: 5_000_000,
+      merchant: "Delivery Platform",
+      paymentLastFour: "1234"
+    )
+    let unsupportedDebit = message(
+      id: "other-bank",
+      classification: .debit,
+      internalDate: 5_000_000,
+      merchant: "Unrelated Bank Merchant"
+    )
+
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(purchase, corroboratedDebit))
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(purchase, unsupportedDebit))
+  }
+
+  func testWiderGapAcceptsPaymentMethodReferenceOrMerchantEvidence() {
+    let base = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "Thalairaj Biryani Restaurant",
+      reference: "ORDER-ABC123"
+    )
+    var paymentPurchase = base
+    paymentPurchase.paymentMethodId = "payment-card"
+    var paymentDebit = message(
+      id: "payment-bank",
+      classification: .debit,
+      internalDate: 5_000_000,
+      merchant: "Different Merchant"
+    )
+    paymentDebit.paymentMethodId = "payment-card"
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(
+      paymentPurchase,
+      paymentDebit
+    ))
+
+    let referenceDebit = message(
+      id: "reference-bank",
+      classification: .debit,
+      internalDate: 5_000_000,
+      merchant: "Different Merchant",
+      reference: "order abc-123"
+    )
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(base, referenceDebit))
+
+    let merchantDebit = message(
+      id: "merchant-bank",
+      classification: .debit,
+      internalDate: 5_000_000,
+      merchant: "Thalairaj Biryani"
+    )
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(base, merchantDebit))
+  }
+
+  func testWiderGapUsesDistinctivePlatformTokenAcrossReceiptSubjectAndBankMerchant() {
+    let receipt = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "AnTeRa Kitchen And Bar",
+      subject: "Your Zomato order from AnTeRa Kitchen And Bar"
+    )
+    let debit = message(
+      id: "bank",
+      classification: .debit,
+      internalDate: 4_600_000,
+      merchant: "ZOMATO CYBS",
+      subject: "A payment was made using your Credit Card"
+    )
+
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(receipt, debit))
+  }
+
+  func testCloseWindowCanCrossMidnightAndExcessiveGapNeverMatches() {
+    let beforeMidnight = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 86_100_000,
+      merchant: "Restaurant",
+      paymentLastFour: "1234"
+    )
+    let afterMidnight = message(
+      id: "bank",
+      classification: .debit,
+      internalDate: 86_700_000,
+      merchant: "Bank"
+    )
+    XCTAssertTrue(EmailPurchaseGroupingSelector.isEligiblePair(
+      beforeMidnight,
+      afterMidnight
+    ))
+
+    let tooLate = message(
+      id: "late-bank",
+      classification: .debit,
+      internalDate: beforeMidnight.internalDate + 2 * 60 * 60 * 1_000 + 1,
+      merchant: "Restaurant",
+      paymentLastFour: "1234"
+    )
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(
+      beforeMidnight,
+      tooLate
+    ))
+  }
+
+  func testRejectsAmbiguousAndExplicitlySeparatedCandidates() {
+    let purchase = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "Restaurant"
+    )
+    let debitA = message(
+      id: "bank-a",
+      classification: .debit,
+      internalDate: 1_100_000,
+      merchant: "Bank"
+    )
+    let debitB = message(
+      id: "bank-b",
+      classification: .debit,
+      internalDate: 1_200_000,
+      merchant: "Bank"
+    )
+    XCTAssertNil(EmailPurchaseGroupingSelector.reciprocalPendingPair(
+      containing: purchase.key,
+      messages: [purchase, debitA, debitB]
+    ))
+
+    let separated = message(
+      id: "bank-separated",
+      classification: .debit,
+      internalDate: 1_100_000,
+      merchant: "Bank",
+      purchaseGroupId: "bank-separated"
+    )
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(purchase, separated))
+  }
+
+  func testRejectsWrongAccountCurrencyAmountOrClassification() {
+    let purchase = message(
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      merchant: "Restaurant"
+    )
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(
+      purchase,
+      message(
+        id: "account",
+        accountId: "other",
+        classification: .debit,
+        internalDate: 1_100_000,
+        merchant: "Bank"
+      )
+    ))
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(
+      purchase,
+      message(
+        id: "currency",
+        classification: .debit,
+        currency: .USD,
+        internalDate: 1_100_000,
+        merchant: "Bank"
+      )
+    ))
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(
+      purchase,
+      message(
+        id: "amount",
+        classification: .debit,
+        amount: "18.00",
+        internalDate: 1_100_000,
+        merchant: "Bank"
+      )
+    ))
+    XCTAssertFalse(EmailPurchaseGroupingSelector.isEligiblePair(
+      purchase,
+      message(
+        id: "purchase-2",
+        classification: .purchase,
+        internalDate: 1_100_000,
+        merchant: "Restaurant"
+      )
+    ))
+  }
+}
+
+final class EmailPurchaseGroupingMigrationTests: XCTestCase {
+  func testV7AddsNullableGroupColumnsWithoutBackfill() throws {
+    let queue = try DatabaseQueue()
+    try AppDatabase.migrator.migrate(queue, upTo: "v6-typed-entities")
+
+    try queue.read { db in
+      XCTAssertFalse(try db.columns(in: "emailMessages").map(\.name).contains(
+        "purchaseGroupId"
+      ))
+      XCTAssertFalse(try db.columns(in: "syncedEmailMessages").map(\.name).contains(
+        "purchaseGroupId"
+      ))
+    }
+
+    try AppDatabase.migrator.migrate(queue)
+
+    try queue.read { db in
+      XCTAssertTrue(try db.columns(in: "emailMessages").map(\.name).contains(
+        "purchaseGroupId"
+      ))
+      XCTAssertTrue(try db.columns(in: "syncedEmailMessages").map(\.name).contains(
+        "purchaseGroupId"
+      ))
+    }
+  }
+}
+
 final class EmailLinkedTransactionRetentionTests: XCTestCase {
   func testAcceptedSuggestionKeepsEmailForReferenceUntilTransactionDeleted() throws {
     let userId = "email-link-\(UUID().uuidString)"
@@ -2117,6 +2516,431 @@ final class EmailLinkedTransactionRetentionTests: XCTestCase {
       XCTAssertEqual(error as? EmailRepositoryError, .transactionNotFound)
     }
     XCTAssertEqual(try repository.emailMessage(key: message.key)?.state, .pendingPurchase)
+  }
+}
+
+final class EmailPurchaseGroupingRepositoryTests: XCTestCase {
+  private func configuredRepository(
+    userId: String
+  ) throws -> (Repository, CategoryEntity) {
+    let queue = try AppDatabase.activate(userId: userId)
+    let repository = Repository(db: queue)
+    try repository.initializeLocalDatabase()
+    try repository.saveEmailAccount(EmailAccountRecordModel(
+      id: "gmail-subject",
+      emailAddress: "person@example.com"
+    ))
+    let category = CategoryEntity(
+      id: "category-food",
+      name: "Food",
+      emoji: "🍜",
+      monthlyBudgetMinor: nil,
+      tint: .neutral,
+      sortOrder: 1,
+      system: false
+    )
+    try repository.saveEntity(entityType: .category, payload: .category(category))
+    return (repository, category)
+  }
+
+  private func insertAndAnalyze(
+    _ repository: Repository,
+    id: String,
+    classification: EmailMessageClassification,
+    internalDate: Int,
+    categoryId: String
+  ) throws -> String {
+    let message = PendingEmailMessage(
+      accountId: "gmail-subject",
+      gmailMessageId: id,
+      threadId: "thread-\(id)",
+      senderName: classification == .purchase ? "Food App" : "Bank",
+      senderAddress: "\(id)@example.com",
+      subject: classification == .purchase ? "Order confirmed" : "Debit alert",
+      snippet: "Paid ₹10.00",
+      internalDate: internalDate,
+      normalizedBodyText: "Paid ₹10.00"
+    )
+    _ = try repository.insertPendingEmailMessages([message])
+    try repository.saveEmailAnalysis(
+      messageKey: message.key,
+      analysis: PersistedEmailAnalysis(
+        analyzerType: .gemma,
+        modelVersion: "test-gemma",
+        promptVersion: 1,
+        classification: classification,
+        merchant: classification == .purchase ? "Food App" : "Bank Merchant",
+        amount: "10.00",
+        currency: .INR,
+        occurredAt: internalDate,
+        categoryId: categoryId,
+        paymentMethodId: nil,
+        paymentLastFour: nil,
+        reference: nil
+      )
+    )
+    return message.key
+  }
+
+  func testGroupedApprovalCreatesOneTransactionAndLinksBothSources() throws {
+    let userId = "email-group-accept-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+    let receiptRecord = try XCTUnwrap(repository.emailMessage(key: receipt))
+    let bankRecord = try XCTUnwrap(repository.emailMessage(key: bank))
+    XCTAssertNotNil(receiptRecord.purchaseGroupId)
+    XCTAssertEqual(receiptRecord.purchaseGroupId, bankRecord.purchaseGroupId)
+    let groupedOperations = try repository.pendingOutbox(limit: 100).filter {
+      $0.entityType == .emailMessage && ($0.entityId == receipt || $0.entityId == bank)
+    }
+    XCTAssertEqual(Set(groupedOperations.map(\.entityId)), Set([receipt, bank]))
+    XCTAssertTrue(groupedOperations.allSatisfy { operation in
+      guard case .emailMessage(let email) = operation.payload else { return false }
+      return email.purchaseGroupId == receiptRecord.purchaseGroupId
+    })
+
+    let transaction = TransactionEntity(
+      id: "tx_grouped",
+      name: "Food App",
+      amountMinor: 1_000,
+      occurredAt: 1_300_000,
+      categoryId: category.id,
+      paymentMethodId: nil
+    )
+    try repository.acceptEmailSuggestions(
+      messageKeys: [receipt, bank],
+      transaction: transaction
+    )
+
+    let storedTransactions = try repository.allEntities().filter {
+      $0.entityType == .transaction && !$0.deleted
+    }
+    XCTAssertEqual(storedTransactions.map(\.entityId), [transaction.id])
+    let sources = try repository.emailMessages(linkedTransactionId: transaction.id)
+    XCTAssertEqual(Set(sources.map(\.key)), Set([receipt, bank]))
+    XCTAssertTrue(sources.allSatisfy { $0.state == .added })
+
+    try repository.removeEntity(entityType: .transaction, id: transaction.id)
+    let removedSources = try repository.emailSuggestions(filter: .reviewed)
+      .filter { $0.key == receipt || $0.key == bank }
+    XCTAssertEqual(removedSources.count, 2)
+    XCTAssertTrue(removedSources.allSatisfy {
+      $0.state == .dismissed && $0.linkedTransactionId == nil
+    })
+  }
+
+  func testShowSeparatelyPreventsRegrouping() throws {
+    let userId = "email-group-separate-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+
+    try repository.separateEmailSuggestions(messageKeys: [receipt, bank])
+
+    XCTAssertEqual(try repository.emailMessage(key: receipt)?.purchaseGroupId, receipt)
+    XCTAssertEqual(try repository.emailMessage(key: bank)?.purchaseGroupId, bank)
+    let records = try repository.emailSuggestions(filter: .purchases)
+    XCTAssertNil(EmailPurchaseGroupingSelector.reciprocalPendingPair(
+      containing: receipt,
+      messages: records
+    ))
+  }
+
+  func testSingleMessageWrappersDismissRestoreAndLinkTheCompleteGroup() throws {
+    let userId = "email-group-actions-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+
+    try repository.dismissEmailSuggestion(messageKey: receipt)
+    XCTAssertEqual(try repository.emailMessage(key: receipt)?.state, .dismissed)
+    XCTAssertEqual(try repository.emailMessage(key: bank)?.state, .dismissed)
+
+    try repository.restoreDismissedEmailSuggestion(messageKey: bank)
+    XCTAssertEqual(try repository.emailMessage(key: receipt)?.state, .pendingPurchase)
+    XCTAssertEqual(try repository.emailMessage(key: bank)?.state, .pendingPurchase)
+
+    let transaction = TransactionEntity(
+      id: "tx-existing",
+      name: "Already added",
+      amountMinor: 1_000,
+      occurredAt: 1_300_000,
+      categoryId: category.id,
+      paymentMethodId: nil
+    )
+    try repository.saveEntity(
+      entityType: .transaction,
+      payload: .transaction(transaction)
+    )
+    try repository.linkEmailSuggestionToTransaction(
+      messageKey: receipt,
+      transactionId: transaction.id
+    )
+
+    let sources = try repository.emailMessages(linkedTransactionId: transaction.id)
+    XCTAssertEqual(sources.map(\.key), [receipt, bank])
+    XCTAssertTrue(sources.allSatisfy { $0.state == .added })
+    XCTAssertEqual(
+      try repository.allEntities().filter {
+        $0.entityType == .transaction && !$0.deleted
+      }.count,
+      1
+    )
+  }
+
+  func testGroupedApprovalRollsBackWhenOneMemberIsStale() throws {
+    let userId = "email-group-rollback-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+    try AppDatabase.shared.write { db in
+      var stale = try XCTUnwrap(EmailMessageRecord.fetchOne(db, key: bank))
+      stale.state = EmailSuggestionState.dismissed.rawValue
+      stale.reviewedAt = 1_400_000
+      try stale.update(db)
+    }
+
+    let transaction = TransactionEntity(
+      id: "tx-must-rollback",
+      name: "Food App",
+      amountMinor: 1_000,
+      occurredAt: 1_300_000,
+      categoryId: category.id,
+      paymentMethodId: nil
+    )
+    XCTAssertThrowsError(try repository.acceptEmailSuggestions(
+      messageKeys: [receipt, bank],
+      transaction: transaction
+    ))
+    XCTAssertFalse(try repository.allEntities().contains {
+      $0.entityType == .transaction && $0.entityId == transaction.id && !$0.deleted
+    })
+    XCTAssertEqual(try repository.emailMessage(key: receipt)?.state, .pendingPurchase)
+  }
+
+  func testReanalysisClearsAutomaticGroupForBothMembersButPreservesSelfGroup() throws {
+    let userId = "email-group-reanalysis-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+
+    try repository.retryEmailAnalysis(messageKey: receipt)
+    XCTAssertNil(try repository.emailMessage(key: receipt)?.purchaseGroupId)
+    XCTAssertNil(try repository.emailMessage(key: bank)?.purchaseGroupId)
+
+    try repository.saveEmailAnalysis(
+      messageKey: receipt,
+      analysis: PersistedEmailAnalysis(
+        analyzerType: .gemma,
+        modelVersion: "test-gemma",
+        promptVersion: 1,
+        classification: .purchase,
+        merchant: "Food App",
+        amount: "10.00",
+        currency: .INR,
+        occurredAt: 1_000_000,
+        categoryId: category.id,
+        paymentMethodId: nil,
+        paymentLastFour: nil,
+        reference: nil
+      )
+    )
+    XCTAssertEqual(
+      try repository.emailMessage(key: receipt)?.purchaseGroupId,
+      try repository.emailMessage(key: bank)?.purchaseGroupId
+    )
+
+    try repository.separateEmailSuggestions(messageKeys: [receipt, bank])
+    try repository.retryEmailAnalysis(messageKey: receipt)
+    XCTAssertEqual(try repository.emailMessage(key: receipt)?.purchaseGroupId, receipt)
+    XCTAssertEqual(try repository.emailMessage(key: bank)?.purchaseGroupId, bank)
+  }
+
+  func testStartupReconciliationGroupsPreviouslyAnalyzedPendingPair() throws {
+    let userId = "email-group-reconcile-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+    try AppDatabase.shared.write { db in
+      for key in [receipt, bank] {
+        var record = try XCTUnwrap(EmailMessageRecord.fetchOne(db, key: key))
+        record.purchaseGroupId = nil
+        try record.update(db)
+      }
+    }
+
+    XCTAssertEqual(try repository.reconcilePendingPurchaseGroups(), 1)
+    XCTAssertEqual(
+      try repository.emailMessage(key: receipt)?.purchaseGroupId,
+      try repository.emailMessage(key: bank)?.purchaseGroupId
+    )
+  }
+
+  func testLateEmailRequiresExplicitLinkAndUsesExistingTransaction() throws {
+    let userId = "email-group-late-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    let transaction = TransactionEntity(
+      id: "tx_existing",
+      name: "Food App",
+      amountMinor: 1_000,
+      occurredAt: 1_000_000,
+      categoryId: category.id,
+      paymentMethodId: nil
+    )
+    try repository.acceptEmailSuggestion(messageKey: receipt, transaction: transaction)
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+
+    XCTAssertEqual(try repository.emailMessage(key: bank)?.state, .pendingPurchase)
+    try repository.linkLateEmailSuggestion(
+      messageKey: bank,
+      reviewedSourceKey: receipt
+    )
+
+    let linked = try XCTUnwrap(repository.emailMessage(key: bank))
+    let source = try XCTUnwrap(repository.emailMessage(key: receipt))
+    XCTAssertEqual(linked.state, .added)
+    XCTAssertEqual(linked.linkedTransactionId, transaction.id)
+    XCTAssertEqual(linked.purchaseGroupId, source.purchaseGroupId)
+    XCTAssertEqual(
+      try repository.allEntities().filter {
+        $0.entityType == .transaction && !$0.deleted
+      }.count,
+      1
+    )
+  }
+
+  func testKeepingLateEmailSeparateSuppressesFutureMatching() throws {
+    let userId = "email-group-late-separate-\(UUID().uuidString)"
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let (repository, category) = try configuredRepository(userId: userId)
+    let receipt = try insertAndAnalyze(
+      repository,
+      id: "receipt",
+      classification: .purchase,
+      internalDate: 1_000_000,
+      categoryId: category.id
+    )
+    try repository.acceptEmailSuggestion(
+      messageKey: receipt,
+      transaction: TransactionEntity(
+        id: "tx-existing",
+        name: "Food App",
+        amountMinor: 1_000,
+        occurredAt: 1_000_000,
+        categoryId: category.id,
+        paymentMethodId: nil
+      )
+    )
+    let bank = try insertAndAnalyze(
+      repository,
+      id: "bank",
+      classification: .debit,
+      internalDate: 1_300_000,
+      categoryId: category.id
+    )
+
+    try repository.keepLateEmailSuggestionSeparate(messageKey: bank)
+
+    let pending = try XCTUnwrap(repository.emailMessage(key: bank))
+    let reviewed = try XCTUnwrap(repository.emailMessage(key: receipt))
+    XCTAssertEqual(pending.purchaseGroupId, bank)
+    XCTAssertNil(EmailPurchaseGroupingSelector.uniqueReviewedMatch(
+      for: pending,
+      reviewed: [reviewed]
+    ))
   }
 }
 

@@ -6,6 +6,8 @@ struct EmailSuggestionCard: View {
   var onReview: () -> Void
   var onDismiss: () -> Void
   var onRestore: (() -> Void)? = nil
+  var onLinkLate: (() -> Void)? = nil
+  var onKeepLateSeparate: (() -> Void)? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -42,6 +44,12 @@ struct EmailSuggestionCard: View {
             HStack(spacing: 7) {
               accountBadge
               analyzerBadge
+              if suggestion.actionMessageIDs.count > 1 {
+                Label("\(suggestion.actionMessageIDs.count) emails", systemImage: "envelope.stack.fill")
+                  .emailBadge(foreground: Theme.green, background: Theme.greenSoft)
+                  .lineLimit(1)
+                  .fixedSize(horizontal: true, vertical: false)
+              }
               Text(suggestion.kind.title)
                 .emailBadge(
                   foreground: suggestion.kind == .refund ? Theme.green : Theme.muted,
@@ -76,6 +84,21 @@ struct EmailSuggestionCard: View {
           if !suggestion.snippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(suggestion.snippet)
               .font(DimoFont.body(12))
+              .foregroundStyle(Theme.muted)
+              .lineLimit(2)
+          }
+
+          if let match = suggestion.lateMatch {
+            Label(
+              "Likely already added as \(match.transactionName)",
+              systemImage: "link.badge.plus"
+            )
+            .font(DimoFont.body(12, weight: .semibold))
+            .foregroundStyle(Theme.warn)
+            .fixedSize(horizontal: false, vertical: true)
+          } else if suggestion.actionMessageIDs.count > 1 {
+            Text(suggestion.sourceSenders.joined(separator: " + "))
+              .font(DimoFont.body(11))
               .foregroundStyle(Theme.muted)
               .lineLimit(2)
           }
@@ -148,6 +171,31 @@ struct EmailSuggestionCard: View {
       }
       .font(DimoFont.body(13, weight: .medium))
       .foregroundStyle(Theme.muted)
+    } else if suggestion.lateMatch != nil {
+      HStack(spacing: 10) {
+        Button(action: { onKeepLateSeparate?() }) {
+          Text("Keep separate")
+            .font(DimoFont.body(13, weight: .medium))
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Theme.canvas)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        }
+        .buttonStyle(.plain)
+
+        Button(action: { onLinkLate?() }) {
+          Text("Link to expense")
+            .font(DimoFont.body(13, weight: .semibold))
+            .foregroundStyle(Theme.onGreen)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Theme.green)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+      }
     } else {
       HStack(spacing: 10) {
         Button(action: onDismiss) {
