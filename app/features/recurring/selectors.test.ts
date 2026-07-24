@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Recurring } from "@/lib/types";
+import type { Recurring, Transaction } from "@/lib/types";
 import { allUpcomingBills, upcomingBills } from "@/features/recurring/selectors";
 
 function recurring(id: string, anchorDate: string, paused = false): Recurring {
@@ -12,6 +12,18 @@ function recurring(id: string, anchorDate: string, paused = false): Recurring {
     paused,
     anchorDate,
     frequency: "monthly",
+  };
+}
+
+/** A materialized occurrence transaction, keyed as the backend cron writes it. */
+function occurrence(recId: string, dateKey: string): Transaction {
+  return {
+    id: `recurring:${recId}:${dateKey}`,
+    name: recId,
+    category: "Subscriptions",
+    time: "12:00 PM",
+    day: "Today",
+    amount: 10,
   };
 }
 
@@ -28,6 +40,7 @@ describe("upcomingBills", () => {
         recurring("paused", "2026-07-14", true),
         recurring("next-month", "2026-08-01"),
       ],
+      [],
       undefined,
       now,
     );
@@ -49,10 +62,24 @@ describe("upcomingBills", () => {
         recurring("first", "2026-07-13"),
         recurring("second", "2026-07-15"),
       ],
+      [],
       2,
       now,
     );
     expect(result.map((item) => item.id)).toEqual(["first", "second"]);
+  });
+
+  it("drops a bill once its due occurrence has been charged this month", () => {
+    // "today" is the bill's own anchor day, so nextOccurrence is today.
+    const now = new Date(2026, 6, 24);
+    const bill = recurring("icloud", "2026-07-24");
+
+    expect(upcomingBills([bill], [], undefined, now).map((b) => b.id)).toEqual([
+      "icloud",
+    ]);
+    expect(
+      upcomingBills([bill], [occurrence("icloud", "2026-07-24")], undefined, now),
+    ).toEqual([]);
   });
 });
 
@@ -66,17 +93,27 @@ describe("allUpcomingBills", () => {
         recurring("paused", "2026-07-14", true),
         recurring("second", "2026-07-15"),
       ],
+      [],
       now,
     );
 
     expect(result.map((item) => item.id)).toEqual(["first", "paused", "second", "next-month"]);
   });
 
+  it("advances a charged bill to its next occurrence", () => {
+    const now = new Date(2026, 6, 24);
+    const bill = recurring("icloud", "2026-07-24");
+    // With July charged, the next due date rolls to August, not this month.
+    const result = allUpcomingBills([bill], [occurrence("icloud", "2026-07-24")], now);
+    expect(result.map((item) => item.id)).toEqual(["icloud"]);
+    expect(upcomingBills([bill], [occurrence("icloud", "2026-07-24")], undefined, now)).toEqual([]);
+  });
+
   it("keeps paused-only accounts manageable from Home", () => {
     const now = new Date(2026, 6, 12);
     const paused = recurring("paused", "2026-09-01", true);
 
-    expect(upcomingBills([paused], undefined, now)).toEqual([]);
-    expect(allUpcomingBills([paused], now)).toEqual([paused]);
+    expect(upcomingBills([paused], [], undefined, now)).toEqual([]);
+    expect(allUpcomingBills([paused], [], now)).toEqual([paused]);
   });
 });

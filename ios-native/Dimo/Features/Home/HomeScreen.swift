@@ -152,8 +152,8 @@ struct HomeScreen: View {
 
   @ViewBuilder
   private var upcomingSection: some View {
-    let upcoming = RecurringSelectors.upcomingBills(store.recurring)
-    let allUpcoming = RecurringSelectors.allUpcomingBills(store.recurring)
+    let upcoming = RecurringSelectors.upcomingBills(store.recurring, transactions: store.transactions)
+    let allUpcoming = RecurringSelectors.allUpcomingBills(store.recurring, transactions: store.transactions)
     if !allUpcoming.isEmpty {
       let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
       let canShowAll = allUpcoming.count > upcoming.count

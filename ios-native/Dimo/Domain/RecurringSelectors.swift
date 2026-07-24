@@ -17,18 +17,49 @@ enum RecurringSelectors {
     }
   }
 
+  /// The bill's next due date that hasn't already been charged. The backend cron
+  /// materializes each occurrence as a transaction keyed `recurring:<id>:<dateKey>`
+  /// on its due day, so an occurrence whose transaction already exists is skipped —
+  /// otherwise a bill charged today would linger in "upcoming" until day's end.
+  private static func nextDueUnrecorded(
+    _ rec: Recurring,
+    anchor: String,
+    frequency: RecurringFrequency,
+    recordedIDs: Set<String>,
+    now: Date,
+    calendar: Calendar
+  ) -> Date {
+    var due = DateHelpers.nextOccurrence(
+      anchorDate: anchor, frequency: frequency, now: now, calendar: calendar
+    )
+    for _ in 0..<24 {
+      let key = DateHelpers.localDateKey(due, calendar: calendar)
+      if !recordedIDs.contains("recurring:\(rec.id):\(key)") { break }
+      // Advance past the recorded occurrence to the following one.
+      let dayAfter = calendar.date(byAdding: .day, value: 1, to: due) ?? due
+      due = DateHelpers.nextOccurrence(
+        anchorDate: anchor, frequency: frequency, now: dayAfter, calendar: calendar
+      )
+    }
+    return due
+  }
+
   private static func withNextDue(
     _ recs: [Recurring],
+    transactions: [Transaction],
     now: Date,
     calendar: Calendar,
     includePaused: Bool = false
   ) -> [(Recurring, Date)] {
-    (includePaused ? recs : activeRecurring(recs))
+    let recordedIDs = Set(transactions.map(\.id))
+    return (includePaused ? recs : activeRecurring(recs))
       .compactMap { rec -> (Recurring, Date)? in
         guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return nil }
-        let due = DateHelpers.nextOccurrence(
-          anchorDate: anchor,
+        let due = nextDueUnrecorded(
+          rec,
+          anchor: anchor,
           frequency: frequency,
+          recordedIDs: recordedIDs,
           now: now,
           calendar: calendar
         )
@@ -39,11 +70,12 @@ enum RecurringSelectors {
 
   static func upcomingBills(
     _ recs: [Recurring],
+    transactions: [Transaction],
     limit: Int? = nil,
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    let dueThisMonth = withNextDue(recs, now: now, calendar: calendar)
+    let dueThisMonth = withNextDue(recs, transactions: transactions, now: now, calendar: calendar)
       .filter { pair in
         let due = pair.1
         let sameYear = calendar.component(.year, from: due) == calendar.component(.year, from: now)
@@ -56,13 +88,14 @@ enum RecurringSelectors {
     return Array(dueThisMonth.prefix(limit))
   }
 
-  /// All bills, including paused bills, sorted by next due date (any month).
+  /// All bills, including paused bills, sorted by next unpaid due date (any month).
   static func allUpcomingBills(
     _ recs: [Recurring],
+    transactions: [Transaction],
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    withNextDue(recs, now: now, calendar: calendar, includePaused: true).map(\.0)
+    withNextDue(recs, transactions: transactions, now: now, calendar: calendar, includePaused: true).map(\.0)
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

@@ -30,8 +30,8 @@ export function useOverview() {
       ),
       activeCount: active.length,
       recent: transactions,
-      upcoming: upcomingBills(recurring),
-      allUpcoming: allUpcomingBills(recurring),
+      upcoming: upcomingBills(recurring, transactions),
+      allUpcoming: allUpcomingBills(recurring, transactions),
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,
     };

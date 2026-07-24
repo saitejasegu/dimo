@@ -218,7 +218,10 @@ export const transactionOperationValidator = v.object({
   amountMinor: v.number(),
   occurredAt: v.number(),
   categoryId: v.string(),
-  paymentMethodId: v.union(v.string(), v.null()),
+  // Optional so a client that omits the field (rather than sending null) still
+  // syncs; the push handler defaults a missing value to null. See the iOS
+  // Optional-to-Any encoding bug fixed in ConvexAPI.swift.
+  paymentMethodId: v.optional(v.union(v.string(), v.null())),
   currency: v.optional(v.string()),
   sourceCurrency: v.optional(v.string()),
   sourceAmountMinor: v.optional(v.number()),
@@ -230,7 +233,9 @@ export const recurringOperationValidator = v.object({
   name: v.string(),
   amountMinor: v.number(),
   categoryId: v.string(),
-  paymentMethodId: v.union(v.string(), v.null()),
+  // Optional for the same reason as transactions above: tolerate a missing
+  // field and default to null in the push handler.
+  paymentMethodId: v.optional(v.union(v.string(), v.null())),
   frequency: v.union(v.literal("monthly"), v.literal("yearly")),
   anchorDate: v.string(),
   paused: v.boolean(),

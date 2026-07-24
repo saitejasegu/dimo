@@ -154,7 +154,9 @@ enum WirePayload {
         "amountMinor": Double(e.amountMinor),
         "occurredAt": Double(e.occurredAt),
         "categoryId": e.categoryId,
-        "paymentMethodId": e.paymentMethodId as Any? ?? NSNull(),
+        // `x as Any? ?? NSNull()` never coalesces a nil String? (it boxes to a
+        // non-nil Optional.none, which ConvexMobile then omits); .map emits null.
+        "paymentMethodId": e.paymentMethodId.map { $0 as Any } ?? NSNull(),
       ]
       if let currency = e.currency, !currency.isEmpty {
         dict["currency"] = currency
@@ -172,7 +174,7 @@ enum WirePayload {
         "name": e.name,
         "amountMinor": Double(e.amountMinor),
         "categoryId": e.categoryId,
-        "paymentMethodId": e.paymentMethodId as Any? ?? NSNull(),
+        "paymentMethodId": e.paymentMethodId.map { $0 as Any } ?? NSNull(),
         "frequency": e.frequency.rawValue,
         "anchorDate": e.anchorDate,
         "paused": e.paused,

@@ -348,7 +348,7 @@ export const pushTransactions = mutationGeneric({
         amountMinor: op.amountMinor,
         occurredAt: op.occurredAt,
         categoryId: op.categoryId,
-        paymentMethodId: op.paymentMethodId,
+        paymentMethodId: op.paymentMethodId ?? null,
         ...(op.currency !== undefined ? { currency: op.currency } : {}),
         ...(op.sourceCurrency !== undefined
           ? { sourceCurrency: op.sourceCurrency }
@@ -407,7 +407,7 @@ export const pushRecurring = mutationGeneric({
         name: op.name,
         amountMinor: op.amountMinor,
         categoryId: op.categoryId,
-        paymentMethodId: op.paymentMethodId,
+        paymentMethodId: op.paymentMethodId ?? null,
         frequency: op.frequency,
         anchorDate: op.anchorDate,
         paused: op.paused,

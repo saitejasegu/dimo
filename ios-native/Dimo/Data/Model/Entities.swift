@@ -30,7 +30,7 @@ func compareVersions(_ a: LogicalVersion, _ b: LogicalVersion) -> Int {
 
 let workspaceID = "global"
 let defaultCategoryEmoji = "🙂"
-let bootstrapVersion = 3
+let bootstrapVersion = 4
 /// Private local tombstone retention (days). Keep aligned with Convex
 /// TOMBSTONE_RETENTION_DAYS default — not user-visible or synced.
 let tombstoneRetentionDays = 90

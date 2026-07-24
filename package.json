@@ -29,7 +29,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "@workos-inc/authkit-react": "^0.16.1",
-    "convex": "^1.42.1",
+    "convex": "^1.42.3",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "electron-serve": "^2.1.1",

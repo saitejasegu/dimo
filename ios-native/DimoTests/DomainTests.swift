@@ -219,7 +219,7 @@ final class RecurringSelectorsTests: XCTestCase {
       recurring(id: "next-month", name: "Later", anchorDate: "2026-08-01"),
     ]
 
-    let upcoming = RecurringSelectors.upcomingBills(recs, limit: 3, now: now, calendar: cal)
+    let upcoming = RecurringSelectors.upcomingBills(recs, transactions: [], limit: 3, now: now, calendar: cal)
     XCTAssertEqual(upcoming.map(\.id), ["early", "mid", "late"])
   }
 
@@ -236,8 +236,27 @@ final class RecurringSelectorsTests: XCTestCase {
       recurring(id: "next-month", name: "Later", anchorDate: "2026-08-01"),
     ]
 
-    let upcoming = RecurringSelectors.upcomingBills(recs, now: now, calendar: cal)
+    let upcoming = RecurringSelectors.upcomingBills(recs, transactions: [], now: now, calendar: cal)
     XCTAssertEqual(upcoming.map(\.id), ["first", "second", "third", "fourth", "fifth"])
+  }
+
+  func testChargedBillDropsOutOfUpcoming() {
+    let cal = Calendar(identifier: .gregorian)
+    // "today" is the bill's own anchor day, so nextOccurrence is today.
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 24))!
+    let bill = recurring(id: "icloud", name: "iCloud Plus", anchorDate: "2026-07-24")
+    let charged = Transaction(
+      id: "recurring:icloud:2026-07-24", name: "iCloud Plus", category: "Subscriptions",
+      time: "12:00 PM", day: "Today", amount: 10
+    )
+
+    XCTAssertEqual(
+      RecurringSelectors.upcomingBills([bill], transactions: [], now: now, calendar: cal).map(\.id),
+      ["icloud"]
+    )
+    XCTAssertTrue(
+      RecurringSelectors.upcomingBills([bill], transactions: [charged], now: now, calendar: cal).isEmpty
+    )
   }
 
   func testAllUpcomingBillsIncludesFutureMonths() {
@@ -250,7 +269,7 @@ final class RecurringSelectorsTests: XCTestCase {
       recurring(id: "second", name: "Second", anchorDate: "2026-07-15"),
     ]
 
-    let all = RecurringSelectors.allUpcomingBills(recs, now: now, calendar: cal)
+    let all = RecurringSelectors.allUpcomingBills(recs, transactions: [], now: now, calendar: cal)
     XCTAssertEqual(all.map(\.id), ["first", "paused", "second", "next-month"])
   }
 
@@ -259,9 +278,9 @@ final class RecurringSelectorsTests: XCTestCase {
     let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 12))!
     let paused = recurring(id: "paused", name: "Paused", anchorDate: "2026-09-01", paused: true)
 
-    XCTAssertTrue(RecurringSelectors.upcomingBills([paused], now: now, calendar: cal).isEmpty)
+    XCTAssertTrue(RecurringSelectors.upcomingBills([paused], transactions: [], now: now, calendar: cal).isEmpty)
     XCTAssertEqual(
-      RecurringSelectors.allUpcomingBills([paused], now: now, calendar: cal).map(\.id),
+      RecurringSelectors.allUpcomingBills([paused], transactions: [], now: now, calendar: cal).map(\.id),
       ["paused"]
     )
   }
