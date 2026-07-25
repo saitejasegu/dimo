@@ -16,7 +16,7 @@ Convex agent skills for common tasks can be installed by running
 
 Dimo is a local-first personal spending tracker for expenses, categories and
 budgets, payment methods, recurring bills, stats, CSV import/export, lending, and
-account preferences. It has three clients sharing one authenticated Convex
+account preferences. It has four clients sharing one authenticated Convex
 backend:
 
 | Surface | Runtime and local store | Entry points |
@@ -24,6 +24,7 @@ backend:
 | Web | Next.js 16, React 19, Tailwind 4, Dexie/IndexedDB | `app/page.tsx`, `app/auth/AuthRoot.tsx` |
 | Desktop | Hardened Electron wrapper around the static web export | `electron/main.mjs`, `electron/preload.cjs` |
 | iOS | SwiftUI, GRDB/SQLite, iOS 26+ | `ios-native/Dimo/App/DimoApp.swift`, `RootView.swift` |
+| Android | Kotlin, Jetpack Compose, Room/SQLite, API 26+ | `android-native/` → `app/MainActivity.kt`, `RootView.kt` |
 | Cloud | Convex sync API authenticated by WorkOS AuthKit | `convex/schema.ts`, `values.ts`, `sync.ts`, `auth.config.ts` |
 
 Next.js uses `output: "export"` and produces `out/`; do not add API routes,
@@ -33,17 +34,19 @@ navigation is reducer state rather than URL routes. Electron has no separate
 data layer and exposes only platform metadata through its preload bridge.
 
 The main product destinations are Home/Activity, Stats, Recurring, Budgets,
-Lending, Settings, and Account. Responsive mobile web and native iOS use five
-primary tabs (Home, Stats, Recurring, Budgets, Lending); desktop web uses a
-sidebar. Web sheets/modals and native sheets are transient state, not routes.
+Lending, Settings, and Account. Native iOS adds an Email tab (Gmail suggestions);
+Android omits Email and uses four tabs (Home, Stats, Budgets, Lending) with
+Recurring reached from Home. Responsive mobile web still surfaces Recurring as a
+primary tab. Desktop web uses a sidebar. Web sheets/modals and native sheets are
+transient state, not routes.
 
 # Data architecture
 
 - The application is local-first. Dexie is authoritative on web/Electron;
-  GRDB is authoritative on iOS. UI models are projections of observed local
-  data, not the persistence contract.
+  GRDB is authoritative on iOS; Room is authoritative on Android. UI models are
+  projections of observed local data, not the persistence contract.
 - Local databases are account-scoped: `dimo-expenses:{WorkOS userId}` in
-  IndexedDB and `dimo-{userId}.sqlite` on iOS.
+  IndexedDB, `dimo-{userId}.sqlite` on iOS, and `dimo-{userId}.db` on Android.
 - Entity types are `category`, `paymentMethod`, `transaction`, `recurring`,
   `lend`, and singleton `preferences` (`id == "preferences"`). Workspace ID is
   currently the constant `"global"`.
@@ -66,8 +69,9 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
   `app/data/model.ts`, repository/sanitizers, `convex/values.ts`,
   `convex/schema.ts`, `convex/sync.ts`,
   `ios-native/Dimo/Data/Model/Entities.swift`,
-  `Data/PayloadSanitizer.swift`, and `Sync/ConvexAPI.swift`.
-- Swift values sent to Convex `v.number()` fields must be encoded as
+  `Data/PayloadSanitizer.swift`, `Sync/ConvexAPI.swift`, and the Android ports
+  under `android-native/.../data/` and `sync/`.
+- Swift and Kotlin values sent to Convex `v.number()` fields must be encoded as
   floating JSON numbers (`Double` / wire doubles); integer-typed encodings
   produce Convex `$integer` and fail validation.
 - `preferences.defaultView` is currently normalized to `home`. The last-used
@@ -79,7 +83,9 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
   `identity.tokenIdentifier`; never accept a client-provided owner/user ID.
 - Web uses AuthKit with `ConvexProviderWithAuthKit`. iOS uses public-client
   PKCE via `ASWebAuthenticationSession`, stores its refresh token in Keychain,
-  and uses the callback `dimo://callback`.
+  and uses the callback `dimo://callback`. Android uses the same public-client
+  PKCE flow via Custom Tabs, stores its refresh token in
+  EncryptedSharedPreferences / Keystore, and uses the same `dimo://callback`.
 - The canonical sync cycle is: ensure workspace profile → pull all pages →
   enqueue untouched bootstrap defaults → push pending batches → pull again.
 - Conflicts are last-write-wins by hybrid logical version
@@ -90,9 +96,12 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
 - Normal sync is triggered by local writes, reconnect/focus/foreground, retry
   timers, and Convex revision subscriptions.
 - Web “Sync now” hard-replaces only web-owned entity types and preserves
-  native-owned `lend`. Native “Sync now” is an ordinary sync; its separate
-  explicit replacement action covers all types. Account deletion can clear
-  every type. Hard replacement is destructive and is not normal sync.
+  native-owned `lend`. Native iOS “Sync now” is an ordinary sync; its separate
+  explicit replacement action covers all types including `emailMessage`.
+  Android “Sync now” is also ordinary sync; its full cloud replacement and
+  `enqueueFullUpload` **exclude** `emailMessage` so iOS-owned email data is not
+  wiped. Account deletion can clear every type. Hard replacement is destructive
+  and is not normal sync.
 - Client payload errors are permanent/blocked; auth, deployment, and network
   failures remain retryable. Preserve batch splitting that isolates one bad
   operation.
@@ -120,6 +129,11 @@ sidebar. Web sheets/modals and native sheets are transient state, not routes.
 | `ios-native/Dimo/Store/AppStore.swift` | Native UI state and mutation orchestration |
 | `ios-native/Dimo/Sync/`, `Auth/` | Native Convex protocol/coordinator and WorkOS session |
 | `ios-native/Dimo/Features/` | Native SwiftUI screens and forms |
+| `android-native/app/.../data/` | Room schema, records, repository, entities, local outbox |
+| `android-native/app/.../domain/` | Kotlin ports of native business calculations, formatting, dates, CSV |
+| `android-native/app/.../store/` | Compose UI state and mutation orchestration (`AppStore`) |
+| `android-native/app/.../sync/`, `auth/` | Convex protocol/coordinator and WorkOS PKCE session |
+| `android-native/app/.../features/`, `design/` | Compose screens, sheets, and design tokens |
 | `store/` | App Store listing and submission material |
 
 TypeScript alias `@/*` resolves only to `app/*`. Put reusable business logic in
@@ -130,7 +144,8 @@ from derived UI models.
 
 - Stats, overview totals, budget progress, and suggested budgets derive from
   real transactions. Keep calculations in `app/features/*/selectors.ts` and
-  the corresponding `ios-native/Dimo/Domain/` port.
+  the corresponding `ios-native/Dimo/Domain/` and
+  `android-native/.../domain/` ports.
 - Categories have an emoji, optional monthly budget, tint, and sort order. A
   fresh account has no categories. Web category deletion also tombstones linked
   transactions and recurring bills; native currently tombstones linked
@@ -143,8 +158,8 @@ from derived UI models.
   so short months, leap years, and occurrence materialization stay consistent;
   do not replace calendar logic with fixed millisecond intervals.
 - CSV import can create missing categories and transactions in one atomic local
-  batch. Keep TypeScript and Swift headers, amount/date parsing, export format,
-  and category emoji fallback behavior compatible.
+  batch. Keep TypeScript, Swift, and Kotlin headers, amount/date parsing, export
+  format, and category emoji fallback behavior compatible.
 - Notification toggles are synced preferences only; there is currently no
   notification scheduling subsystem.
 
@@ -152,7 +167,8 @@ from derived UI models.
 
 ## Lending
 
-- Native iOS is the lending writer; web and Electron must remain read-only.
+- Native iOS and Android are lending writers; web and Electron must remain
+  read-only.
 - Group people by address-book `contactId`, never display name. Legacy missing
   IDs fall back to the name. Contact names/IDs may sync; photos are read
   on-device and must never be persisted or synced.
@@ -161,9 +177,10 @@ from derived UI models.
   contacts are omitted from summaries.
 - The current unsettled cycle starts after the most recent zero balance. Use
   `LendSelectors.unsettledTransactions(for:in:)` rather than duplicating it.
-- Native shared summaries use a plain-text `UIActivityViewController`, include
-  only the current unsettled cycle, omit comments, show `+`/`-` amounts, and
-  format dates as `dd-MMM-yyyy`.
+- Native shared summaries use a plain-text share sheet
+  (`UIActivityViewController` / Android `ACTION_SEND`), include only the
+  current unsettled cycle, omit comments, show `+`/`-` amounts, and format
+  dates as `dd-MMM-yyyy`.
 
 ## Native iOS
 
@@ -176,6 +193,21 @@ from derived UI models.
 - Never put WorkOS API keys or client secrets in iOS config. Convex URL and
   public WorkOS client ID are expected to be public.
 - Native domain tests live in `ios-native/DimoTests/DomainTests.swift`.
+
+## Native Android
+
+- `android-native/` is a Gradle project (`compileSdk` / `targetSdk` 37,
+  `minSdk` 26). Product flavors `prod` / `dev` mirror iOS xcconfig Convex URL
+  and WorkOS client IDs into `BuildConfig` / `AppConfig`.
+- Auth uses Custom Tabs + `dimo://callback` (same redirect as iOS) and stores
+  the refresh token in EncryptedSharedPreferences. Never put WorkOS API keys
+  or client secrets in Android config.
+- Android excludes `emailMessage` from pull, push/full upload, and
+  `clearWorkspace` so iOS-owned email suggestions survive Android full cloud
+  replacement. Android does not implement the Email / Gmail / AI suggestions
+  subsystem.
+- Domain and repository unit tests live under
+  `android-native/app/src/test/`. See `android-native/TESTING.md`.
 
 ## Web and design system
 
@@ -247,10 +279,11 @@ not included.
 See [Backup & Restore](https://docs.convex.dev/database/backup-restore) and
 [CLI export](https://docs.convex.dev/cli/reference/export).
 
-For behavior shared by web and iOS, add corresponding tests in both languages.
-For sync changes, cover fresh bootstrap, offline writes/reconnect, conflicting
-versions, tombstone propagation, blocked payloads, full replacement boundaries,
-sign-out, and account deletion as applicable.
+For behavior shared by web, iOS, and Android, add corresponding tests in each
+language. For sync changes, cover fresh bootstrap, offline writes/reconnect,
+conflicting versions, tombstone propagation, blocked payloads, full replacement
+boundaries (including Android’s `emailMessage` exclusion), sign-out, and account
+deletion as applicable.
 
 For native setup and an arm64 simulator build:
 
@@ -282,5 +315,5 @@ named simulator or device UUID for `xcodebuild test`.
 - `store/` is release copy, not runtime configuration; re-check its privacy and
   feature claims against current authentication, cloud sync, and analytics
   behavior before an App Store submission.
-- Lint excludes Electron and iOS. There is currently no CI workflow or single
-  command that validates all three clients.
+- Lint excludes Electron, iOS, and Android. There is currently no CI workflow or
+  single command that validates all four clients.

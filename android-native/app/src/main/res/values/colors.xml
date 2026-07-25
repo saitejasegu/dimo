@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Light tokens from ios-native/Dimo/DesignSystem/Theme.swift. -->
+  <color name="dimo_ink">#FF14231C</color>
+  <color name="dimo_canvas">#FFF5F8F6</color>
+  <color name="dimo_canvas_deep">#FFEEF2F0</color>
+  <color name="dimo_surface">#FFFFFFFF</color>
+  <color name="dimo_green">#FF1F9D63</color>
+  <color name="dimo_green_soft">#FFE6F4EC</color>
+  <color name="dimo_muted">#FF7C8A84</color>
+  <color name="dimo_line">#FFE4EAE7</color>
+  <color name="dimo_danger">#FFC4573C</color>
+  <color name="dimo_on_green">#FFFFFFFF</color>
+</resources>

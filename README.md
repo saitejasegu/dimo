@@ -7,8 +7,9 @@ Personal spending tracker — expenses, budgets, recurring bills, lending, and s
 | Web | Next.js 16, React 19, Dexie / IndexedDB | Static export to `out/` |
 | Desktop | Electron wrapping the same export | `electron/` |
 | iOS | SwiftUI + GRDB SQLite | `app.dimo.ios` · `ios-native/` |
+| Android | Kotlin + Compose + Room SQLite | `app.dimo.android` · `android-native/` |
 
-Web, desktop, and iOS share the same Convex backend and WorkOS account. Lending records are created and managed on native iOS, then shown read-only on web and desktop.
+Web, desktop, iOS, and Android share the same Convex backend and WorkOS account. Lending records are created and managed on native iOS and Android, then shown read-only on web and desktop.
 
 ## Features
 
@@ -18,8 +19,9 @@ Web, desktop, and iOS share the same Convex backend and WorkOS account. Lending 
 - Activity list, stats ranges, and CSV import / export
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
 - Read-only lending summary and activity on web, desktop, and responsive mobile web
-- **Native iOS:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
+- **Native iOS / Android:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
 - **Native iOS:** Liquid Glass tab UI (iOS 26+); optional Gmail → AI expense / refund suggestions (on-device Local Gemma or user-supplied OpenRouter)
+- **Native Android:** Jetpack Compose tab UI; core parity with iOS except Email / Gmail / AI suggestions. Full cloud replacement from Android preserves iOS-owned `emailMessage` data.
 
 ## Architecture
 
@@ -29,8 +31,9 @@ Web, desktop, and iOS share the same Convex backend and WorkOS account. Lending 
 | --- | --- |
 | Web / Electron | IndexedDB via Dexie (`dimo-expenses:{WorkOS userId}`) |
 | Native iOS | SQLite via GRDB (`dimo-{userId}.sqlite`) |
+| Native Android | SQLite via Room (`dimo-{userId}.db`) |
 
-Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend`. Native iOS owns lending writes; web and Electron only pull and display them. Every local write and its outbox op commit together. The web app requires WorkOS + Convex configuration and authentication; native clients remain usable offline and sync when configured.
+Entity types: `category`, `paymentMethod`, `transaction`, `recurring`, `preferences`, and `lend` (plus iOS-owned `emailMessage`). Native iOS and Android own lending writes; web and Electron only pull and display them. Android never pulls or clears `emailMessage`. Every local write and its outbox op commit together. The web app requires WorkOS + Convex configuration and authentication; native clients remain usable offline and sync when configured.
 
 ### Sync
 
@@ -55,6 +58,7 @@ app/             Next.js UI, features, IndexedDB data layer, sync coordinator
 convex/          Schema, sync pull/push, WorkOS JWT config
 electron/        Desktop shell
 ios-native/      SwiftUI iOS app (see ios-native/README.md)
+android-native/  Kotlin Compose Android app (see android-native/README.md)
 store/           App Store listing copy and submission notes
 public/          Static assets
 ```
@@ -65,6 +69,7 @@ public/          Static assets
 - Convex account (cloud sync)
 - WorkOS AuthKit with Google and Apple social login
 - For native iOS: Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen), iOS 26 SDK
+- For native Android: JDK 17+, Android SDK (`compileSdk` 37), see [android-native/README.md](android-native/README.md)
 
 ## Local development (web)
 
@@ -134,6 +139,18 @@ open Dimo.xcodeproj
 Config: `Config/Debug.xcconfig` / `Release.xcconfig` → Info.plist (`ConvexURL`, `WorkOSClientID`). Register `dimo://callback` on the WorkOS client (public client + PKCE).
 
 App Store listing copy and submission steps: [store/SUBMIT.md](store/SUBMIT.md), `store/listing.json`.
+
+## Native Android (`android-native/`)
+
+Kotlin + Jetpack Compose client sharing Convex + WorkOS. Full setup: [android-native/README.md](android-native/README.md).
+
+```bash
+cd android-native
+./gradlew :app:assembleProdDebug
+./gradlew :app:testProdDebugUnitTest
+```
+
+Flavors `prod` / `dev` embed the same Convex URL and WorkOS client IDs as the iOS xcconfigs. Register `dimo://callback` on the WorkOS client (same redirect as iOS).
 
 ## Fresh install
 
