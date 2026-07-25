@@ -38,7 +38,9 @@ import {
 } from "@/data/repository";
 import { formatTransactionDay, formatTransactionTime, localDateKey, localDateTimeTimestamp, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel, recurringTransactionDates } from "@/lib/dates";
 import {
+  paymentMethodIdForLabel,
   paymentMethodLabel,
+  resolvePaymentMethodId,
   type CategoryName,
   type Currency,
   type ExpenseSaveInput,
@@ -311,7 +313,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     },
     toggleRecurring: (id) => {
       const state = getState(); const row = state.recurring.find((item) => item.id === id); if (!row?.anchorDate || !row.categoryId) return;
-      const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: row.paymentMethodId ?? null, frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused, currency: row.currency ?? state.currency };
+      const entity: RecurringEntity = { id, name: row.name, amountMinor: row.amountMinor ?? Math.round(row.amount * 100), categoryId: row.categoryId, paymentMethodId: resolvePaymentMethodId(row.paymentMethodId, state.paymentMethods), frequency: row.frequency ?? "monthly", anchorDate: row.anchorDate, paused: !row.paused, currency: row.currency ?? state.currency };
       persist(saveEntity("recurring", entity), () => {
         dispatch({ type: "CLOSE_OVERLAY" });
         dispatch({ type: "SHOW_TOAST", message: entity.paused ? `${entity.name} paused` : `${entity.name} resumed` });
@@ -326,7 +328,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     saveExpense: (input) => {
       const state = getState();
       const category = state.categories.find((c) => c.name === input.category);
-      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
+      const paymentMethodId = paymentMethodIdForLabel(input.paymentMethod, state.paymentMethods);
       if (!(input.amount > 0) || !category) return;
       const name = input.name.trim() || input.category;
       const currency = input.currency;
@@ -337,9 +339,9 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         const entity: TransactionEntity = {
           id: crypto.randomUUID(), name, ...converted,
           occurredAt: localDateTimeTimestamp(input.date, input.time),
-          categoryId: category.id, paymentMethodId: method?.id ?? null,
+          categoryId: category.id, paymentMethodId,
         };
-        persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(method?.id ?? null)]), () => {
+        persist(Promise.all([saveEntity("transaction", entity), setLastPaymentMethod(paymentMethodId)]), () => {
           dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" }); dispatch({ type: "SHOW_TOAST", message: "Expense added" });
         });
         return;
@@ -349,7 +351,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const recurring: RecurringEntity = {
         id: crypto.randomUUID(), name: input.name.trim(),
         ...recurringEntryFields(input.amount, currency),
-        categoryId: category.id, paymentMethodId: method?.id ?? null,
+        categoryId: category.id, paymentMethodId,
         frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: input.date, paused: false,
       };
@@ -369,7 +371,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           } satisfies TransactionEntity,
         })),
       ];
-      persist(Promise.all([saveEntities(entities), setLastPaymentMethod(method?.id ?? null)]), () => {
+      persist(Promise.all([saveEntities(entities), setLastPaymentMethod(paymentMethodId)]), () => {
         dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" });
         dispatch({ type: "SHOW_TOAST", message: transactionDates.length > 0 ? `${recurring.name} added · ${transactionDates.length} transaction${transactionDates.length === 1 ? "" : "s"}` : `${recurring.name} added` });
       });
@@ -394,17 +396,22 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     setDefaultPaymentMethod: (id) => persist(saveEntity("preferences", preferencesFrom(getState(), { defaultPaymentMethodId: id })), () => dispatch({ type: "SHOW_TOAST", message: "Default payment method updated" })),
     setPaymentMethodArchived: (id, archived) => {
       const state = getState(); const current = state.paymentMethods.find((m) => m.id === id); if (!current) return;
+      if (archived && id === CASH_PAYMENT_METHOD.id) {
+        dispatch({ type: "SHOW_TOAST", message: "Cash can't be archived" });
+        return;
+      }
       const active = state.paymentMethods.filter((m) => !m.archived); if (archived && active.length <= 1) { dispatch({ type: "SHOW_TOAST", message: "Keep at least one active payment method" }); return; }
       const tasks: Promise<unknown>[] = [saveEntity("paymentMethod", { id, name: current.name, type: current.type, detail: current.detail, archived })];
       if (archived && current.isDefault) tasks.push(saveEntity("preferences", preferencesFrom(state, { defaultPaymentMethodId: active.find((m) => m.id !== id)?.id ?? CASH_PAYMENT_METHOD.id })));
       persist(Promise.all(tasks), () => dispatch({ type: "SHOW_TOAST", message: archived ? `${current.name} archived` : `${current.name} restored` }));
     },
     saveTransactionEdits: (id, input) => {
-      const state = getState(); const current = state.transactions.find((t) => t.id === id); const category = state.categories.find((c) => c.name === input.category); const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
+      const state = getState(); const current = state.transactions.find((t) => t.id === id); const category = state.categories.find((c) => c.name === input.category);
       if (!current || !category) return;
       const converted = convertEntry(input.amount, input.currency, state.currency, state.rates);
       if (!converted) { dispatch({ type: "SHOW_TOAST", message: "Exchange rates unavailable — try again once online" }); return; }
-      persist(saveEntity("transaction", { id, name: input.name, ...converted, occurredAt: input.occurredAt, categoryId: category.id, paymentMethodId: method?.id ?? null }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
+      const paymentMethodId = paymentMethodIdForLabel(input.paymentMethod, state.paymentMethods);
+      persist(saveEntity("transaction", { id, name: input.name, ...converted, occurredAt: input.occurredAt, categoryId: category.id, paymentMethodId }), () => { dispatch({ type: "CLOSE_DETAIL" }); dispatch({ type: "SHOW_TOAST", message: "Transaction updated" }); });
     },
     setRecurringName: (name) => dispatch({ type: "SET_RECURRING_NAME", name }), setRecurringAmount: (amount) => dispatch({ type: "SET_RECURRING_AMOUNT", amount }),
     setRecurringAnchorDate: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }), setRecurringDay: (anchorDate) => dispatch({ type: "SET_RECURRING_ANCHOR_DATE", anchorDate }),
@@ -413,12 +420,11 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     saveRecurringEdits: (id, input) => {
       const state = getState(); const current = state.recurring.find((item) => item.id === id);
       const category = state.categories.find((c) => c.name === input.category);
-      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === input.paymentMethod);
       if (!current || !category || !(input.amount > 0) || !input.name.trim() || input.anchorDate < localDateKey(new Date())) return;
       const entity: RecurringEntity = {
         id, name: input.name.trim(),
         ...recurringEntryFields(input.amount, input.currency),
-        categoryId: category.id, paymentMethodId: method?.id ?? null,
+        categoryId: category.id, paymentMethodId: paymentMethodIdForLabel(input.paymentMethod, state.paymentMethods),
         frequency: input.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: input.anchorDate, paused: current.paused,
       };
@@ -430,7 +436,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const state = getState();
       const draft = state.recurringDraft;
       const category = state.categories.find((c) => c.name === draft.category);
-      const method = state.paymentMethods.find((m) => paymentMethodLabel(m) === draft.paymentMethod);
+      const paymentMethodId = paymentMethodIdForLabel(draft.paymentMethod, state.paymentMethods);
       const amount = Number(draft.amount);
       if (!category || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(draft.anchorDate)) return;
 
@@ -448,7 +454,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
             (current.currency ?? state.currency) as EnterableCurrency,
           ),
           categoryId: category.id,
-          paymentMethodId: method?.id ?? null,
+          paymentMethodId,
           frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
           anchorDate: draft.anchorDate,
           paused: current.paused,
@@ -465,7 +471,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         name: draft.name.trim(),
         ...recurringEntryFields(amount, state.currency),
         categoryId: category.id,
-        paymentMethodId: method?.id ?? null,
+        paymentMethodId,
         frequency: draft.frequency.toLowerCase() as "monthly" | "yearly",
         anchorDate: draft.anchorDate,
         paused: false,
@@ -755,7 +761,14 @@ export function AppStoreProvider({
       .map((r) => payloadFromStored("paymentMethod", r.row as never) as PaymentMethodEntity);
     const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
     const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => payloadFromStored("transaction", r.row as never) as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : "Unknown method", time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
+    const defaultMethodEntity =
+      paymentMethods.find((method) => method.isDefault && !method.archived) ??
+      paymentMethods.find((method) => !method.archived) ??
+      paymentMethods[0];
+    const defaultMethodLabel = defaultMethodEntity
+      ? paymentMethodLabel(defaultMethodEntity)
+      : "Cash";
+    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => payloadFromStored("transaction", r.row as never) as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId || resolvePaymentMethodId(null, paymentMethods), category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : defaultMethodLabel, time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
     const recurring = active.filter((r) => r.entityType === "recurring").map((r) => payloadFromStored("recurring", r.row as never) as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
     const lends = active
       .filter((r) => r.entityType === "lend")

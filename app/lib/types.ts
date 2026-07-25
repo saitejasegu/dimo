@@ -39,6 +39,42 @@ export function paymentMethodLabel(method: PaymentMethodOption): string {
   return [method.type, method.name, method.detail].filter(Boolean).join(" · ");
 }
 
+/** Seeded Cash id — always available as the final fallback. */
+const FALLBACK_PAYMENT_METHOD_ID = "payment-method-cash";
+
+/**
+ * Resolve a payment method id for writes. Prefers an existing requested id,
+ * then the account default, then any active method, then Cash.
+ */
+export function resolvePaymentMethodId(
+  requested: string | null | undefined,
+  paymentMethods: Array<Pick<PaymentMethodOption, "id" | "archived" | "isDefault">>,
+  fallbackId: string = FALLBACK_PAYMENT_METHOD_ID,
+): string {
+  const trimmed = typeof requested === "string" ? requested.trim() : "";
+  if (trimmed && paymentMethods.some((method) => method.id === trimmed)) {
+    return trimmed;
+  }
+  const active = paymentMethods.filter((method) => !method.archived);
+  return (
+    active.find((method) => method.isDefault)?.id ??
+    active[0]?.id ??
+    paymentMethods.find((method) => method.isDefault)?.id ??
+    paymentMethods[0]?.id ??
+    fallbackId
+  );
+}
+
+/** Map a UI payment-method label to a durable id, never null. */
+export function paymentMethodIdForLabel(
+  label: string,
+  paymentMethods: PaymentMethodOption[],
+  fallbackId: string = FALLBACK_PAYMENT_METHOD_ID,
+): string {
+  const match = paymentMethods.find((method) => paymentMethodLabel(method) === label);
+  return resolvePaymentMethodId(match?.id, paymentMethods, fallbackId);
+}
+
 export interface Transaction {
   id: ID;
   name: string;

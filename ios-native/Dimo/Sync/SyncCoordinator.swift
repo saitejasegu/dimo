@@ -173,6 +173,7 @@ actor SyncCoordinator {
           // Ensure reviewed email rows exist as entities before the full upload.
           try repository.enqueueUnsyncedEmailMessages()
           try repository.backfillRecurringCurrencies()
+          try repository.backfillMissingPaymentMethodIds()
           try await clearRemote(entityTypes: EntityType.allCases.map(\.rawValue))
           try repository.updateSyncMeta {
             $0.lastPulledRevision = 0
@@ -184,6 +185,7 @@ actor SyncCoordinator {
         } else {
           try await pullAll()
           try repository.backfillRecurringCurrencies()
+          try repository.backfillMissingPaymentMethodIds()
           // Upload bootstrap defaults only if pull left them unsynced (empty
           // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           try repository.enqueueUnsyncedDefaults()

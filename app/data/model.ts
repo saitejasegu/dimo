@@ -88,7 +88,8 @@ export interface TransactionEntity {
   amountMinor: number;
   occurredAt: number;
   categoryId: string;
-  paymentMethodId: string | null;
+  /** Always set on write; sanitizer defaults legacy nulls to Cash. */
+  paymentMethodId: string;
   /**
    * Denomination of `amountMinor` — the account default at write time.
    * New writers always set it so a later preferences change cannot reinterpret
@@ -108,7 +109,8 @@ export interface RecurringEntity {
   name: string;
   amountMinor: number;
   categoryId: string;
-  paymentMethodId: string | null;
+  /** Always set on write; sanitizer defaults legacy nulls to Cash. */
+  paymentMethodId: string;
   frequency: "monthly" | "yearly";
   anchorDate: string;
   paused: boolean;

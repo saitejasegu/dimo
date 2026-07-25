@@ -699,6 +699,9 @@ struct ExpenseEditorSheet: View {
       amount = store.expenseDraft.amount
       category = store.expenseDraft.category
       paymentMethodId = store.expenseDraft.paymentMethodId
+        ?? store.paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
+        ?? store.paymentMethods.first(where: { !$0.archived })?.id
+        ?? SeedData.cashPaymentMethod.id
       date = store.expenseDraft.date
       isRecurring = false
     case .transaction(let id):
@@ -708,6 +711,9 @@ struct ExpenseEditorSheet: View {
       amount = formatAmount(item.sourceAmount ?? item.amount)
       category = item.category
       paymentMethodId = item.paymentMethodId
+        ?? store.paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
+        ?? store.paymentMethods.first(where: { !$0.archived })?.id
+        ?? SeedData.cashPaymentMethod.id
       if let occurredAt = item.occurredAt {
         date = Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
       }
@@ -720,6 +726,9 @@ struct ExpenseEditorSheet: View {
       amount = formatAmount(item.amount)
       category = item.category
       paymentMethodId = item.paymentMethodId
+        ?? store.paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
+        ?? store.paymentMethods.first(where: { !$0.archived })?.id
+        ?? SeedData.cashPaymentMethod.id
       frequency = item.frequency ?? .monthly
       date = DateHelpers.parseLocalDate(item.anchorDate ?? DateHelpers.localDateKey(Date()))
       paused = item.paused
@@ -733,6 +742,9 @@ struct ExpenseEditorSheet: View {
         store.categories.first(where: { $0.id == id })?.name
       } ?? ""
       paymentMethodId = draft.paymentMethodID
+        ?? store.paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
+        ?? store.paymentMethods.first(where: { !$0.archived })?.id
+        ?? SeedData.cashPaymentMethod.id
       date = min(draft.occurredAt, Date())
       frequency = draft.recurringFrequency
       isRecurring = draft.isRecurring

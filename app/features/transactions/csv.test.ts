@@ -84,7 +84,7 @@ describe("defaultPaymentMethodIdForImport", () => {
     ])).toBe("card");
   });
 
-  it("returns null if no default payment method is available", () => {
-    expect(defaultPaymentMethodIdForImport([])).toBeNull();
+  it("falls back to Cash when no payment methods are available", () => {
+    expect(defaultPaymentMethodIdForImport([])).toBe("payment-method-cash");
   });
 });

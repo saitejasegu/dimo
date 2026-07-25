@@ -6,6 +6,7 @@ import type {
   PaymentMethodOption,
   PaymentMethodType,
 } from "@/lib/types";
+import { CASH_PAYMENT_METHOD } from "@/data/model";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
@@ -69,13 +70,15 @@ function MethodRow({
             <button type="button" onClick={onEdit} className="text-body">
               Edit
             </button>
-            <button
-              type="button"
-              onClick={() => actions.setPaymentMethodArchived(method.id, true)}
-              className="text-danger"
-            >
-              Archive
-            </button>
+            {method.id !== CASH_PAYMENT_METHOD.id ? (
+              <button
+                type="button"
+                onClick={() => actions.setPaymentMethodArchived(method.id, true)}
+                className="text-danger"
+              >
+                Archive
+              </button>
+            ) : null}
           </>
         )}
       </div>

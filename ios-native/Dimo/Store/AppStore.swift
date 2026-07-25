@@ -338,6 +338,7 @@ final class AppStore {
     guard let amount = Double(expenseDraft.amount), amount > 0 else { return }
     guard let category = categories.first(where: { $0.name == expenseDraft.category }) else { return }
     let id = makeId(prefix: "tx_")
+    let paymentMethodId = resolvedPaymentMethodId(expenseDraft.paymentMethodId)
     let entity = TransactionEntity(
       id: id,
       name: expenseDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -345,11 +346,11 @@ final class AppStore {
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: Int(expenseDraft.date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
-      paymentMethodId: expenseDraft.paymentMethodId,
+      paymentMethodId: paymentMethodId,
       currency: currency.rawValue
     )
     try? repository?.saveEntity(entityType: .transaction, payload: .transaction(entity))
-    try? repository?.setLastPaymentMethod(expenseDraft.paymentMethodId)
+    try? repository?.setLastPaymentMethod(paymentMethodId)
     filter = TransactionFilter()
     closeOverlay()
     setView(.home)
@@ -375,6 +376,7 @@ final class AppStore {
       return
     }
 
+    let resolvedMethodId = resolvedPaymentMethodId(paymentMethodId)
     guard let recurringFrequency else {
       let transaction = TransactionEntity(
         id: makeId(prefix: "tx_"),
@@ -382,14 +384,14 @@ final class AppStore {
         amountMinor: converted.amountMinor,
         occurredAt: min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000)),
         categoryId: category.id,
-        paymentMethodId: paymentMethodId,
+        paymentMethodId: resolvedMethodId,
         currency: converted.currency,
         sourceCurrency: converted.sourceCurrency,
         sourceAmountMinor: converted.sourceAmountMinor,
         exchangeRate: converted.exchangeRate
       )
       try? repository?.saveEntity(entityType: .transaction, payload: .transaction(transaction))
-      try? repository?.setLastPaymentMethod(paymentMethodId)
+      try? repository?.setLastPaymentMethod(resolvedMethodId)
       closeOverlay()
       setView(.home)
       showToast("Expense saved")
@@ -404,7 +406,7 @@ final class AppStore {
       name: trimmedName,
       amountMinor: recurringFields.amountMinor,
       categoryId: category.id,
-      paymentMethodId: paymentMethodId,
+      paymentMethodId: resolvedMethodId,
       frequency: recurringFrequency,
       anchorDate: anchorDate,
       paused: false,
@@ -423,7 +425,7 @@ final class AppStore {
         amountMinor: converted.amountMinor,
         occurredAt: DateHelpers.occurrenceTimestamp(occurrence, time: date),
         categoryId: category.id,
-        paymentMethodId: paymentMethodId,
+        paymentMethodId: resolvedMethodId,
         currency: converted.currency,
         sourceCurrency: converted.sourceCurrency,
         sourceAmountMinor: converted.sourceAmountMinor,
@@ -432,7 +434,7 @@ final class AppStore {
       return (.transaction, .transaction(transaction))
     })
     try? repository?.saveEntities(batch)
-    try? repository?.setLastPaymentMethod(paymentMethodId)
+    try? repository?.setLastPaymentMethod(resolvedMethodId)
     closeOverlay()
     setView(.home)
     showToast(
@@ -579,7 +581,7 @@ final class AppStore {
       amountMinor: converted.amountMinor,
       occurredAt: Int(date.timeIntervalSince1970 * 1000),
       categoryId: category.id,
-      paymentMethodId: paymentMethodId,
+      paymentMethodId: resolvedPaymentMethodId(paymentMethodId),
       currency: converted.currency,
       sourceCurrency: converted.sourceCurrency,
       sourceAmountMinor: converted.sourceAmountMinor,
@@ -603,12 +605,13 @@ final class AppStore {
       return
     }
     let recurringFields = ExchangeRates.recurringFields(amount, currency: entryCurrency)
+    let paymentMethodId = resolvedPaymentMethodId(recurringDraft.paymentMethodId)
     let entity = RecurringEntity(
       id: id,
       name: name,
       amountMinor: recurringFields.amountMinor,
       categoryId: category.id,
-      paymentMethodId: recurringDraft.paymentMethodId,
+      paymentMethodId: paymentMethodId,
       frequency: recurringDraft.frequency,
       anchorDate: recurringDraft.anchorDate,
       paused: recurringDraft.paused,
@@ -850,6 +853,10 @@ final class AppStore {
 
   func setPaymentMethodArchived(_ id: String, archived: Bool) {
     guard let method = paymentMethods.first(where: { $0.id == id }) else { return }
+    if archived && id == SeedData.cashPaymentMethod.id {
+      showToast("Cash can't be archived")
+      return
+    }
     let activeCount = paymentMethods.filter { !$0.archived }.count
     if archived && activeCount <= 1 {
       showToast("Keep at least one payment method")
@@ -1041,13 +1048,23 @@ final class AppStore {
     )
   }
 
-  private func preferredPaymentMethodId() -> String? {
+  private func preferredPaymentMethodId() -> String {
     if let last = try? repository?.deviceMeta()?.lastPaymentMethodId,
        paymentMethods.contains(where: { $0.id == last && !$0.archived }) {
       return last
     }
     return paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
       ?? paymentMethods.first(where: { !$0.archived })?.id
+      ?? SeedData.cashPaymentMethod.id
+  }
+
+  private func resolvedPaymentMethodId(_ requested: String?) -> String {
+    if let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !requested.isEmpty,
+       paymentMethods.contains(where: { $0.id == requested }) {
+      return requested
+    }
+    return preferredPaymentMethodId()
   }
 
   private func makeId(prefix: String) -> String {

@@ -165,13 +165,14 @@ export function sanitizePayload<T extends EntityType>(
     }
     case "transaction": {
       const value = payload as TransactionEntity;
+      const paymentMethodId = String(value.paymentMethodId ?? "").trim();
       const clean: TransactionEntity = {
         id: value.id,
         name: value.name,
         amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
         occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
         categoryId: value.categoryId,
-        paymentMethodId: value.paymentMethodId ?? null,
+        paymentMethodId: paymentMethodId || CASH_PAYMENT_METHOD.id,
       };
       const currency = String(value.currency ?? "").trim();
       if (currency) clean.currency = currency;
@@ -187,12 +188,13 @@ export function sanitizePayload<T extends EntityType>(
     case "recurring": {
       const value = payload as RecurringEntity;
       const anchor = String(value.anchorDate ?? "");
+      const paymentMethodId = String(value.paymentMethodId ?? "").trim();
       const clean: RecurringEntity = {
         id: value.id,
         name: value.name,
         amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
         categoryId: value.categoryId,
-        paymentMethodId: value.paymentMethodId ?? null,
+        paymentMethodId: paymentMethodId || CASH_PAYMENT_METHOD.id,
         frequency: value.frequency === "yearly" ? "yearly" : "monthly",
         anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(anchor)
           ? anchor
@@ -492,6 +494,60 @@ export async function backfillRecurringCurrencies() {
     }
   });
   if (updated > 0) notifyWrite();
+  return updated;
+}
+
+/**
+ * Repair legacy transaction/recurring rows that omitted paymentMethodId.
+ * Uses the account default when present, otherwise Cash, and enqueues the
+ * versioned repair so cloud and other clients converge.
+ */
+export async function backfillMissingPaymentMethodIds() {
+  let updated = 0;
+  await db.transaction("rw", allTypedTables(), async () => {
+    const preferences = await getStoredRow("preferences", "preferences");
+    const defaultPaymentMethodId =
+      preferences && !preferences.deleted
+        ? String(
+            (preferences as { defaultPaymentMethodId?: string }).defaultPaymentMethodId ||
+              CASH_PAYMENT_METHOD.id,
+          ).trim() || CASH_PAYMENT_METHOD.id
+        : CASH_PAYMENT_METHOD.id;
+    const paymentMethods = (await tableForType("paymentMethod").toArray()) as StoredRow[];
+    const activeIds = new Set(
+      paymentMethods
+        .filter((row) => !row.deleted)
+        .map((row) => row.entityId),
+    );
+    const fallbackId = activeIds.has(defaultPaymentMethodId)
+      ? defaultPaymentMethodId
+      : activeIds.has(CASH_PAYMENT_METHOD.id)
+        ? CASH_PAYMENT_METHOD.id
+        : [...activeIds][0] ?? CASH_PAYMENT_METHOD.id;
+
+    for (const entityType of ["transaction", "recurring"] as const) {
+      const rows = (await tableForType(entityType).toArray()) as StoredRow[];
+      for (const row of rows) {
+        if (row.deleted) continue;
+        const current = String(
+          (row as { paymentMethodId?: string | null }).paymentMethodId ?? "",
+        ).trim();
+        // Already valid, or already repaired to the fallback (even if the
+        // payment-method row is temporarily missing). Rewriting every sync
+        // would bump versions forever and leave the UI stuck on "Syncing".
+        if (current && (activeIds.has(current) || current === fallbackId)) continue;
+        const payload = payloadFromStored(entityType, row as never);
+        await putInCurrentTransaction(entityType, {
+          ...payload,
+          paymentMethodId: fallbackId,
+        });
+        updated += 1;
+      }
+    }
+  });
+  // Intentionally no notifyWrite: this runs inside the sync loop, which pushes
+  // the outbox next. Notifying would reschedule another sync and can fight the
+  // revision subscription (UI stuck on "Syncing").
   return updated;
 }
 

@@ -1583,6 +1583,10 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       throw EmailFeatureControllerError.invalidSuggestion
     }
     let merchant = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+    let paymentMethodId = Self.resolvedPaymentMethodId(
+      draft.paymentMethodID,
+      paymentMethods: paymentMethods
+    )
     let transaction = TransactionEntity(
       id: "tx_\(UUID().uuidString.lowercased())",
       name: merchant.isEmpty ? category.name : merchant,
@@ -1592,7 +1596,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         Int(Date().timeIntervalSince1970 * 1_000)
       ),
       categoryId: categoryId,
-      paymentMethodId: draft.paymentMethodID,
+      paymentMethodId: paymentMethodId,
       currency: currency.rawValue
     )
     let recurring = draft.isRecurring ? RecurringEntity(
@@ -1600,7 +1604,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       name: transaction.name,
       amountMinor: amountMinor,
       categoryId: categoryId,
-      paymentMethodId: draft.paymentMethodID,
+      paymentMethodId: paymentMethodId,
       frequency: draft.recurringFrequency,
       anchorDate: DateHelpers.localDateKey(draft.occurredAt),
       paused: false,
@@ -1976,6 +1980,20 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     case .unactionable: return .unactionable
     case .expired: return .expired
     }
+  }
+
+  private static func resolvedPaymentMethodId(
+    _ requested: String?,
+    paymentMethods: [PaymentMethodOption]
+  ) -> String {
+    if let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !requested.isEmpty,
+       paymentMethods.contains(where: { $0.id == requested }) {
+      return requested
+    }
+    return paymentMethods.first(where: { $0.isDefault && !$0.archived })?.id
+      ?? paymentMethods.first(where: { !$0.archived })?.id
+      ?? SeedData.cashPaymentMethod.id
   }
 
   private static func minorUnits(_ amount: Decimal) -> Int? {

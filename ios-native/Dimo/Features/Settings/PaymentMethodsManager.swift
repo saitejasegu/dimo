@@ -212,8 +212,10 @@ struct PaymentMethodsManager: View {
           }
           Button("Edit") { startEdit(method) }
             .foregroundStyle(Theme.body)
-          Button("Archive") { store.setPaymentMethodArchived(method.id, archived: true) }
-            .foregroundStyle(Theme.danger)
+          if method.id != SeedData.cashPaymentMethod.id {
+            Button("Archive") { store.setPaymentMethodArchived(method.id, archived: true) }
+              .foregroundStyle(Theme.danger)
+          }
         }
       }
       .font(DimoFont.body(12, weight: .medium))

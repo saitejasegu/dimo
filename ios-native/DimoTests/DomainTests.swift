@@ -594,6 +594,46 @@ final class RepositoryBootstrapTests: XCTestCase {
     XCTAssertEqual(correctedTransaction.currency, "USD")
     XCTAssertEqual(try repo.backfillRecurringCurrencies(), 0)
   }
+
+  func testBackfillsMissingPaymentMethodIds() throws {
+    let userId = "test-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repo = Repository(db: queue)
+    try repo.initializeLocalDatabase()
+
+    let transaction = TransactionEntity(
+      id: "legacy-null-pm",
+      name: "Coffee",
+      amountMinor: 500,
+      occurredAt: 1_700_000_000_000,
+      categoryId: "category-software",
+      paymentMethodId: SeedData.cashPaymentMethod.id,
+      currency: "INR"
+    )
+    try repo.saveEntity(entityType: .transaction, payload: .transaction(transaction))
+
+    // Simulate a legacy row that omitted paymentMethodId before sanitizer defaulting.
+    try queue.write { db in
+      let key = entityKey(type: .transaction, id: transaction.id)
+      guard var record = try TransactionRecord.fetchOne(db, key: key) else {
+        return XCTFail("expected stored transaction")
+      }
+      record.paymentMethodId = nil
+      try record.update(db)
+      try OutboxRecord.deleteOne(db, key: key)
+    }
+
+    XCTAssertEqual(try repo.backfillMissingPaymentMethodIds(), 1)
+    let stored = try XCTUnwrap(
+      repo.activeEntities(type: .transaction).first { $0.entityId == transaction.id }
+    )
+    guard case .transaction(let corrected) = stored.payload else {
+      return XCTFail("expected transaction payload")
+    }
+    XCTAssertEqual(corrected.paymentMethodId, SeedData.cashPaymentMethod.id)
+    XCTAssertEqual(try repo.backfillMissingPaymentMethodIds(), 0)
+  }
 }
 
 final class TransactionSelectorTests: XCTestCase {
@@ -701,6 +741,7 @@ final class SanitizerTests: XCTestCase {
     }
     XCTAssertEqual(value.amountMinor, 1)
     XCTAssertGreaterThan(value.occurredAt, 0)
+    XCTAssertEqual(value.paymentMethodId, SeedData.cashPaymentMethod.id)
   }
 
   func testCurrencyMetadataRoundTripsThroughConvexWirePayload() throws {

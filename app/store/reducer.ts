@@ -5,6 +5,7 @@ import {
   type Recurring,
   type Transaction,
 } from "@/lib/types";
+import { CASH_PAYMENT_METHOD } from "@/data/model";
 import {
   formatTransactionDay,
   formatTransactionTime,
@@ -467,6 +468,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "SET_PAYMENT_METHOD_ARCHIVED": {
       const selected = state.paymentMethods.find((method) => method.id === action.id);
       if (!selected || selected.archived === action.archived) return state;
+      if (action.archived && action.id === CASH_PAYMENT_METHOD.id) {
+        return withToast(state, "Cash can't be archived");
+      }
       const activeCount = state.paymentMethods.filter((method) => !method.archived).length;
       if (action.archived && activeCount <= 1) {
         return withToast(state, "Keep at least one active payment method");
@@ -622,7 +626,10 @@ export function reducer(state: AppState, action: Action): AppState {
         paymentMethodId:
           state.paymentMethods.find(
             (m) => paymentMethodLabel(m) === draft.paymentMethod,
-          )?.id ?? null,
+          )?.id ??
+          state.paymentMethods.find((m) => m.isDefault && !m.archived)?.id ??
+          state.paymentMethods.find((m) => !m.archived)?.id ??
+          null,
       };
       const tx: Transaction = {
         id: nextId("t"),

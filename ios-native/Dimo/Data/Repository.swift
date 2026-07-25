@@ -156,6 +156,79 @@ final class Repository: @unchecked Sendable {
     return updated
   }
 
+  /// Repairs transaction/recurring rows that omitted paymentMethodId and enqueues
+  /// the versioned repair so cloud and other clients converge.
+  @discardableResult
+  func backfillMissingPaymentMethodIds() throws -> Int {
+    var updated = 0
+    try db.write { db in
+      let preferencesKey = entityKey(type: .preferences, id: "preferences")
+      let defaultPaymentMethodId: String
+      if let record = try EntityRecord.fetchOne(db, key: preferencesKey),
+         !record.deleted,
+         case .preferences(let preferences) = try record.toStoredEntity().payload {
+        let trimmed = preferences.defaultPaymentMethodId
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        defaultPaymentMethodId = trimmed.isEmpty
+          ? SeedData.cashPaymentMethod.id
+          : trimmed
+      } else {
+        defaultPaymentMethodId = SeedData.cashPaymentMethod.id
+      }
+
+      let paymentMethods = try TypedEntityStore.fetchAll(
+        db: db, type: .paymentMethod, workspaceId: workspaceID
+      )
+      let activeIds = Set(
+        paymentMethods.compactMap { stored -> String? in
+          guard !stored.deleted else { return nil }
+          guard case .paymentMethod(let method) = stored.payload else { return nil }
+          return method.id
+        }
+      )
+      let fallbackId = activeIds.contains(defaultPaymentMethodId)
+        ? defaultPaymentMethodId
+        : (activeIds.contains(SeedData.cashPaymentMethod.id)
+          ? SeedData.cashPaymentMethod.id
+          : (activeIds.first ?? SeedData.cashPaymentMethod.id))
+
+      for entityType in [EntityType.transaction, .recurring] {
+        let records = try TypedEntityStore.fetchAll(db: db, type: entityType, workspaceId: workspaceID)
+        for stored in records {
+          guard !stored.deleted else { continue }
+          switch stored.payload {
+          case .transaction(var transaction):
+            let current = transaction.paymentMethodId?
+              .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Skip when already valid, or already repaired to the fallback even
+            // if the payment-method row is temporarily missing — rewriting every
+            // sync would bump versions forever and leave the UI stuck syncing.
+            if !current.isEmpty, activeIds.contains(current) || current == fallbackId {
+              continue
+            }
+            transaction.paymentMethodId = fallbackId
+            try putInTransaction(db, entityType: .transaction, payload: .transaction(transaction))
+            updated += 1
+          case .recurring(var recurring):
+            let current = recurring.paymentMethodId?
+              .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !current.isEmpty, activeIds.contains(current) || current == fallbackId {
+              continue
+            }
+            recurring.paymentMethodId = fallbackId
+            try putInTransaction(db, entityType: .recurring, payload: .recurring(recurring))
+            updated += 1
+          default:
+            continue
+          }
+        }
+      }
+    }
+    // No notifyWrite: called from the sync loop, which pushes next. Notifying
+    // would reschedule sync and can leave the UI stuck on "Syncing".
+    return updated
+  }
+
   func removeEntity(entityType: EntityType, id: String) throws {
     let key = entityKey(type: entityType, id: id)
     try db.write { db in

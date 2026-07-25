@@ -8,6 +8,7 @@ import {
   type EmailMessageEntity,
 } from "@/data/model";
 import {
+  backfillMissingPaymentMethodIds,
   backfillRecurringCurrencies,
   getStoredRow,
   initializeLocalDatabase,
@@ -171,6 +172,51 @@ describe("local repository", () => {
     expect(transaction).toMatchObject({ currency: "USD" });
     expect(await backfillRecurringCurrencies()).toBe(0);
   });
+
+  it("backfills missing payment method ids onto the account default", async () => {
+    await initializeLocalDatabase();
+    await saveEntity("preferences", {
+      ...DEFAULT_PREFERENCES,
+      defaultPaymentMethodId: "payment-method-cash",
+    });
+    await saveEntity("transaction", {
+      id: "legacy-null-pm",
+      name: "Legacy",
+      amountMinor: 100,
+      occurredAt: 1,
+      categoryId: "c1",
+      paymentMethodId: "payment-method-cash",
+    });
+    const existing = await getStoredRow("transaction", "legacy-null-pm");
+    expect(existing).toBeTruthy();
+    await tableForType("transaction").put({
+      ...existing!,
+      paymentMethodId: null,
+    } as never);
+    await db.outbox.clear();
+
+    expect(await backfillMissingPaymentMethodIds()).toBe(1);
+    const row = await getStoredRow("transaction", "legacy-null-pm");
+    expect(row).toMatchObject({ paymentMethodId: "payment-method-cash" });
+    expect(await backfillMissingPaymentMethodIds()).toBe(0);
+  });
+
+  it("does not rewrite rows already set to the fallback when payment methods are missing", async () => {
+    await initializeLocalDatabase();
+    await saveEntity("transaction", {
+      id: "orphan-pm",
+      name: "Orphan",
+      amountMinor: 100,
+      occurredAt: 1,
+      categoryId: "c1",
+      paymentMethodId: "payment-method-cash",
+    });
+    // Simulate a transient empty payment-method table after pull/clear races.
+    await tableForType("paymentMethod").clear();
+    await db.outbox.clear();
+
+    expect(await backfillMissingPaymentMethodIds()).toBe(0);
+  });
 });
 
 describe("sanitizePayload foreign-currency fields", () => {
@@ -181,7 +227,7 @@ describe("sanitizePayload foreign-currency fields", () => {
       amountMinor: 81_818,
       occurredAt: 1_700_000_000_000,
       categoryId: "c1",
-      paymentMethodId: null,
+      paymentMethodId: null as unknown as string,
       currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 1000,
@@ -189,6 +235,7 @@ describe("sanitizePayload foreign-currency fields", () => {
     });
     expect(clean).toMatchObject({
       amountMinor: 81_818,
+      paymentMethodId: "payment-method-cash",
       currency: "INR",
       sourceCurrency: "USD",
       sourceAmountMinor: 1000,
@@ -203,10 +250,13 @@ describe("sanitizePayload foreign-currency fields", () => {
       amountMinor: 5000,
       occurredAt: 1_700_000_000_000,
       categoryId: "c1",
-      paymentMethodId: null,
+      paymentMethodId: null as unknown as string,
       currency: "INR",
     });
-    expect(clean).toMatchObject({ currency: "INR" });
+    expect(clean).toMatchObject({
+      currency: "INR",
+      paymentMethodId: "payment-method-cash",
+    });
     expect(clean).not.toHaveProperty("sourceCurrency");
     expect(clean).not.toHaveProperty("sourceAmountMinor");
     expect(clean).not.toHaveProperty("exchangeRate");
@@ -218,26 +268,38 @@ describe("sanitizePayload foreign-currency fields", () => {
       name: "Netflix",
       amountMinor: 1500,
       categoryId: "c1",
-      paymentMethodId: null,
+      paymentMethodId: null as unknown as string,
       frequency: "monthly",
       anchorDate: "2026-01-10",
       paused: false,
       currency: "USD",
     });
-    expect(foreign).toMatchObject({ currency: "USD" });
+    expect(foreign).toMatchObject({
+      currency: "USD",
+      paymentMethodId: "payment-method-cash",
+    });
 
     const local = sanitizePayload("recurring", {
       id: "r2",
       name: "Rent",
       amountMinor: 50_000,
       categoryId: "c1",
-      paymentMethodId: null,
+      paymentMethodId: null as unknown as string,
       frequency: "monthly",
       anchorDate: "2026-01-10",
       paused: false,
     });
     expect(local).not.toHaveProperty("currency");
+    expect(local).toMatchObject({ paymentMethodId: "payment-method-cash" });
   });
+});
+
+describe("tombstone retention", () => {
+  beforeEach(async () => {
+    db.close();
+    await db.delete();
+  });
+  afterAll(() => db.close());
 
   it("hard-deletes expired local tombstones but keeps fresh ones and pending deletes", async () => {
     await initializeLocalDatabase();

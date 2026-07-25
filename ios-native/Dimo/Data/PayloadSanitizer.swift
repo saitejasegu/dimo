@@ -35,13 +35,17 @@ enum PayloadSanitizer {
       let currency = value.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let sourceCurrency = value.sourceCurrency?.trimmingCharacters(in: .whitespacesAndNewlines)
       let hasSource = (sourceCurrency?.isEmpty == false)
+      let paymentMethodId = value.paymentMethodId?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
       return .transaction(TransactionEntity(
         id: value.id,
         name: value.name,
         amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
         occurredAt: occurredAt,
         categoryId: value.categoryId,
-        paymentMethodId: value.paymentMethodId,
+        paymentMethodId: (paymentMethodId?.isEmpty == false)
+          ? paymentMethodId
+          : SeedData.cashPaymentMethod.id,
         currency: (currency?.isEmpty == false) ? currency : nil,
         sourceCurrency: hasSource ? sourceCurrency : nil,
         sourceAmountMinor: hasSource ? max(1, Int(Double(value.sourceAmountMinor ?? 0).rounded())) : nil,
@@ -53,12 +57,16 @@ enum PayloadSanitizer {
       let anchor = value.anchorDate
       let validAnchor = anchor.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
       let recurringCurrency = value.currency?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let paymentMethodId = value.paymentMethodId?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
       return .recurring(RecurringEntity(
         id: value.id,
         name: value.name,
         amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
         categoryId: value.categoryId,
-        paymentMethodId: value.paymentMethodId,
+        paymentMethodId: (paymentMethodId?.isEmpty == false)
+          ? paymentMethodId
+          : SeedData.cashPaymentMethod.id,
         frequency: value.frequency == .yearly ? .yearly : .monthly,
         anchorDate: validAnchor ? anchor : DateHelpers.localDateKey(Date()),
         paused: value.paused,

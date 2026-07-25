@@ -20,8 +20,11 @@ enum TransactionCSV {
     var occurredAt: Int?
   }
 
-  static func defaultPaymentMethodIdForImport(_ paymentMethods: [PaymentMethodOption]) -> String? {
+  /// Account default payment method for CSV imports — never nil.
+  static func defaultPaymentMethodIdForImport(_ paymentMethods: [PaymentMethodOption]) -> String {
     paymentMethods.first(where: \.isDefault)?.id
+      ?? paymentMethods.first(where: { !$0.archived })?.id
+      ?? SeedData.cashPaymentMethod.id
   }
 
   private static let emojiRules: [(NSRegularExpression, String)] = {

@@ -1,4 +1,4 @@
-import type { PaymentMethodOption } from "@/lib/types";
+import { resolvePaymentMethodId, type PaymentMethodOption } from "@/lib/types";
 
 export const TRANSACTION_CSV_HEADERS = [
   "Date",
@@ -23,10 +23,11 @@ export interface TransactionCsvSource {
   occurredAt?: number;
 }
 
+/** Account default payment method for CSV imports — never null. */
 export function defaultPaymentMethodIdForImport(
   paymentMethods: PaymentMethodOption[],
-): string | null {
-  return paymentMethods.find((method) => method.isDefault)?.id ?? null;
+): string {
+  return resolvePaymentMethodId(null, paymentMethods);
 }
 
 const CATEGORY_EMOJI_RULES: Array<[RegExp, string]> = [

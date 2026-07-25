@@ -15,6 +15,7 @@ import {
 import {
   ALL_ENTITY_TYPES,
   acknowledgeOperations,
+  backfillMissingPaymentMethodIds,
   backfillRecurringCurrencies,
   buildPushOperation,
   enqueueFullUpload,
@@ -170,10 +171,22 @@ export class SyncCoordinator {
         () => document.removeEventListener("visibilitychange", visible),
       );
       const watch = this.client.watchQuery(revisionRef, { workspaceId: WORKSPACE_ID });
-      const unsubscribe = watch.onUpdate(() => this.request());
+      // Match iOS: only sync when the server revision is ahead of what we have
+      // pulled. Re-emitting the current revision on reconnect would otherwise
+      // loop forever and leave the UI stuck on "Syncing".
+      const unsubscribe = watch.onUpdate(() => {
+        void this.remoteRevisionChanged(watch.localQueryResult());
+      });
       this.disposers.push(unsubscribe);
     }
     this.request();
+  }
+
+  private async remoteRevisionChanged(revision: number | undefined) {
+    if (typeof revision !== "number" || !Number.isFinite(revision)) return;
+    const meta = await db.syncMeta.get(WORKSPACE_ID);
+    const pulled = meta?.lastPulledRevision ?? 0;
+    if (revision > pulled) this.request();
   }
 
   stop() {
@@ -218,6 +231,7 @@ export class SyncCoordinator {
         await this.ensureProfile();
         if (replace) {
           await backfillRecurringCurrencies();
+          await backfillMissingPaymentMethodIds();
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
           await db.syncMeta.update(WORKSPACE_ID, {
             lastPulledRevision: 0,
@@ -229,6 +243,7 @@ export class SyncCoordinator {
         } else {
           await this.pullAll();
           await backfillRecurringCurrencies();
+          await backfillMissingPaymentMethodIds();
           await enqueueUnsyncedDefaults();
           await this.pushAll();
           await this.pullAll();
