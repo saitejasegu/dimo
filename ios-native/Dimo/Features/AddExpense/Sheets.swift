@@ -159,7 +159,7 @@ struct ExpenseEditorSheet: View {
   @State private var selectedMerchantSuggestion: String?
   @State private var fieldRowWidth: CGFloat = 0
   @State private var sourceEmails: [EmailUIEmailDetail] = []
-  @State private var presentedSourceEmail: EmailUIEmailDetail?
+  @State private var showSourceEmails = false
   @State private var duplicateMatches: [EmailDuplicateTransactionMatch] = []
   @FocusState private var merchantFieldFocused: Bool
 
@@ -167,15 +167,11 @@ struct ExpenseEditorSheet: View {
     SheetContainer(
       title: title,
       onClose: close,
-      titleHorizontalOffset: mode.showsDeleteButton ? 18 : 0
+      titleHorizontalOffset: titleHorizontalOffset
     ) {
       VStack(alignment: .leading, spacing: 12) {
         if let emailDraft {
           emailSuggestionContext(emailDraft)
-        }
-
-        if !sourceEmails.isEmpty {
-          sourceEmailRows
         }
 
         VStack(spacing: 4) {
@@ -292,6 +288,30 @@ struct ExpenseEditorSheet: View {
       .background(Theme.surface)
     }
     .presentationBackground(Theme.surface)
+    .overlay(alignment: .topLeading) {
+      if !sourceEmails.isEmpty {
+        Button { showSourceEmails = true } label: {
+          Image(systemName: "envelope")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Theme.green)
+            .frame(width: 42, height: 42)
+            .background(Theme.greenSoft)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Theme.bar.opacity(0.7))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+          sourceEmails.count == 1
+            ? "View linked email"
+            : "View \(sourceEmails.count) linked emails"
+        )
+        .padding(.top, 14)
+        .padding(.leading, 20)
+      }
+    }
     .overlay(alignment: .topTrailing) {
       if mode.showsDeleteButton {
         Button { confirmDelete = true } label: {
@@ -324,8 +344,8 @@ struct ExpenseEditorSheet: View {
       Button("Delete", role: .destructive) { deleteRecord() }
       Button("Cancel", role: .cancel) {}
     }
-    .sheet(item: $presentedSourceEmail) { detail in
-      EmailDetailSheet(detail: detail) { presentedSourceEmail = nil }
+    .sheet(isPresented: $showSourceEmails) {
+      SourceEmailsSheet(emails: sourceEmails) { showSourceEmails = false }
     }
     .alert(
       "Already added?",
@@ -409,46 +429,13 @@ struct ExpenseEditorSheet: View {
     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
   }
 
-  private var sourceEmailRows: some View {
-    VStack(spacing: 8) {
-      ForEach(sourceEmails) { detail in
-        Button { presentedSourceEmail = detail } label: {
-          HStack(spacing: 10) {
-            Image(systemName: "envelope.fill")
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(Theme.green)
-              .frame(width: 30, height: 30)
-              .background(Theme.greenSoft)
-              .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 1) {
-              Text(
-                sourceEmails.count == 1
-                  ? "Added from email"
-                  : "Added from \(sourceEmails.count) emails"
-              )
-              .font(DimoFont.body(11, weight: .semibold))
-              .foregroundStyle(Theme.ink)
-              Text(detail.subject.isEmpty ? detail.sender : detail.subject)
-                .font(DimoFont.body(11))
-                .foregroundStyle(Theme.muted)
-                .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.right")
-              .font(.system(size: 11, weight: .semibold))
-              .foregroundStyle(Theme.faint)
-          }
-          .padding(10)
-          .background(Theme.canvas)
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-          .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("View source email \(detail.subject)")
-      }
+  private var titleHorizontalOffset: CGFloat {
+    let hasEmail = !sourceEmails.isEmpty
+    let hasDelete = mode.showsDeleteButton
+    switch (hasEmail, hasDelete) {
+    case (false, true): return 18
+    case (true, false): return -18
+    default: return 0
     }
   }
 

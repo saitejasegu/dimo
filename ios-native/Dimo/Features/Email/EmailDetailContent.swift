@@ -1,0 +1,174 @@
+import SwiftUI
+
+struct EmailDetailContent: View {
+  var detail: EmailUIEmailDetail
+  /// When true, renders as stand-alone cards. When false, flat content for embedding in another surface.
+  var usesCardChrome: Bool = true
+  /// Hide the subject when the parent already shows it (e.g. accordion header).
+  var showsSubject: Bool = true
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: usesCardChrome ? 18 : 14) {
+      headerSection
+      bodySection
+    }
+  }
+
+  private var headerSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      if showsSubject {
+        Text(detail.subject.isEmpty ? "No subject" : detail.subject)
+          .font(DimoFont.display(20, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        labeledRow(title: "From", value: detail.sender)
+        if detail.senderAddress.caseInsensitiveCompare(detail.sender) != .orderedSame {
+          labeledRow(title: "Address", value: detail.senderAddress)
+        }
+        labeledRow(title: "To", value: detail.accountEmail)
+        labeledRow(title: "Received", value: EmailUIFormatting.dateTime(detail.receivedAt))
+      }
+
+      // Nested vertical ScrollViews can collapse horizontal ScrollView height to 0;
+      // pin the vertical size so accordion expansion always lays out.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 7) {
+          badgeRow
+        }
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 7) {
+            badgeRow
+          }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(usesCardChrome ? 16 : 0)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .modifier(EmailDetailCardChrome(enabled: usesCardChrome))
+  }
+
+  private var bodySection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Message")
+        .font(DimoFont.body(13, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+
+      if detail.bodyText.isEmpty {
+        Text("No message text is available for this email.")
+          .font(DimoFont.body(14))
+          .foregroundStyle(Theme.muted)
+      } else {
+        Text(detail.bodyText)
+          .font(DimoFont.body(14))
+          .foregroundStyle(Theme.body)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if !detail.isBodyRetained {
+        Label(
+          "Only the Gmail snippet is shown. The full email text is unavailable for this message (for example after retention cleanup).",
+          systemImage: "lock.shield.fill"
+        )
+        .font(DimoFont.body(11))
+        .foregroundStyle(Theme.muted)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.top, 2)
+      }
+    }
+    .padding(usesCardChrome ? 16 : 0)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .modifier(EmailDetailCardChrome(enabled: usesCardChrome))
+  }
+
+  @ViewBuilder
+  private var badgeRow: some View {
+    Text(detail.analysisState.title)
+      .emailDetailBadge(
+        foreground: statusForeground,
+        background: statusBackground
+      )
+
+    if let analyzer = detail.analyzer {
+      Label(
+        analyzer.provenanceTitle(modelVersion: detail.modelVersion),
+        systemImage: "sparkles"
+      )
+      .emailDetailBadge(
+        foreground: Theme.green,
+        background: Theme.greenSoft
+      )
+      .lineLimit(1)
+      .fixedSize(horizontal: true, vertical: false)
+    }
+
+    if let classification = detail.classification {
+      Text(classification.title)
+        .emailDetailBadge(
+          foreground: classification == .refund ? Theme.green : Theme.muted,
+          background: classification == .refund ? Theme.greenSoft : Theme.canvasDeep
+        )
+    }
+  }
+
+  private func labeledRow(title: String, value: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 8) {
+      Text(title)
+        .font(DimoFont.body(12, weight: .medium))
+        .foregroundStyle(Theme.muted)
+        .frame(width: 72, alignment: .leading)
+      Text(value)
+        .font(DimoFont.body(13))
+        .foregroundStyle(Theme.ink)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var statusForeground: Color {
+    switch detail.analysisState {
+    case .pending, .dismissed, .expired: return Theme.muted
+    case .failed: return Theme.danger
+    case .needsReview: return Theme.warn
+    case .analyzed, .added, .refundApplied: return Theme.green
+    }
+  }
+
+  private var statusBackground: Color {
+    switch detail.analysisState {
+    case .analyzed, .added, .refundApplied: return Theme.greenSoft
+    case .pending, .failed, .needsReview, .dismissed, .expired: return Theme.canvasDeep
+    }
+  }
+}
+
+private struct EmailDetailCardChrome: ViewModifier {
+  var enabled: Bool
+
+  func body(content: Content) -> some View {
+    if enabled {
+      content
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
+    } else {
+      content
+    }
+  }
+}
+
+extension View {
+  func emailDetailBadge(foreground: Color, background: Color) -> some View {
+    font(DimoFont.body(10, weight: .medium))
+      .foregroundStyle(foreground)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(background)
+      .clipShape(Capsule())
+      .fixedSize(horizontal: true, vertical: false)
+  }
+}
