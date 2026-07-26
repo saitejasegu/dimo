@@ -1,7 +1,10 @@
 import SwiftUI
 
 struct HomeScreen: View {
-  @Bindable var store: AppStore
+  /// Actions / mutations (not observed for entity churn).
+  var store: AppStore
+  @Bindable var entities: EntitiesStore
+  @Bindable var nav: NavStore
   var onOpenSettings: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @State private var filtersOpen = false
@@ -35,6 +38,9 @@ struct HomeScreen: View {
           .padding(.bottom, selecting ? 120 : 110)
           .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onScrollPhaseChange { _, phase in
+          store.setUIScrolling(phase != .idle)
+        }
       }
       .background(Theme.canvas.ignoresSafeArea())
 
@@ -45,9 +51,9 @@ struct HomeScreen: View {
     .sheet(isPresented: $filtersOpen) {
       FilterSheet(
         filter: activeFilter,
-        categories: store.categories,
-        paymentMethods: store.paymentMethods.filter { !$0.archived },
-        transactions: store.transactions,
+        categories: entities.categories,
+        paymentMethods: entities.paymentMethods.filter { !$0.archived },
+        transactions: entities.transactions,
         onApply: { filter in
           applyFilter(filter)
           filtersOpen = false
@@ -69,14 +75,14 @@ struct HomeScreen: View {
       }
     }
     .onAppear {
-      activeFilter = store.filter
-      environment.applyTheme(store.theme)
+      activeFilter = nav.filter
+      environment.applyTheme(entities.theme)
     }
-    .onChange(of: store.filter) { _, newFilter in
+    .onChange(of: nav.filter) { _, newFilter in
       activeFilter = newFilter
       visibleLimit = TransactionSelectors.homePageSize
     }
-    .onChange(of: store.theme) { _, theme in
+    .onChange(of: entities.theme) { _, theme in
       environment.applyTheme(theme)
     }
   }
@@ -87,16 +93,10 @@ struct HomeScreen: View {
     visibleLimit = TransactionSelectors.homePageSize
   }
 
-  private var totals: BudgetTotals {
-    BudgetSelectors.budgetTotals(store.transactions, limits: store.limits)
-  }
+  private var totals: BudgetTotals { entities.monthBudgetTotals }
 
-  private var filtered: [Transaction] {
-    TransactionSelectors.filterTransactions(store.transactions, filter: activeFilter)
-  }
-
-  private var page: (items: [Transaction], hasMore: Bool) {
-    TransactionSelectors.paginateTransactionsByDay(filtered, limit: visibleLimit)
+  private var homeList: (groups: [DayGroup], hasMore: Bool, filteredCount: Int) {
+    entities.homeList(filter: activeFilter, limit: visibleLimit)
   }
 
   private var header: some View {
@@ -105,14 +105,14 @@ struct HomeScreen: View {
         Text(Greeting.greetingFor())
           .font(DimoFont.body(13))
           .foregroundStyle(Theme.muted)
-        Text(store.profileName.isEmpty ? "there" : store.profileName)
+        Text(entities.profileName.isEmpty ? "there" : entities.profileName)
           .font(DimoFont.display(22, weight: .semibold))
           .foregroundStyle(Theme.ink)
           .lineLimit(1)
       }
       Spacer()
       Button(action: onOpenSettings) {
-        AvatarView(name: store.profileName, photoUrl: store.profilePhotoUrl)
+        AvatarView(name: entities.profileName, photoUrl: entities.profilePhotoUrl)
       }
       .buttonStyle(.plain)
     }
@@ -125,12 +125,12 @@ struct HomeScreen: View {
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.sideMuted)
         .padding(.bottom, 8)
-      Text(Formatting.money(totals.totalSpent, currency: store.currency))
+      Text(Formatting.money(totals.totalSpent, currency: entities.currency))
         .font(DimoFont.display(34, weight: .semibold))
         .foregroundStyle(Theme.sideText)
         .padding(.bottom, 8)
       HStack(alignment: .bottom, spacing: 16) {
-        Text("\(monthTransactionCount) transactions")
+        Text("\(totals.transactionCount) transactions")
           .font(DimoFont.body(12))
           .foregroundStyle(Theme.sideSub)
         Spacer()
@@ -138,7 +138,7 @@ struct HomeScreen: View {
           Text("Budget left")
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.sideMuted)
-          Text(Formatting.money(totals.left, currency: store.currency))
+          Text(Formatting.money(totals.left, currency: entities.currency))
             .font(DimoFont.display(18, weight: .semibold))
             .foregroundStyle(totals.left < 0 ? Theme.danger : Theme.greenBright)
         }
@@ -152,8 +152,8 @@ struct HomeScreen: View {
 
   @ViewBuilder
   private var upcomingSection: some View {
-    let upcoming = RecurringSelectors.upcomingBills(store.recurring, transactions: store.transactions)
-    let allUpcoming = RecurringSelectors.allUpcomingBills(store.recurring, transactions: store.transactions)
+    let upcoming = entities.upcomingThisMonth
+    let allUpcoming = entities.upcomingAll
     if !allUpcoming.isEmpty {
       let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
       let canShowAll = allUpcoming.count > upcoming.count
@@ -162,8 +162,8 @@ struct HomeScreen: View {
           ? 0
           : ExchangeRates.recurringAmountInDefault(
               item,
-              defaultCurrency: store.currency.rawValue,
-              rates: store.rates
+              defaultCurrency: entities.currency.rawValue,
+              rates: entities.rates
             ))
       }
       VStack(alignment: .leading, spacing: 0) {
@@ -173,7 +173,7 @@ struct HomeScreen: View {
             .foregroundStyle(Theme.ink)
           Spacer()
           if !visibleUpcoming.isEmpty {
-            Text(Formatting.money(upcomingTotal, currency: store.currency))
+            Text(Formatting.money(upcomingTotal, currency: entities.currency))
               .font(DimoFont.body(13, weight: .medium))
               .foregroundStyle(Theme.muted)
           }
@@ -240,7 +240,7 @@ struct HomeScreen: View {
                     Text(
                       Formatting.money(
                         rec.amount,
-                        currencyCode: rec.currency ?? store.currency.rawValue
+                        currencyCode: rec.currency ?? entities.currency.rawValue
                       )
                     )
                       .font(DimoFont.display(15, weight: .semibold))
@@ -271,14 +271,14 @@ struct HomeScreen: View {
   }
 
   private func recurringEstimate(_ rec: Recurring) -> String? {
-    let defaultCurrency = store.currency.rawValue
+    let defaultCurrency = entities.currency.rawValue
     guard let sourceCurrency = rec.currency, sourceCurrency != defaultCurrency else { return nil }
     let sourceMinor = rec.amountMinor ?? ExchangeRates.toMinorUnits(rec.amount, sourceCurrency)
     guard let convertedMinor = ExchangeRates.convertMinor(
       sourceMinor,
       from: sourceCurrency,
       to: defaultCurrency,
-      rates: store.rates
+      rates: entities.rates
     ) else {
       return "Rate unavailable"
     }
@@ -322,23 +322,25 @@ struct HomeScreen: View {
         .padding(.bottom, 14)
       }
 
-      let groups = TransactionSelectors.groupByDay(page.items)
-      if groups.isEmpty {
+      let list = homeList
+      if list.groups.isEmpty {
         Text("No transactions match.")
           .font(DimoFont.body(14))
           .foregroundStyle(Theme.faint)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 48)
       }
-      ForEach(groups, id: \.label) { group in
-        LazyVStack(alignment: .leading, spacing: 8) {
+      // Single outer LazyVStack + plain VStack groups — nested LazyVStacks and
+      // joined item-id keys force remounts and hurt cell reuse while scrolling.
+      ForEach(list.groups, id: \.label) { group in
+        VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .firstTextBaseline) {
             Text(group.label.uppercased())
               .font(DimoFont.body(12, weight: .medium))
               .kerning(0.96)
               .foregroundStyle(Theme.muted)
             Spacer()
-            Text(Formatting.spent(group.total, currency: store.currency))
+            Text(Formatting.spent(group.total, currency: entities.currency))
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.faint)
           }
@@ -347,19 +349,17 @@ struct HomeScreen: View {
           }
         }
         .padding(.bottom, 18)
-        .id(group.items.map(\.id).joined(separator: ","))
       }
 
-      if page.hasMore {
+      if list.hasMore {
         ProgressView()
           .tint(Theme.green)
           .frame(maxWidth: .infinity)
           .padding(.vertical, 12)
-          .id(page.items.count)
           .onAppear {
             let nextLimit = min(
               visibleLimit + TransactionSelectors.homePageSize,
-              filtered.count
+              list.filteredCount
             )
             guard nextLimit > visibleLimit else { return }
             DispatchQueue.main.async {
@@ -368,16 +368,18 @@ struct HomeScreen: View {
           }
       }
     }
+    // Remount on filter change so scroll resets to the top of the new result set.
     .id(filterEpoch)
   }
 
   private var filterTags: [FilterTag] {
     var tags: [FilterTag] = []
     for name in activeFilter.categories {
-      let emoji = store.categories.first { $0.name == name }?.emoji
+      let emoji = entities.categoryEmoji(explicit: nil, categoryId: nil, category: name)
+      let emojiOrNil: String? = emoji == "🙂" ? nil : emoji
       tags.append(FilterTag(
         id: "category:\(name)",
-        label: [emoji, name].compactMap { $0 }.joined(separator: " ")
+        label: [emojiOrNil, name].compactMap { $0 }.joined(separator: " ")
       ))
     }
     if activeFilter.paymentMethod != "All" {
@@ -394,10 +396,8 @@ struct HomeScreen: View {
   }
 
   private var dateRangeLabel: String {
-    let formatter = DateFormatter()
-    formatter.setLocalizedDateFormatFromTemplate("MMMd")
-    let start = activeFilter.startDate.map { formatter.string(from: $0) }
-    let end = activeFilter.endDate.map { formatter.string(from: $0) }
+    let start = activeFilter.startDate.map { DateHelpers.formatShortMonthDay($0) }
+    let end = activeFilter.endDate.map { DateHelpers.formatShortMonthDay($0) }
     switch (start, end) {
     case let (s?, e?): return s == e ? s : "\(s) – \(e)"
     case let (s?, nil): return "From \(s)"
@@ -490,7 +490,7 @@ struct HomeScreen: View {
             .lineLimit(1)
         }
         Spacer()
-        Text(Formatting.spent(tx.amount, currency: store.currency))
+        Text(Formatting.spent(tx.amount, currency: entities.currency))
           .font(DimoFont.display(15, weight: .semibold))
           .foregroundStyle(Theme.ink)
       }
@@ -533,19 +533,7 @@ struct HomeScreen: View {
   }
 
   private var currentMonthName: String {
-    let formatter = DateFormatter()
-    formatter.setLocalizedDateFormatFromTemplate("MMMM")
-    return formatter.string(from: Date())
-  }
-
-  private var monthTransactionCount: Int {
-    let cal = Calendar.current
-    let now = Date()
-    return store.transactions.filter {
-      guard let at = $0.occurredAt else { return false }
-      let d = Date(timeIntervalSince1970: TimeInterval(at) / 1000)
-      return cal.isDate(d, equalTo: now, toGranularity: .month)
-    }.count
+    DateHelpers.formatMonthName()
   }
 }
 
@@ -614,6 +602,8 @@ private struct FilterSheet: View {
   @State private var dateFilterEnabled: Bool
   @State private var fromDate: Date
   @State private var toDate: Date
+  @State private var debouncedMatchCount = 0
+  @State private var matchCountTask: Task<Void, Never>?
 
   init(
     filter: TransactionFilter,
@@ -635,6 +625,14 @@ private struct FilterSheet: View {
     _dateFilterEnabled = State(initialValue: filter.startDate != nil || filter.endDate != nil)
     _fromDate = State(initialValue: filter.startDate.map { calendar.startOfDay(for: $0) } ?? defaultStart)
     _toDate = State(initialValue: filter.endDate.map { calendar.startOfDay(for: $0) } ?? today)
+    var preview = filter
+    if filter.startDate != nil || filter.endDate != nil {
+      preview.startDate = filter.startDate.map { calendar.startOfDay(for: $0) } ?? defaultStart
+      preview.endDate = filter.endDate.map { calendar.startOfDay(for: $0) } ?? today
+    }
+    _debouncedMatchCount = State(
+      initialValue: TransactionSelectors.filterTransactions(transactions, filter: preview).count
+    )
   }
 
   private var previewFilter: TransactionFilter {
@@ -650,8 +648,19 @@ private struct FilterSheet: View {
     return next
   }
 
-  private var matchCount: Int {
-    TransactionSelectors.filterTransactions(transactions, filter: previewFilter).count
+  private func scheduleMatchCountRefresh() {
+    let filter = previewFilter
+    let rows = transactions
+    matchCountTask?.cancel()
+    matchCountTask = Task {
+      try? await Task.sleep(nanoseconds: 180_000_000)
+      guard !Task.isCancelled else { return }
+      let count = await Task.detached(priority: .userInitiated) {
+        TransactionSelectors.filterTransactions(rows, filter: filter).count
+      }.value
+      guard !Task.isCancelled else { return }
+      await MainActor.run { debouncedMatchCount = count }
+    }
   }
 
   var body: some View {
@@ -717,7 +726,7 @@ private struct FilterSheet: View {
         }
         .zIndex(1)
 
-        Text("\(matchCount) transaction\(matchCount == 1 ? "" : "s") match")
+        Text("\(debouncedMatchCount) transaction\(debouncedMatchCount == 1 ? "" : "s") match")
           .font(DimoFont.body(13))
           .foregroundStyle(Theme.muted)
           .frame(maxWidth: .infinity, alignment: .center)
@@ -740,10 +749,16 @@ private struct FilterSheet: View {
     .presentationBackground(Theme.surface)
     .onChange(of: fromDate) { _, newValue in
       if newValue > toDate { toDate = newValue }
+      scheduleMatchCountRefresh()
     }
     .onChange(of: toDate) { _, newValue in
       if newValue < fromDate { fromDate = newValue }
+      scheduleMatchCountRefresh()
     }
+    .onChange(of: draft.query) { _, _ in scheduleMatchCountRefresh() }
+    .onChange(of: draft.categories) { _, _ in scheduleMatchCountRefresh() }
+    .onChange(of: draft.paymentMethod) { _, _ in scheduleMatchCountRefresh() }
+    .onChange(of: dateFilterEnabled) { _, _ in scheduleMatchCountRefresh() }
   }
 
   private func filterLabel(_ text: String) -> some View {

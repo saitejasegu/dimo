@@ -7,6 +7,26 @@ enum Formatting {
     .EUR: "€",
   ]
 
+  private static let moneyFormatterLock = NSLock()
+
+  private static let integerMoneyFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.locale = Locale(identifier: "en_IN")
+    formatter.numberStyle = .decimal
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = 0
+    return formatter
+  }()
+
+  private static let fractionalMoneyFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.locale = Locale(identifier: "en_IN")
+    formatter.numberStyle = .decimal
+    formatter.minimumFractionDigits = 2
+    formatter.maximumFractionDigits = 2
+    return formatter
+  }()
+
   static func currencySymbol(_ currency: Currency = .INR) -> String {
     symbols[currency] ?? "₹"
   }
@@ -31,12 +51,10 @@ enum Formatting {
 
   private static func money(_ amount: Double, symbol: String) -> String {
     let hasFraction = abs(amount.truncatingRemainder(dividingBy: 1)) > 0.0001
-    let formatter = NumberFormatter()
-    formatter.locale = Locale(identifier: "en_IN")
-    formatter.numberStyle = .decimal
-    formatter.minimumFractionDigits = hasFraction ? 2 : 0
-    formatter.maximumFractionDigits = 2
+    moneyFormatterLock.lock()
+    let formatter = hasFraction ? fractionalMoneyFormatter : integerMoneyFormatter
     let formatted = formatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))"
+    moneyFormatterLock.unlock()
     return (amount < 0 ? "−" : "") + symbol + formatted
   }
 

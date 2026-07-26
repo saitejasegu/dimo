@@ -3,71 +3,44 @@ import SwiftUI
 struct EmailScreen: View {
   @Bindable var store: EmailFeatureStore
   var onOpenSettings: () -> Void
+  var onScrollingChange: ((Bool) -> Void)?
 
   var body: some View {
     VStack(spacing: 0) {
       header
 
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 16) {
-          if store.accounts.isEmpty {
-            connectAccountCard
-          } else {
-            accountAndAnalyzerStrip
-            filters
-
-            if store.selectedFilter.displaysMessages {
-              if store.filteredEmails.isEmpty {
-                emptyState
-              } else {
-                ForEach(store.filteredEmails) { email in
-                  EmailMessageStatusCard(
-                    email: email,
-                    onOpen: { store.presentEmail(id: email.id) },
-                    onRestore: email.analysisState == .dismissed
-                      ? { store.restoreSuggestion(email.id) }
-                      : nil,
-                    onRetry: email.analysisState == .failed
-                      ? { store.retryAnalysis(messageID: email.id) }
-                      : nil,
-                    onRetryWithAlternate: email.analysisState == .failed
-                      ? { store.retryWithAlternateProvider(messageID: email.id) }
-                      : nil
-                  )
-                }
-              }
-            } else if store.filteredSuggestions.isEmpty {
-              emptyState
-            } else {
-              ForEach(store.filteredSuggestions) { suggestion in
-                EmailSuggestionCard(
-                  suggestion: suggestion,
-                  onOpen: { store.presentSources(for: suggestion) },
-                  onReview: { store.review(suggestion) },
-                  onDismiss: { store.dismissSuggestion(suggestion) },
-                  onRestore: suggestion.status == .dismissed
-                    ? { store.restoreSuggestion(suggestion) }
-                    : nil,
-                  onLinkLate: suggestion.lateMatch == nil
-                    ? nil
-                    : { store.linkLateSuggestion(suggestion) },
-                  onKeepLateSeparate: suggestion.lateMatch == nil
-                    ? nil
-                    : { store.keepLateSuggestionSeparate(suggestion) }
-                )
-              }
-            }
-
-            privacyNote
-          }
+      if store.accounts.isEmpty {
+        ScrollView {
+          connectAccountCard
+            .padding(.horizontal, 22)
+            .padding(.top, 10)
+            .padding(.bottom, 34)
         }
-        // Message and suggestion rows share the same underlying email key as
-        // their ForEach identity. Re-key the lazy container per filter so it
-        // never reuses cached cells of the other card type across tab switches.
-        .id(store.selectedFilter)
+      } else {
+        // Pin account strip + filters; only the result list scrolls.
+        VStack(alignment: .leading, spacing: 16) {
+          accountAndAnalyzerStrip
+          filters
+        }
         .padding(.horizontal, 22)
         .padding(.top, 10)
-        .padding(.bottom, 34)
+        .padding(.bottom, 12)
+
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 16) {
+            suggestionListContent
+            privacyNote
+          }
+          // Message and suggestion rows share the same underlying email key as
+          // their ForEach identity. Re-key the lazy container per filter so it
+          // never reuses cached cells of the other card type across tab switches.
+          .id(store.selectedFilter)
+          .padding(.horizontal, 22)
+          .padding(.bottom, 34)
+        }
+        .onScrollPhaseChange { _, phase in
+          onScrollingChange?(phase != .idle)
+        }
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
@@ -161,6 +134,51 @@ struct EmailScreen: View {
     .frame(minHeight: 64)
     .padding(.horizontal, 22)
     .padding(.top, 8)
+  }
+
+  @ViewBuilder
+  private var suggestionListContent: some View {
+    if store.selectedFilter.displaysMessages {
+      if store.filteredEmails.isEmpty {
+        emptyState
+      } else {
+        ForEach(store.filteredEmails) { email in
+          EmailMessageStatusCard(
+            email: email,
+            onOpen: { store.presentEmail(id: email.id) },
+            onRestore: email.analysisState == .dismissed
+              ? { store.restoreSuggestion(email.id) }
+              : nil,
+            onRetry: email.analysisState == .failed
+              ? { store.retryAnalysis(messageID: email.id) }
+              : nil,
+            onRetryWithAlternate: email.analysisState == .failed
+              ? { store.retryWithAlternateProvider(messageID: email.id) }
+              : nil
+          )
+        }
+      }
+    } else if store.filteredSuggestions.isEmpty {
+      emptyState
+    } else {
+      ForEach(store.filteredSuggestions) { suggestion in
+        EmailSuggestionCard(
+          suggestion: suggestion,
+          onOpen: { store.presentSources(for: suggestion) },
+          onReview: { store.review(suggestion) },
+          onDismiss: { store.dismissSuggestion(suggestion) },
+          onRestore: suggestion.status == .dismissed
+            ? { store.restoreSuggestion(suggestion) }
+            : nil,
+          onLinkLate: suggestion.lateMatch == nil
+            ? nil
+            : { store.linkLateSuggestion(suggestion) },
+          onKeepLateSeparate: suggestion.lateMatch == nil
+            ? nil
+            : { store.keepLateSuggestionSeparate(suggestion) }
+        )
+      }
+    }
   }
 
   private var connectAccountCard: some View {

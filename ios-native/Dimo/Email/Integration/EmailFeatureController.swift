@@ -92,6 +92,12 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private var lastDownloadAllowedCellular = false
   private var installedModelVersionPrepared: String?
   private var stopped = false
+  private var uiScrolling = false
+  private var resumeAfterScrollTask: Task<Void, Never>?
+  private var publishUITask: Task<Void, Never>?
+  private var pendingPublishAccounts = false
+  private var pendingPublishSuggestions = false
+  private var pendingPublishEmails = false
 
   init(
     userId: String,
@@ -194,8 +200,35 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     publishSuggestions()
   }
 
+  /// Soft-pauses Gemma / analysis loops while the user is actively scrolling.
+  func setUIScrolling(_ scrolling: Bool) {
+    uiScrolling = scrolling
+    resumeAfterScrollTask?.cancel()
+    guard !scrolling else { return }
+    resumeAfterScrollTask = Task { [weak self] in
+      try? await Task.sleep(nanoseconds: 300_000_000)
+      guard let self, !self.stopped, !self.uiScrolling else { return }
+      await self.resumeGemmaAnalysisIfNeeded()
+    }
+  }
+
+  private func waitWhileUIScrolling() async throws {
+    while uiScrolling {
+      try Task.checkCancellation()
+      try await Task.sleep(nanoseconds: 50_000_000)
+    }
+  }
+
   func tearDown() async {
     stopped = true
+    uiScrolling = false
+    resumeAfterScrollTask?.cancel()
+    resumeAfterScrollTask = nil
+    publishUITask?.cancel()
+    publishUITask = nil
+    pendingPublishAccounts = false
+    pendingPublishSuggestions = false
+    pendingPublishEmails = false
     foregroundWork?.cancel()
     gemmaRecoveryTask?.cancel()
     gemmaRecoveryTask = nil
@@ -460,21 +493,44 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     accountsObservation = repository.observeEmailAccounts { [weak self] accounts in
       Task { @MainActor in
         self?.accountRecords = accounts
-        self?.publishAccounts()
-        self?.publishAllEmails()
+        self?.schedulePublishUI(accounts: true, suggestions: false, emails: true)
       }
     }
     suggestionsObservation = repository.observeEmailSuggestions { [weak self] suggestions in
       Task { @MainActor in
         self?.suggestionRecords = suggestions
-        self?.publishSuggestions()
+        self?.schedulePublishUI(accounts: false, suggestions: true, emails: false)
       }
     }
     messageSummariesObservation = repository.observeEmailMessageSummaries { [weak self] messages in
       Task { @MainActor in
         self?.messageSummaries = messages
-        self?.publishAllEmails()
+        self?.schedulePublishUI(accounts: false, suggestions: false, emails: true)
       }
+    }
+  }
+
+  /// Coalesce GRDB/email observation bursts so Home isn't invalidated every row.
+  private func schedulePublishUI(accounts: Bool, suggestions: Bool, emails: Bool) {
+    pendingPublishAccounts = pendingPublishAccounts || accounts
+    pendingPublishSuggestions = pendingPublishSuggestions || suggestions
+    pendingPublishEmails = pendingPublishEmails || emails
+    publishUITask?.cancel()
+    publishUITask = Task { @MainActor [weak self] in
+      try? await Task.sleep(nanoseconds: 32_000_000)
+      guard let self, !Task.isCancelled else { return }
+      let publishAccounts = self.pendingPublishAccounts
+      let publishSuggestions = self.pendingPublishSuggestions
+      let publishEmails = self.pendingPublishEmails
+      self.pendingPublishAccounts = false
+      self.pendingPublishSuggestions = false
+      self.pendingPublishEmails = false
+      // Prefer utility QoS so scrolling Home stays ahead of email list remaps.
+      await Task(priority: .utility) { @MainActor in
+        if publishAccounts { self.publishAccounts() }
+        if publishSuggestions { self.publishSuggestions() }
+        if publishEmails { self.publishAllEmails() }
+      }.value
     }
   }
 
@@ -638,6 +694,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       for accountId in accountIds {
         if let maximumCount, analyzed >= maximumCount { break }
         try Task.checkCancellation()
+        try await waitWhileUIScrolling()
         guard let message = try repository.emailMessagesPendingAnalysis(
           accountId: accountId,
           limit: 1
@@ -1109,7 +1166,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       requiresNetworkConnectivity: provider == .openRouter
     )
     guard provider != nil else { return }
-    analysisWork = Task { [weak self] in
+    analysisWork = Task(priority: .utility) { [weak self] in
       _ = try? await self?.runPendingAnalysis()
       self?.analysisWork = nil
     }
@@ -1383,7 +1440,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
           "Gemma is installed and will load when an email needs analysis."
       }
       if analysisSettings.selectedProvider == .gemma, analysisWork == nil {
-        analysisWork = Task { [weak self] in
+        analysisWork = Task(priority: .utility) { [weak self] in
           _ = try? await self?.runPendingAnalysis()
           self?.analysisWork = nil
         }
@@ -1657,7 +1714,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     guard analysisWork == nil, pendingAnalysisTask == nil else { return }
     store.gemmaStatusDetail = "Retrying local Gemma analysis…"
     store.analysisStatusDetail = "Retrying local Gemma analysis…"
-    analysisWork = Task { [weak self] in
+    analysisWork = Task(priority: .utility) { [weak self] in
       _ = try? await self?.runPendingAnalysis()
       self?.analysisWork = nil
     }

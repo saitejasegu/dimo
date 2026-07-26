@@ -1,5 +1,6 @@
 import Contacts
 import SwiftUI
+import UIKit
 
 struct AddLendSheet: View {
   @Bindable var store: AppStore
@@ -274,6 +275,10 @@ final class ContactsLoader {
 
   private(set) var state: LoadState = .idle
   private(set) var contacts: [LendContact] = []
+  /// O(1) lookups by address-book identifier.
+  private var contactsById: [String: LendContact] = [:]
+  /// Decoded contact thumbnails keyed by address-book identifier.
+  private var thumbnailImages: [String: UIImage] = [:]
 
   /// Thumbnail for a lend's contact, looked up strictly by identifier; nil
   /// when the contact was removed from the address book.
@@ -281,9 +286,18 @@ final class ContactsLoader {
     contact(contactId: contactId)?.thumbnail
   }
 
+  /// Pre-decoded thumbnail for list rows; avoids `UIImage(data:)` per body pass.
+  func thumbnailImage(contactId: String?) -> UIImage? {
+    guard let contactId, let data = thumbnail(contactId: contactId) else { return nil }
+    if let cached = thumbnailImages[contactId] { return cached }
+    guard let image = DecodedImageCache.image(from: data) else { return nil }
+    thumbnailImages[contactId] = image
+    return image
+  }
+
   func contact(contactId: String?) -> LendContact? {
     guard let contactId else { return nil }
-    return contacts.first { $0.id == contactId }
+    return contactsById[contactId]
   }
 
   /// Fetches contacts only when access is already granted; never prompts.
@@ -336,6 +350,18 @@ final class ContactsLoader {
         )
       }
       DispatchQueue.main.async {
+        let nextById = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
+        // Keep decoded thumbnails when the underlying data is unchanged.
+        var nextImages: [String: UIImage] = [:]
+        for (id, contact) in nextById {
+          if let previous = self.contactsById[id],
+             previous.thumbnail == contact.thumbnail,
+             let cached = self.thumbnailImages[id] {
+            nextImages[id] = cached
+          }
+        }
+        self.contactsById = nextById
+        self.thumbnailImages = nextImages
         self.contacts = result
         self.state = .loaded
       }
@@ -504,7 +530,9 @@ private struct ContactAvatar: View {
 
   var body: some View {
     Group {
-      if let data = contact.thumbnail, let image = UIImage(data: data) {
+      if let image = ContactsLoader.shared.thumbnailImage(contactId: contact.id)
+        ?? contact.thumbnail.flatMap(DecodedImageCache.image(from:))
+      {
         Image(uiImage: image)
           .resizable()
           .scaledToFill()

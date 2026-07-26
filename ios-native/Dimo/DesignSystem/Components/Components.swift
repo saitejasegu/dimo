@@ -18,6 +18,33 @@ struct FabButton: View {
   }
 }
 
+/// Decodes `Data` → `UIImage` once per payload so list rows do not pay UIImage
+/// init cost on every SwiftUI body pass.
+enum DecodedImageCache {
+  private static let cache = NSCache<NSData, UIImage>()
+
+  static func image(from data: Data) -> UIImage? {
+    let key = data as NSData
+    if let cached = cache.object(forKey: key) { return cached }
+    guard let image = UIImage(data: data) else { return nil }
+    cache.setObject(image, forKey: key)
+    return image
+  }
+}
+
+/// In-memory profile / remote avatar cache keyed by URL string.
+enum RemoteImageCache {
+  private static let cache = NSCache<NSString, UIImage>()
+
+  static func image(for url: URL) -> UIImage? {
+    cache.object(forKey: url.absoluteString as NSString)
+  }
+
+  static func store(_ image: UIImage, for url: URL) {
+    cache.setObject(image, forKey: url.absoluteString as NSString)
+  }
+}
+
 /// Rounded-square monogram avatar matching the web Avatar; shows the profile
 /// photo when available and falls back to the initial.
 struct AvatarView: View {
@@ -25,22 +52,35 @@ struct AvatarView: View {
   var photoUrl: String?
   /// Locally sourced image (e.g. a phone contact thumbnail); never synced.
   var photoData: Data?
+  /// Pre-decoded image when the caller already has one (preferred for lists).
+  var photoImage: UIImage?
   var size: CGFloat = 40
   var radius: CGFloat = 13
   var fontSize: CGFloat = 16
+  @State private var remoteImage: UIImage?
 
   var body: some View {
     ZStack {
       Theme.greenSoft
       initialView
-      if let photoData, let image = UIImage(data: photoData) {
+      if let photoImage {
+        Image(uiImage: photoImage).resizable().scaledToFill()
+      } else if let photoData, let image = DecodedImageCache.image(from: photoData) {
         Image(uiImage: image).resizable().scaledToFill()
+      } else if let remoteImage {
+        Image(uiImage: remoteImage).resizable().scaledToFill()
       } else if let photoUrl, let url = URL(string: photoUrl) {
-        AsyncImage(url: url) { phase in
-          if let image = phase.image {
-            image.resizable().scaledToFill()
+        Color.clear
+          .task(id: photoUrl) {
+            if let cached = RemoteImageCache.image(for: url) {
+              remoteImage = cached
+              return
+            }
+            guard let (data, _) = try? await URLSession.shared.data(from: url),
+                  let image = UIImage(data: data) else { return }
+            RemoteImageCache.store(image, for: url)
+            remoteImage = image
           }
-        }
       }
     }
     .frame(width: size, height: size)

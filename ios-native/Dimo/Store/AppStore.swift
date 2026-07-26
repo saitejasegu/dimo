@@ -9,50 +9,17 @@ import SwiftUI
 @MainActor
 final class AppStore {
   let userId: String
-  private(set) var profileName: String
-  private(set) var profileEmail: String
-  private(set) var profilePhotoUrl: String?
+  let entities = EntitiesStore()
+  let syncStatus = SyncStatusStore()
+  let nav = NavStore()
+  let drafts = DraftsStore()
 
-  var view: ViewKey = .home
-  var accountReturnView: ViewKey?
-  var overlay: OverlayKey?
-  var detailId: String?
-  var toast: String?
-  private var toastTask: Task<Void, Never>?
-
-  var transactions: [Transaction] = []
-  var recurring: [Recurring] = []
-  var lends: [Lend] = []
-  var categories: [CategoryEntity] = []
-  var paymentMethods: [PaymentMethodOption] = []
-  var limits: CategoryLimits = [:]
-  var filter = TransactionFilter()
-  var statsRange: StatsRange = .oneYear
-  var selectedMonth: String?
-  var merchantsExpanded = false
-  var categoriesExpanded = false
-  var currency: Currency = .INR
-  /// Latest ECB rates for foreign-currency display; nil until first fetch.
-  var rates: RateTable? = RatesService.loadCached()
-  var theme: ThemePreference = .light
-  var navGlassOpacity: Double = 40
-  var defaultStatsRange: StatsRange = .oneYear
-  var notifications = NotificationSettings(bills: true, budget: true, weekly: false, large: true)
   /// Device-local daily expense reminder (not synced).
   var expenseReminder = ExpenseReminderSettings.default
   var expenseReminderAuthorization: ExpenseReminderAuthorization = .notDetermined
-  var dataReady = false
-  var syncMeta: SyncMeta?
-  var pendingCount = 0
-  var blockedCount = 0
-  var deletingHistory = false
   var emailFeatureStore = EmailFeatureStore()
 
-  var expenseDraft = ExpenseDraft()
-  var recurringDraft = RecurringDraft()
-  var categoryDraft = CategoryDraft()
-  var lendDraft = LendDraft()
-
+  private var toastTask: Task<Void, Never>?
   private let authProvider: WorkOSAuthProvider
   private var repository: Repository?
   private var coordinator: SyncCoordinator?
@@ -65,6 +32,163 @@ final class AppStore {
   /// Network/email follow-up after local hydrate. Cancelled on tearDown so a
   /// slow OpenRouter/Convex call cannot outlive the signed-in session.
   private var remoteStartTask: Task<Void, Never>?
+  private var hydrateTask: Task<Void, Never>?
+  private var pendingHydrateEntities: [StoredEntity]?
+
+  // MARK: Forwarders — keep mutation call sites and sheets compiling while
+  // tab screens bind directly to `entities` / `nav` / `syncStatus` / `drafts`.
+
+  var profileName: String {
+    get { entities.profileName }
+    set { entities.profileName = newValue }
+  }
+  var profileEmail: String {
+    get { entities.profileEmail }
+    set { entities.profileEmail = newValue }
+  }
+  var profilePhotoUrl: String? {
+    get { entities.profilePhotoUrl }
+    set { entities.profilePhotoUrl = newValue }
+  }
+  var view: ViewKey {
+    get { nav.view }
+    set { nav.view = newValue }
+  }
+  var accountReturnView: ViewKey? {
+    get { nav.accountReturnView }
+    set { nav.accountReturnView = newValue }
+  }
+  var overlay: OverlayKey? {
+    get { nav.overlay }
+    set { nav.overlay = newValue }
+  }
+  var detailId: String? {
+    get { nav.detailId }
+    set { nav.detailId = newValue }
+  }
+  var toast: String? {
+    get { nav.toast }
+    set { nav.toast = newValue }
+  }
+  var transactions: [Transaction] {
+    get { entities.transactions }
+    set { entities.transactions = newValue }
+  }
+  var recurring: [Recurring] {
+    get { entities.recurring }
+    set { entities.recurring = newValue }
+  }
+  var lends: [Lend] {
+    get { entities.lends }
+    set { entities.lends = newValue }
+  }
+  var categories: [CategoryEntity] {
+    get { entities.categories }
+    set { entities.categories = newValue }
+  }
+  var paymentMethods: [PaymentMethodOption] {
+    get { entities.paymentMethods }
+    set { entities.paymentMethods = newValue }
+  }
+  var limits: CategoryLimits {
+    get { entities.limits }
+    set { entities.limits = newValue }
+  }
+  var filter: TransactionFilter {
+    get { nav.filter }
+    set {
+      nav.filter = newValue
+      scheduleProjectionRefresh()
+    }
+  }
+  var statsRange: StatsRange {
+    get { nav.statsRange }
+    set {
+      nav.statsRange = newValue
+      scheduleProjectionRefresh()
+    }
+  }
+  var selectedMonth: String? {
+    get { nav.selectedMonth }
+    set {
+      nav.selectedMonth = newValue
+      scheduleProjectionRefresh()
+    }
+  }
+  var merchantsExpanded: Bool {
+    get { nav.merchantsExpanded }
+    set {
+      nav.merchantsExpanded = newValue
+      scheduleProjectionRefresh()
+    }
+  }
+  var categoriesExpanded: Bool {
+    get { nav.categoriesExpanded }
+    set {
+      nav.categoriesExpanded = newValue
+      scheduleProjectionRefresh()
+    }
+  }
+  var currency: Currency {
+    get { entities.currency }
+    set { entities.currency = newValue }
+  }
+  var rates: RateTable? {
+    get { entities.rates }
+    set { entities.rates = newValue }
+  }
+  var theme: ThemePreference {
+    get { entities.theme }
+    set { entities.theme = newValue }
+  }
+  var navGlassOpacity: Double {
+    get { entities.navGlassOpacity }
+    set { entities.navGlassOpacity = newValue }
+  }
+  var defaultStatsRange: StatsRange {
+    get { entities.defaultStatsRange }
+    set { entities.defaultStatsRange = newValue }
+  }
+  var notifications: NotificationSettings {
+    get { entities.notifications }
+    set { entities.notifications = newValue }
+  }
+  var dataReady: Bool {
+    get { entities.dataReady }
+    set { entities.dataReady = newValue }
+  }
+  var syncMeta: SyncMeta? {
+    get { syncStatus.syncMeta }
+    set { syncStatus.syncMeta = newValue }
+  }
+  var pendingCount: Int {
+    get { syncStatus.pendingCount }
+    set { syncStatus.pendingCount = newValue }
+  }
+  var blockedCount: Int {
+    get { syncStatus.blockedCount }
+    set { syncStatus.blockedCount = newValue }
+  }
+  var deletingHistory: Bool {
+    get { syncStatus.deletingHistory }
+    set { syncStatus.deletingHistory = newValue }
+  }
+  var expenseDraft: ExpenseDraft {
+    get { drafts.expenseDraft }
+    set { drafts.expenseDraft = newValue }
+  }
+  var recurringDraft: RecurringDraft {
+    get { drafts.recurringDraft }
+    set { drafts.recurringDraft = newValue }
+  }
+  var categoryDraft: CategoryDraft {
+    get { drafts.categoryDraft }
+    set { drafts.categoryDraft = newValue }
+  }
+  var lendDraft: LendDraft {
+    get { drafts.lendDraft }
+    set { drafts.lendDraft = newValue }
+  }
 
   init(
     userId: String,
@@ -74,10 +198,10 @@ final class AppStore {
     authProvider: WorkOSAuthProvider
   ) {
     self.userId = userId
-    self.profileName = profileName
-    self.profileEmail = profileEmail
-    self.profilePhotoUrl = profilePhotoUrl
     self.authProvider = authProvider
+    entities.profileName = profileName
+    entities.profileEmail = profileEmail
+    entities.profilePhotoUrl = profilePhotoUrl
   }
 
   func start() async {
@@ -87,29 +211,28 @@ final class AppStore {
       try repo.initializeLocalDatabase()
       repository = repo
 
-      entityObservation = repo.observeEntities { [weak self] entities in
-        Task { @MainActor in self?.hydrate(entities: entities) }
+      entityObservation = repo.observeEntities { [weak self] batch in
+        Task { @MainActor in self?.scheduleHydrate(batch) }
       }
       syncObservation = repo.observeSyncMeta { [weak self] meta in
         Task { @MainActor in
-          self?.syncMeta = meta
+          self?.syncStatus.syncMeta = meta
           if let counts = try? self?.repository?.outboxCounts() {
-            self?.pendingCount = counts.pending
-            self?.blockedCount = counts.blocked
+            self?.syncStatus.pendingCount = counts.pending
+            self?.syncStatus.blockedCount = counts.blocked
           }
         }
       }
       writeListener = repo.onLocalWrite { [weak self] in
         Task { @MainActor in
           if let counts = try? self?.repository?.outboxCounts() {
-            self?.pendingCount = counts.pending
-            self?.blockedCount = counts.blocked
+            self?.syncStatus.pendingCount = counts.pending
+            self?.syncStatus.blockedCount = counts.blocked
           }
         }
       }
-      let entities = try repo.allEntities()
-      hydrate(entities: entities)
-      dataReady = true
+      let batch = try repo.allEntities()
+      await hydrateNow(batch)
       expenseReminder = ExpenseReminderStore.load(userId: userId)
       ExpenseReminderRouter.store = self
       await refreshExpenseReminderAuthorization()
@@ -121,19 +244,27 @@ final class AppStore {
         await self?.startRemoteServices(repository: repo)
       }
 
+      // Email wiring is not required for Home/Stats — do not block signed-in UI.
       let emailController = EmailFeatureController(
         userId: userId,
         repository: repo,
         store: emailFeatureStore
       )
       self.emailController = emailController
-      await emailController.start(
-        categories: categories,
-        paymentMethods: paymentMethods,
-        transactions: transactions,
-        currency: currency
-      )
-      await refreshExpenseReminderSchedule()
+      let cats = entities.categories
+      let methods = entities.paymentMethods
+      let txs = entities.transactions
+      let currency = entities.currency
+      Task { [weak self] in
+        guard let self else { return }
+        await emailController.start(
+          categories: cats,
+          paymentMethods: methods,
+          transactions: txs,
+          currency: currency
+        )
+        await self.refreshExpenseReminderSchedule()
+      }
     } catch {
       showToast(error.localizedDescription)
     }
@@ -179,6 +310,9 @@ final class AppStore {
   func tearDown() async {
     remoteStartTask?.cancel()
     remoteStartTask = nil
+    hydrateTask?.cancel()
+    hydrateTask = nil
+    pendingHydrateEntities = nil
     await emailController?.tearDown()
     emailController = nil
     entityObservation?.cancel()
@@ -241,7 +375,12 @@ final class AppStore {
     do {
       guard let table = try await coordinator?.latestExchangeRates() else { return }
       RatesService.store(table)
-      rates = table
+      let previousDate = entities.rates?.date
+      entities.setRates(table)
+      // FX changes require remapping transaction amounts in the default currency.
+      if previousDate != table.date {
+        scheduleHydrate((try? repository?.allEntities()) ?? [])
+      }
     } catch {
       // Offline / auth — keep the UserDefaults cache already seeded into `rates`.
     }
@@ -714,10 +853,7 @@ final class AppStore {
   }
 
   func applySuggestedBudgets(_ ids: Set<String>) {
-    let suggestions = BudgetSelectors.suggestedCategoryBudgetUpdates(
-      transactions,
-      categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
-    )
+    let suggestions = entities.suggestedBudgetUpdates
     var batch: [(EntityType, EntityPayload)] = []
     for suggestion in suggestions where ids.contains(suggestion.id) {
       guard var cat = categories.first(where: { $0.id == suggestion.id }) else { continue }
@@ -892,143 +1028,86 @@ final class AppStore {
 
   // MARK: - Hydration
 
-  private func hydrate(entities: [StoredEntity]) {
-    let active = entities.filter { !$0.deleted }
-    var nextCategories: [CategoryEntity] = []
-    var nextPaymentMethods: [PaymentMethodEntity] = []
-    var nextTransactions: [TransactionEntity] = []
-    var nextRecurring: [RecurringEntity] = []
-    var nextLends: [LendEntity] = []
-    var prefs = SeedData.defaultPreferences
-
-    for entity in active {
-      switch entity.payload {
-      case .category(let c): nextCategories.append(c)
-      case .paymentMethod(let p): nextPaymentMethods.append(p)
-      case .transaction(let t): nextTransactions.append(t)
-      case .recurring(let r): nextRecurring.append(r)
-      case .lend(let l): nextLends.append(l)
-      case .emailMessage:
-        // Projected into emailMessages by Repository.mergeRemotePage; not UI-hydrated here.
-        break
-      case .preferences(let p): prefs = p
-      }
+  /// Coalesce GRDB bursts (sync merges) so we project once per frame window.
+  private func scheduleHydrate(_ batch: [StoredEntity]) {
+    pendingHydrateEntities = batch
+    hydrateTask?.cancel()
+    hydrateTask = Task { @MainActor [weak self] in
+      // ~1 frame at 60fps — enough to fold multi-page sync writes together.
+      try? await Task.sleep(nanoseconds: 16_000_000)
+      guard let self, !Task.isCancelled else { return }
+      guard let pending = self.pendingHydrateEntities else { return }
+      self.pendingHydrateEntities = nil
+      await self.hydrateNow(pending)
     }
+  }
 
-    nextCategories.sort { $0.sortOrder < $1.sortOrder }
-    categories = nextCategories
-    limits = Dictionary(uniqueKeysWithValues: nextCategories.map {
-      ($0.name, $0.monthlyBudgetMinor.map { Double($0) / 100 })
-    })
-    let defaultPM = prefs.defaultPaymentMethodId
-    paymentMethods = nextPaymentMethods
-      .sorted { $0.name < $1.name }
-      .map {
-        PaymentMethodOption(
-          id: $0.id, name: $0.name, type: $0.type, detail: $0.detail,
-          isDefault: $0.id == defaultPM, archived: $0.archived
-        )
-      }
+  private func hydrateNow(_ batch: [StoredEntity]) async {
+    let previousDefault = entities.defaultStatsRange
+    let previousSnapshot = entities.lastEntitySnapshot
+    let snapshot = await EntityHydrator.project(
+      entities: batch,
+      rates: entities.rates,
+      currentStatsRange: nav.statsRange,
+      previousDefaultStatsRange: previousDefault,
+      dataReady: entities.dataReady,
+      profileName: entities.profileName,
+      profileEmail: entities.profileEmail,
+      previous: previousSnapshot
+    )
+    guard let snapshot else { return }
+    let derived = await EntityHydrator.derive(
+      transactions: snapshot.transactions,
+      recurring: snapshot.recurring,
+      lends: snapshot.lends,
+      limits: snapshot.limits,
+      categories: snapshot.categories,
+      statsRange: snapshot.statsRange,
+      selectedMonth: nav.selectedMonth,
+      categoriesExpanded: nav.categoriesExpanded,
+      merchantsExpanded: nav.merchantsExpanded
+    )
+    entities.apply(
+      snapshot: snapshot,
+      derived: derived,
+      filter: nav.filter,
+      selectedMonth: nav.selectedMonth,
+      categoriesExpanded: nav.categoriesExpanded,
+      merchantsExpanded: nav.merchantsExpanded
+    )
+    nav.statsRange = snapshot.statsRange
 
-    let categoryById = Dictionary(uniqueKeysWithValues: nextCategories.map { ($0.id, $0) })
-    let pmById = Dictionary(uniqueKeysWithValues: paymentMethods.map { ($0.id, $0) })
-
-    transactions = nextTransactions
-      .sorted { $0.occurredAt > $1.occurredAt }
-      .map { tx in
-        let cat = categoryById[tx.categoryId]
-        let pm = tx.paymentMethodId.flatMap { pmById[$0] }
-        let sourceAmount = tx.sourceCurrency.flatMap { code in
-          tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
-        }
-        let amountCurrency = tx.currency ?? prefs.currency.rawValue
-        return Transaction(
-          id: tx.id,
-          name: tx.name,
-          category: cat?.name ?? "Unknown",
-          time: DateHelpers.formatTransactionTime(tx.occurredAt),
-          day: DateHelpers.formatTransactionDay(tx.occurredAt),
-          amount: ExchangeRates.transactionAmountInDefault(
-            amountMinor: tx.amountMinor,
-            currency: tx.currency,
-            defaultCurrency: prefs.currency.rawValue,
-            rates: rates
-          ),
-          paymentMethod: pm?.label,
-          green: cat?.tint == .green,
-          emoji: cat?.emoji,
-          amountMinor: tx.amountMinor,
-          occurredAt: tx.occurredAt,
-          categoryId: tx.categoryId,
-          paymentMethodId: tx.paymentMethodId,
-          currency: amountCurrency,
-          sourceCurrency: tx.sourceCurrency,
-          sourceAmount: sourceAmount
-        )
-      }
-
-    lends = nextLends
-      .sorted { $0.occurredAt > $1.occurredAt }
-      .map { lend in
-        Lend(
-          id: lend.id,
-          contactName: lend.contactName,
-          contactId: lend.contactId,
-          amount: Double(lend.amountMinor) / 100,
-          comment: lend.comment,
-          time: DateHelpers.formatTransactionTime(lend.occurredAt),
-          day: DateHelpers.formatTransactionDay(lend.occurredAt),
-          amountMinor: lend.amountMinor,
-          occurredAt: lend.occurredAt,
-          kind: lend.kind ?? .lent
-        )
-      }
-
-    nextRecurring.sort {
-      DateHelpers.nextOccurrence(anchorDate: $0.anchorDate, frequency: $0.frequency)
-        < DateHelpers.nextOccurrence(anchorDate: $1.anchorDate, frequency: $1.frequency)
+    let emailRelevant: Bool
+    if let previousSnapshot {
+      emailRelevant =
+        snapshot.fingerprints.emailRelevantChanges(from: previousSnapshot.fingerprints)
+        || previousSnapshot.preferences.currency != snapshot.preferences.currency
+    } else {
+      emailRelevant = true
     }
-    recurring = nextRecurring.map { rec in
-      let cat = categoryById[rec.categoryId]
-      return Recurring(
-        id: rec.id,
-        name: rec.name,
-        category: cat?.name ?? "",
-        due: DateHelpers.recurringDueLabel(anchorDate: rec.anchorDate, frequency: rec.frequency),
-        amount: ExchangeRates.toMajorUnits(rec.amountMinor, rec.currency ?? prefs.currency.rawValue),
-        paused: rec.paused,
-        green: cat?.tint == .green,
-        emoji: cat?.emoji,
-        amountMinor: rec.amountMinor,
-        categoryId: rec.categoryId,
-        paymentMethodId: rec.paymentMethodId,
-        anchorDate: rec.anchorDate,
-        frequency: rec.frequency,
-        currency: rec.currency
+    if emailRelevant {
+      emailController?.updateDomain(
+        categories: entities.categories,
+        paymentMethods: entities.paymentMethods,
+        transactions: entities.transactions,
+        currency: entities.currency
       )
     }
+  }
 
-    let previousDefaultStatsRange = defaultStatsRange
-    currency = prefs.currency
-    theme = prefs.theme
-    navGlassOpacity = Double(prefs.navGlassOpacity)
-    defaultStatsRange = prefs.defaultStatsRange
-    notifications = prefs.notifications
-    statsRange = StatsConstants.hydratedRange(
-      current: statsRange,
-      previousDefault: previousDefaultStatsRange,
-      nextDefault: prefs.defaultStatsRange,
-      dataReady: dataReady
+  /// Soft-pauses on-device email analysis while the user is actively scrolling.
+  func setUIScrolling(_ scrolling: Bool) {
+    emailController?.setUIScrolling(scrolling)
+  }
+
+  private func scheduleProjectionRefresh() {
+    entities.refreshProjections(
+      filter: nav.filter,
+      statsRange: nav.statsRange,
+      selectedMonth: nav.selectedMonth,
+      categoriesExpanded: nav.categoriesExpanded,
+      merchantsExpanded: nav.merchantsExpanded
     )
-    profileName = profileName.isEmpty ? prefs.profileName : profileName
-    profileEmail = profileEmail.isEmpty ? prefs.profileEmail : profileEmail
-    emailController?.updateDomain(
-      categories: categories,
-      paymentMethods: paymentMethods,
-      transactions: transactions,
-      currency: currency
-    )
-    dataReady = true
   }
 
   private func currentPreferences() -> PreferencesEntity {
@@ -1128,9 +1207,6 @@ extension AppStore {
   /// Resolves a row emoji the same way the web does: explicit value, then the
   /// category looked up by id, then by name, then the default.
   func categoryEmoji(explicit: String?, categoryId: String?, category: String) -> String {
-    explicit
-      ?? categories.first(where: { $0.id == categoryId })?.emoji
-      ?? categories.first(where: { $0.name == category })?.emoji
-      ?? "🙂"
+    entities.categoryEmoji(explicit: explicit, categoryId: categoryId, category: category)
   }
 }

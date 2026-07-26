@@ -476,16 +476,45 @@ final class Repository: @unchecked Sendable {
     }
   }
 
+  /// Entity types projected into the main UI store. Email rows have their own
+  /// observations and are intentionally excluded so Gmail sync cannot force a
+  /// full expense rematerialization.
+  private static let uiObservedEntityTypes: [EntityType] = [
+    .category, .paymentMethod, .transaction, .recurring, .lend, .preferences,
+  ]
+
+  /// Per-type ValueObservations so a lend write does not re-fetch transactions.
+  /// Delivery runs on a background queue; callers should hop to MainActor.
   func observeEntities(onChange: @escaping ([StoredEntity]) -> Void) -> DatabaseCancellable {
-    ValueObservation
-      .tracking { db in
-        try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
-      }
-      .start(in: db, scheduling: .async(onQueue: .main)) { error in
-        print("observeEntities error: \(error)")
-      } onChange: { entities in
-        onChange(entities)
-      }
+    let deliveryQueue = DispatchQueue(label: "app.dimo.entity-observation", qos: .userInitiated)
+    let lock = NSLock()
+    var cache: [EntityType: [StoredEntity]] = [:]
+    let parts = LockedCancellables()
+
+    for type in Self.uiObservedEntityTypes {
+      let cancellable = ValueObservation
+        .tracking { db in
+          try TypedEntityStore.fetchAll(db: db, type: type, workspaceId: workspaceID)
+        }
+        .start(in: db, scheduling: .async(onQueue: deliveryQueue)) { error in
+          print("observeEntities(\(type.rawValue)) error: \(error)")
+        } onChange: { rows in
+          lock.lock()
+          cache[type] = rows
+          let ready = cache.count == Self.uiObservedEntityTypes.count
+          let batch: [StoredEntity] = ready
+            ? Self.uiObservedEntityTypes.flatMap { cache[$0] ?? [] }
+            : []
+          lock.unlock()
+          guard ready else { return }
+          onChange(batch)
+        }
+      parts.append(cancellable)
+    }
+
+    return AnyDatabaseCancellable {
+      parts.cancelAll()
+    }
   }
 
   func observeSyncMeta(onChange: @escaping (SyncMeta?) -> Void) -> DatabaseCancellable {
@@ -2005,4 +2034,24 @@ private func emailExactMinorUnits(_ value: String) -> Int? {
   let maximum = NSDecimalNumber(value: Int.max)
   guard number.compare(maximum) != .orderedDescending else { return nil }
   return number.intValue
+}
+
+/// Thread-safe bag of GRDB observation cancellables for composite observeEntities.
+private final class LockedCancellables: @unchecked Sendable {
+  private let lock = NSLock()
+  private var parts: [any DatabaseCancellable] = []
+
+  func append(_ cancellable: any DatabaseCancellable) {
+    lock.lock()
+    parts.append(cancellable)
+    lock.unlock()
+  }
+
+  func cancelAll() {
+    lock.lock()
+    let snapshot = parts
+    parts = []
+    lock.unlock()
+    snapshot.forEach { $0.cancel() }
+  }
 }

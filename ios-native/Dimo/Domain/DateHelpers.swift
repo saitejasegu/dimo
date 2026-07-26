@@ -7,6 +7,45 @@ enum RecurringOccurrenceSelection {
 enum DateHelpers {
   static let dayMS = 86_400_000
 
+  /// Cached formatters — DateFormatter allocation is expensive. Locked because
+  /// EntityHydrator may format off the main actor while UI reads too.
+  private static let formatterLock = NSLock()
+
+  private static let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("jmm")
+    return formatter
+  }()
+
+  private static let daySameYearFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("EEEE MMMd")
+    return formatter
+  }()
+
+  private static let dayOtherYearFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("EEEE MMMd yyyy")
+    return formatter
+  }()
+
+  private static let monthNameFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMMM")
+    return formatter
+  }()
+
+  private static let shortMonthDayFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMMd")
+    return formatter
+  }()
+
   static func localDateKey(_ date: Date, calendar: Calendar = .current) -> String {
     let c = calendar.dateComponents([.year, .month, .day], from: date)
     return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
@@ -32,19 +71,33 @@ enum DateHelpers {
     }
     if key == localDateKey(yesterday, calendar: calendar) { return "Yesterday" }
 
-    let formatter = DateFormatter()
-    formatter.locale = .current
     let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-    formatter.setLocalizedDateFormatFromTemplate(sameYear ? "EEEE MMMd" : "EEEE MMMd yyyy")
-    return formatter.string(from: date)
+    formatterLock.lock()
+    let value = (sameYear ? daySameYearFormatter : dayOtherYearFormatter).string(from: date)
+    formatterLock.unlock()
+    return value
   }
 
   static func formatTransactionTime(_ timestamp: Int) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.setLocalizedDateFormatFromTemplate("jmm")
-    return formatter.string(from: date)
+    formatterLock.lock()
+    let value = timeFormatter.string(from: date)
+    formatterLock.unlock()
+    return value
+  }
+
+  static func formatMonthName(_ date: Date = Date()) -> String {
+    formatterLock.lock()
+    let value = monthNameFormatter.string(from: date)
+    formatterLock.unlock()
+    return value
+  }
+
+  static func formatShortMonthDay(_ date: Date) -> String {
+    formatterLock.lock()
+    let value = shortMonthDayFormatter.string(from: date)
+    formatterLock.unlock()
+    return value
   }
 
   static func daysInMonth(year: Int, monthIndex: Int, calendar: Calendar = .current) -> Int {
@@ -207,10 +260,7 @@ enum DateHelpers {
     let due = nextOccurrence(anchorDate: anchorDate, frequency: frequency, now: now, calendar: calendar)
     let today = calendar.startOfDay(for: now)
     let days = Int(round(due.timeIntervalSince(today) / 86_400))
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.setLocalizedDateFormatFromTemplate("MMMd")
-    let date = formatter.string(from: due)
+    let date = formatShortMonthDay(due)
     let relative: String
     if days == 0 {
       relative = "today"

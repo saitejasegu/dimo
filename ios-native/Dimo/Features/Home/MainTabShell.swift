@@ -28,9 +28,17 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
 
 struct MainTabShell: View {
   @Bindable var store: AppStore
+  @Bindable private var nav: NavStore
   @Environment(\.scenePhase) private var scenePhase
   @State private var tab: AppTab = .home
   @State private var settingsPath: [SettingsRoute] = []
+  /// Defer heavy tabs until first visit so they never observe entity churn cold.
+  @State private var visitedTabs: Set<AppTab> = [.home]
+
+  init(store: AppStore) {
+    self.store = store
+    self.nav = store.nav
+  }
 
   var body: some View {
     NavigationStack(path: $settingsPath) {
@@ -55,30 +63,48 @@ struct MainTabShell: View {
   private var tabShell: some View {
     TabView(selection: $tab) {
       Tab(value: .home) {
-        HomeScreen(store: store) {
+        HomeScreen(store: store, entities: store.entities, nav: store.nav) {
           openSettings()
         }
       } label: {
         tabLabel(.home)
       }
       Tab(value: .stats) {
-        StatsScreen(store: store)
+        if visitedTabs.contains(.stats) {
+          StatsScreen(store: store, entities: store.entities, nav: store.nav)
+        } else {
+          Theme.canvas.ignoresSafeArea()
+        }
       } label: {
         tabLabel(.stats)
       }
       Tab(value: .budgets) {
-        BudgetsScreen(store: store)
+        if visitedTabs.contains(.budgets) {
+          BudgetsScreen(store: store, entities: store.entities)
+        } else {
+          Theme.canvas.ignoresSafeArea()
+        }
       } label: {
         tabLabel(.budgets)
       }
       Tab(value: .lending) {
-        LendingScreen(store: store)
+        if visitedTabs.contains(.lending) {
+          LendingScreen(store: store, entities: store.entities)
+        } else {
+          Theme.canvas.ignoresSafeArea()
+        }
       } label: {
         tabLabel(.lending)
       }
       Tab(value: .email) {
-        EmailScreen(store: store.emailFeatureStore) {
-          openSettings(.email)
+        if visitedTabs.contains(.email) {
+          EmailScreen(
+            store: store.emailFeatureStore,
+            onOpenSettings: { openSettings(.email) },
+            onScrollingChange: { store.setUIScrolling($0) }
+          )
+        } else {
+          Theme.canvas.ignoresSafeArea()
         }
       } label: {
         tabLabel(.email)
@@ -95,14 +121,14 @@ struct MainTabShell: View {
           .transition(.scale(scale: 0.9).combined(with: .opacity))
       }
     }
-    .sheet(item: $store.overlay) { overlay in
+    .sheet(item: $nav.overlay) { overlay in
       switch overlay {
       case .add:
         ExpenseEditorSheet(store: store, mode: .create) {
           openSettings()
         }
       case .recurring:
-        if let id = store.recurringDraft.editingId {
+        if let id = store.drafts.recurringDraft.editingId {
           ExpenseEditorSheet(store: store, mode: .recurring(id)) {
             openSettings()
           }
@@ -116,8 +142,8 @@ struct MainTabShell: View {
       }
     }
     .sheet(item: Binding(
-      get: { store.detailId.map(DetailSheetItem.init) },
-      set: { store.detailId = $0?.id }
+      get: { nav.detailId.map(DetailSheetItem.init) },
+      set: { nav.detailId = $0?.id }
     )) { item in
       ExpenseEditorSheet(store: store, mode: .transaction(item.id)) {
         openSettings()
@@ -129,13 +155,13 @@ struct MainTabShell: View {
       }
     }
     .overlay(alignment: .top) {
-      if let toast = store.toast {
+      if let toast = nav.toast {
         ToastView(message: toast)
           .padding(.top, 12)
           .transition(.move(edge: .top).combined(with: .opacity))
       }
     }
-    .animation(.easeOut(duration: 0.25), value: store.toast)
+    .animation(.easeOut(duration: 0.25), value: nav.toast)
     .animation(.easeOut(duration: 0.2), value: showsFAB)
     .onChange(of: scenePhase) { _, phase in
       if phase == .active { store.sceneBecameActive() }
@@ -144,10 +170,12 @@ struct MainTabShell: View {
       Task { await store.refreshExpenseReminderSchedule() }
     }
     .onChange(of: tab) { _, newTab in
+      visitedTabs.insert(newTab)
       store.setView(viewKey(for: newTab))
     }
-    .onChange(of: store.view) { _, newView in
+    .onChange(of: nav.view) { _, newView in
       if let destination = tab(for: newView), destination != tab {
+        visitedTabs.insert(destination)
         tab = destination
       }
     }

@@ -903,6 +903,43 @@ final class SanitizerTests: XCTestCase {
 }
 
 final class BudgetSelectorTests: XCTestCase {
+  func testCategoryBudgetsSinglePassMatchesSpend() {
+    let cal = Calendar(identifier: .gregorian)
+    let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 11))!
+    func stamp(_ y: Int, _ m: Int, _ d: Int) -> Int {
+      Int(cal.date(from: DateComponents(year: y, month: m, day: d))!.timeIntervalSince1970 * 1000)
+    }
+    let rows = [
+      Transaction(
+        id: "a", name: "A", category: "Dining", time: "", day: "", amount: 100,
+        occurredAt: stamp(2026, 7, 2), categoryId: "dining"
+      ),
+      Transaction(
+        id: "b", name: "B", category: "Dining", time: "", day: "", amount: 50,
+        occurredAt: stamp(2026, 7, 5), categoryId: "dining"
+      ),
+      Transaction(
+        id: "c", name: "C", category: "Bills", time: "", day: "", amount: 80,
+        occurredAt: stamp(2026, 7, 3), categoryId: "bills"
+      ),
+      Transaction(
+        id: "d", name: "D", category: "Dining", time: "", day: "", amount: 999,
+        occurredAt: stamp(2026, 6, 20), categoryId: "dining"
+      ),
+    ]
+    let budgets = BudgetSelectors.categoryBudgets(
+      rows,
+      limits: ["Dining": 200, "Bills": 100, "Empty": nil],
+      now: now,
+      calendar: cal
+    )
+    XCTAssertEqual(budgets.map(\.category), ["Dining", "Bills", "Empty"])
+    XCTAssertEqual(budgets[0].spent, 150)
+    XCTAssertEqual(budgets[1].spent, 80)
+    XCTAssertEqual(budgets[2].spent, 0)
+    XCTAssertEqual(budgets[0].pct, 75)
+  }
+
   func testSuggestedBudgetsFromLookback() {
     let cal = Calendar(identifier: .gregorian)
     let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 11))!

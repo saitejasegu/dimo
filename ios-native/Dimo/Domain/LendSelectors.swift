@@ -27,6 +27,8 @@ struct LendContactSuggestion: Hashable, Sendable, Identifiable {
 }
 
 enum LendSelectors {
+  static let historyPageSize = 50
+
   /// Net amount still out: money lent minus money got back.
   static func totalLent(_ lends: [Lend]) -> Double {
     lends.reduce(0) { $0 + $1.signedAmount }
@@ -128,5 +130,20 @@ enum LendSelectors {
         items: items
       )
     }
+  }
+
+  /// Newest-first pagination that keeps day groups intact (same rule as Home).
+  static func paginateByDay(
+    _ lends: [Lend],
+    limit: Int
+  ) -> (items: [Lend], hasMore: Bool) {
+    if limit <= 0 { return ([], !lends.isEmpty) }
+    if lends.count <= limit { return (lends, false) }
+    var end = limit
+    let oldestDay = lends[limit - 1].day
+    while end < lends.count && lends[end].day == oldestDay {
+      end += 1
+    }
+    return (Array(lends.prefix(end)), end < lends.count)
   }
 }

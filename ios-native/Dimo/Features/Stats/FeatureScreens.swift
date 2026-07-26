@@ -1,11 +1,13 @@
 import SwiftUI
 
 struct StatsScreen: View {
-  @Bindable var store: AppStore
+  var store: AppStore
+  @Bindable var entities: EntitiesStore
+  @Bindable var nav: NavStore
   @State private var txSheet: StatsTxSelection?
 
   var body: some View {
-    let scope = StatsSelectors.statsScope(range: store.statsRange, transactions: store.transactions)
+    let scope = entities.statsScope
     VStack(spacing: 0) {
       VStack(spacing: 0) {
         topBar
@@ -18,31 +20,35 @@ struct StatsScreen: View {
 
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          trendCard(scope)
-          categoriesCard(scope)
-          merchantsCard(scope)
+          trendCard
+          categoriesCard
+          merchantsCard
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
         .padding(.bottom, 24)
       }
+      .onScrollPhaseChange { _, phase in
+        store.setUIScrolling(phase != .idle)
+      }
     }
     .background(Theme.canvas.ignoresSafeArea())
-    .onChange(of: store.statsRange) { _, _ in
+    .onChange(of: nav.statsRange) { _, _ in
       store.selectedMonth = nil
     }
     .sheet(item: $txSheet) { selection in
-      let scoped = StatsSelectors.statsScope(
-        range: store.statsRange,
-        transactions: store.transactions
-      ).transactions
-      let matching = scoped.filter { tx in
+      let matching = entities.statsScope.transactions.filter { tx in
         switch selection.kind {
         case .category: tx.category == selection.name
         case .merchant: tx.name == selection.name
         }
       }
-      StatsTransactionListSheet(store: store, title: selection.name, transactions: matching)
+      StatsTransactionListSheet(
+        entities: entities,
+        store: store,
+        title: selection.name,
+        transactions: matching
+      )
     }
   }
 
@@ -54,7 +60,7 @@ struct StatsScreen: View {
       Spacer()
       PillDropdown(
         options: StatsConstants.ranges,
-        selected: store.statsRange,
+        selected: nav.statsRange,
         label: { StatsConstants.rangeLabel[$0] ?? $0.rawValue }
       ) { range in
         store.statsRange = range
@@ -69,7 +75,7 @@ struct StatsScreen: View {
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.sideMuted)
         .padding(.bottom, 8)
-      Text(Formatting.money(scope.scopeTotal, currency: store.currency))
+      Text(Formatting.money(scope.scopeTotal, currency: entities.currency))
         .font(DimoFont.display(30, weight: .semibold))
         .foregroundStyle(Theme.sideText)
         .padding(.bottom, 6)
@@ -84,12 +90,8 @@ struct StatsScreen: View {
   }
 
   @ViewBuilder
-  private func trendCard(_ scope: StatsScope) -> some View {
-    let bars = StatsSelectors.trendBars(
-      range: store.statsRange,
-      transactions: scope.transactions,
-      selectedKey: store.selectedMonth
-    )
+  private var trendCard: some View {
+    let bars = entities.statsTrendBars
     if bars.visible {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .firstTextBaseline) {
@@ -107,17 +109,14 @@ struct StatsScreen: View {
     }
   }
 
-  private func categoriesCard(_ scope: StatsScope) -> some View {
-    let cats = StatsSelectors.statCategories(
-      scope: scope,
-      limit: store.categoriesExpanded ? Int.max : 5
-    )
+  private var categoriesCard: some View {
+    let cats = entities.statsCategories
     return VStack(alignment: .leading, spacing: 14) {
       HStack {
         statsSectionTitle("By category")
         Spacer()
         if cats.total > 5 {
-          Button(store.categoriesExpanded ? "Show top 5" : "See all (\(cats.total))") {
+          Button(nav.categoriesExpanded ? "Show top 5" : "See all (\(cats.total))") {
             store.categoriesExpanded.toggle()
           }
           .font(DimoFont.body(12, weight: .medium))
@@ -150,17 +149,14 @@ struct StatsScreen: View {
     .statsCard()
   }
 
-  private func merchantsCard(_ scope: StatsScope) -> some View {
-    let merchants = StatsSelectors.topMerchants(
-      scope: scope,
-      limit: store.merchantsExpanded ? Int.max : 5
-    )
+  private var merchantsCard: some View {
+    let merchants = entities.statsMerchants
     return VStack(alignment: .leading, spacing: 12) {
       HStack {
         statsSectionTitle("Top merchants")
         Spacer()
         if merchants.total > 5 {
-          Button(store.merchantsExpanded ? "Show top 5" : "Show all (\(merchants.total))") {
+          Button(nav.merchantsExpanded ? "Show top 5" : "Show all (\(merchants.total))") {
             store.merchantsExpanded.toggle()
           }
           .font(DimoFont.body(12, weight: .medium))
@@ -186,7 +182,7 @@ struct StatsScreen: View {
               }
               Spacer()
               VStack(alignment: .trailing, spacing: 4) {
-                Text(Formatting.money(merchant.amount, currency: store.currency))
+                Text(Formatting.money(merchant.amount, currency: entities.currency))
                   .font(DimoFont.display(14, weight: .semibold))
                   .foregroundStyle(Theme.ink)
                 StatBarTrack(value: merchant.relative, fill: Theme.green, height: 4)
@@ -220,6 +216,7 @@ private struct StatsTxSelection: Identifiable {
 
 /// Read-only list of the scoped transactions behind a stats row, styled like home rows.
 private struct StatsTransactionListSheet: View {
+  var entities: EntitiesStore
   var store: AppStore
   var title: String
   var transactions: [Transaction]
@@ -242,7 +239,7 @@ private struct StatsTransactionListSheet: View {
                   .kerning(0.96)
                   .foregroundStyle(Theme.muted)
                 Spacer()
-                Text(Formatting.spent(group.total, currency: store.currency))
+                Text(Formatting.spent(group.total, currency: entities.currency))
                   .font(DimoFont.body(12))
                   .foregroundStyle(Theme.faint)
               }
@@ -286,7 +283,7 @@ private struct StatsTransactionListSheet: View {
           .lineLimit(1)
       }
       Spacer()
-      Text(Formatting.spent(tx.amount, currency: store.currency))
+      Text(Formatting.spent(tx.amount, currency: entities.currency))
         .font(DimoFont.display(15, weight: .semibold))
         .foregroundStyle(Theme.ink)
     }
@@ -543,16 +540,14 @@ struct RecurringScreen: View {
 }
 
 struct BudgetsScreen: View {
-  @Bindable var store: AppStore
+  var store: AppStore
+  @Bindable var entities: EntitiesStore
   @State private var suggestedOpen = false
 
   var body: some View {
-    let totals = BudgetSelectors.budgetTotals(store.transactions, limits: store.limits)
-    let budgets = BudgetSelectors.categoryBudgets(store.transactions, limits: store.limits)
-    let suggestions = BudgetSelectors.suggestedCategoryBudgetUpdates(
-      store.transactions,
-      categories: store.categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
-    )
+    let totals = entities.monthBudgetTotals
+    let budgets = entities.categoryBudgets
+    let suggestions = entities.suggestedBudgetUpdates
 
     VStack(spacing: 0) {
       VStack(spacing: 0) {
@@ -582,7 +577,7 @@ struct BudgetsScreen: View {
       .padding(.bottom, 14)
 
       ScrollView {
-        VStack(spacing: 12) {
+        LazyVStack(spacing: 12) {
           ForEach(budgets) { budget in
             budgetCard(budget)
           }
@@ -591,6 +586,9 @@ struct BudgetsScreen: View {
         .padding(.top, 16)
         // Clears the floating add button overlaying the list's bottom edge.
         .padding(.bottom, 110)
+      }
+      .onScrollPhaseChange { _, phase in
+        store.setUIScrolling(phase != .idle)
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
@@ -612,10 +610,10 @@ struct BudgetsScreen: View {
       }
       .padding(.bottom, 8)
       HStack(alignment: .firstTextBaseline, spacing: 6) {
-        Text(Formatting.money(totals.totalSpent, currency: store.currency))
+        Text(Formatting.money(totals.totalSpent, currency: entities.currency))
           .font(DimoFont.display(30, weight: .semibold))
           .foregroundStyle(Theme.sideText)
-        Text("of \(Formatting.money(totals.totalLimit, currency: store.currency))")
+        Text("of \(Formatting.money(totals.totalLimit, currency: entities.currency))")
           .font(DimoFont.body(16, weight: .medium))
           .foregroundStyle(Theme.sideSub)
       }
@@ -630,7 +628,7 @@ struct BudgetsScreen: View {
       }
       .frame(height: 8)
       .padding(.bottom, 8)
-      Text("\(Formatting.money(totals.left, currency: store.currency)) left · \(daysToGo) days to go")
+      Text("\(Formatting.money(totals.left, currency: entities.currency)) left · \(daysToGo) days to go")
         .font(DimoFont.body(12))
         .foregroundStyle(Theme.sideSub)
     }
@@ -641,7 +639,7 @@ struct BudgetsScreen: View {
   }
 
   private func budgetCard(_ budget: CategoryBudget) -> some View {
-    let cat = store.categories.first(where: { $0.name == budget.category })
+    let cat = entities.categories.first(where: { $0.name == budget.category })
     return Button {
       if let id = cat?.id { store.openEditCategory(id) }
     } label: {
@@ -654,8 +652,8 @@ struct BudgetsScreen: View {
           Spacer()
           Text(
             budget.hasLimit
-              ? "\(Formatting.money(budget.spent, currency: store.currency)) of \(Formatting.money(budget.limit ?? 0, currency: store.currency))"
-              : "\(Formatting.money(budget.spent, currency: store.currency)) · no budget"
+              ? "\(Formatting.money(budget.spent, currency: entities.currency)) of \(Formatting.money(budget.limit ?? 0, currency: entities.currency))"
+              : "\(Formatting.money(budget.spent, currency: entities.currency)) · no budget"
           )
           .font(DimoFont.body(13))
           .foregroundStyle(Theme.muted)

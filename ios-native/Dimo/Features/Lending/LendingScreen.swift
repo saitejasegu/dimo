@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum LendingSection: String, CaseIterable, Identifiable {
   case summary
@@ -15,14 +16,16 @@ enum LendingSection: String, CaseIterable, Identifiable {
 }
 
 struct LendingScreen: View {
-  @Bindable var store: AppStore
+  var store: AppStore
+  @Bindable var entities: EntitiesStore
   @State private var section: LendingSection = .summary
   @State private var messageToShare: String?
+  @State private var visibleLimit = LendSelectors.historyPageSize
   private let contactPhotos = ContactsLoader.shared
 
   var body: some View {
-    let summaries = LendSelectors.contactSummaries(store.lends)
-    let total = LendSelectors.totalLent(store.lends)
+    let summaries = entities.lendSummaries
+    let total = entities.lendTotalOutstanding
 
     VStack(spacing: 0) {
       VStack(spacing: 0) {
@@ -45,8 +48,8 @@ struct LendingScreen: View {
       .padding(.bottom, 14)
 
       ScrollView {
-        VStack(spacing: 8) {
-          if store.lends.isEmpty {
+        LazyVStack(spacing: 8) {
+          if entities.lends.isEmpty {
             emptyState
           } else {
             switch section {
@@ -68,9 +71,15 @@ struct LendingScreen: View {
         // Clears the floating add button overlaying the list's bottom edge.
         .padding(.bottom, 110)
       }
+      .onScrollPhaseChange { _, phase in
+        store.setUIScrolling(phase != .idle)
+      }
     }
     .background(Theme.canvas.ignoresSafeArea())
     .onAppear { contactPhotos.loadIfAuthorized() }
+    .onChange(of: section) { _, _ in
+      visibleLimit = LendSelectors.historyPageSize
+    }
     .sheet(
       isPresented: Binding(
         get: { messageToShare != nil },
@@ -90,14 +99,14 @@ struct LendingScreen: View {
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.sideMuted)
         .padding(.bottom, 8)
-      Text(Formatting.money(total, currency: store.currency))
+      Text(Formatting.money(total, currency: entities.currency))
         .font(DimoFont.display(30, weight: .semibold))
         .foregroundStyle(Theme.sideText)
         .padding(.bottom, 6)
       Text(
-        store.lends.isEmpty
+        entities.lends.isEmpty
           ? "No money lent yet"
-          : "\(contacts) contact\(contacts == 1 ? "" : "s") · \(store.lends.count) entr\(store.lends.count == 1 ? "y" : "ies")"
+          : "\(contacts) contact\(contacts == 1 ? "" : "s") · \(entities.lends.count) entr\(entities.lends.count == 1 ? "y" : "ies")"
       )
       .font(DimoFont.body(12))
       .foregroundStyle(Theme.sideSub)
@@ -167,7 +176,7 @@ struct LendingScreen: View {
         HStack(spacing: 12) {
           AvatarView(
             name: summary.contactName,
-            photoData: contactPhotos.thumbnail(contactId: summary.contactId),
+            photoImage: contactPhotos.thumbnailImage(contactId: summary.contactId),
             size: 38,
             radius: 11,
             fontSize: 15
@@ -183,7 +192,7 @@ struct LendingScreen: View {
               .lineLimit(1)
           }
           Spacer()
-          Text(Formatting.money(summary.total, currency: store.currency))
+          Text(Formatting.money(summary.total, currency: entities.currency))
             .font(DimoFont.display(15, weight: .semibold))
             .foregroundStyle(Theme.ink)
         }
@@ -221,10 +230,10 @@ struct LendingScreen: View {
     dateFormatter.dateFormat = "dd-MMM-yyyy"
 
     let transactionLines: [String] = LendSelectors
-      .unsettledTransactions(for: summary.contactId, in: store.lends)
+      .unsettledTransactions(for: summary.contactId, in: entities.lends)
       .map { lend -> String in
         let sign = lend.kind == .repaid ? "-" : "+"
-        let amount = Formatting.money(lend.amount, currency: store.currency)
+        let amount = Formatting.money(lend.amount, currency: entities.currency)
         let occurredAt = Date(timeIntervalSince1970: TimeInterval(lend.occurredAt) / 1000)
         let date = dateFormatter.string(from: occurredAt)
         return "• \(date) · \(sign)\(amount)"
@@ -234,15 +243,17 @@ struct LendingScreen: View {
     return """
     Hi \(summary.contactName), here’s our lending summary:
 
-    Outstanding: \(Formatting.money(summary.total, currency: store.currency))
+    Outstanding: \(Formatting.money(summary.total, currency: entities.currency))
 
     \(transactions)
     """
   }
 
   private var transactionList: some View {
-    LazyVStack(alignment: .leading, spacing: 14) {
-      ForEach(LendSelectors.groupByDay(store.lends), id: \.label) { group in
+    let page = LendSelectors.paginateByDay(entities.lends, limit: visibleLimit)
+    let groups = LendSelectors.groupByDay(page.items)
+    return Group {
+      ForEach(groups, id: \.label) { group in
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .firstTextBaseline) {
             Text(group.label.uppercased())
@@ -250,7 +261,7 @@ struct LendingScreen: View {
               .kerning(0.96)
               .foregroundStyle(Theme.muted)
             Spacer()
-            Text(Formatting.money(group.total, currency: store.currency))
+            Text(Formatting.money(group.total, currency: entities.currency))
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.faint)
           }
@@ -258,6 +269,21 @@ struct LendingScreen: View {
             lendRow(lend)
           }
         }
+        .padding(.bottom, 6)
+      }
+      if page.hasMore {
+        ProgressView()
+          .tint(Theme.green)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+          .onAppear {
+            let next = min(
+              visibleLimit + LendSelectors.historyPageSize,
+              entities.lends.count
+            )
+            guard next > visibleLimit else { return }
+            DispatchQueue.main.async { visibleLimit = next }
+          }
       }
     }
   }
@@ -278,7 +304,7 @@ struct LendingScreen: View {
       HStack(spacing: 12) {
         AvatarView(
           name: lend.contactName,
-          photoData: contactPhotos.thumbnail(contactId: lend.contactId),
+          photoImage: contactPhotos.thumbnailImage(contactId: lend.contactId),
           size: 38,
           radius: 11,
           fontSize: 15
@@ -294,7 +320,7 @@ struct LendingScreen: View {
             .lineLimit(1)
         }
         Spacer()
-        Text(Formatting.money(lend.signedAmount, currency: store.currency))
+        Text(Formatting.money(lend.signedAmount, currency: entities.currency))
           .font(DimoFont.display(15, weight: .semibold))
           .foregroundStyle(isRepaid ? Theme.green : Theme.ink)
       }
@@ -312,11 +338,11 @@ struct LendingScreen: View {
 }
 
 private struct LendingShareSheet: UIViewControllerRepresentable {
-  let message: String
+  var message: String
 
   func makeUIViewController(context: Context) -> UIActivityViewController {
-    UIActivityViewController(activityItems: [message as NSString], applicationActivities: nil)
+    UIActivityViewController(activityItems: [message], applicationActivities: nil)
   }
 
-  func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+  func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

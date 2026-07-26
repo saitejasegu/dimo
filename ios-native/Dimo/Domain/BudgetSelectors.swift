@@ -16,6 +16,8 @@ struct BudgetTotals: Equatable, Sendable {
   var pct: Int
   var left: Double
   var over: Bool
+  /// Transactions in the current local calendar month (same filter as spent).
+  var transactionCount: Int
 }
 
 struct CategoryLookbackSpend: Equatable, Sendable {
@@ -47,27 +49,20 @@ enum BudgetSelectors {
       && calendar.component(.month, from: date) == calendar.component(.month, from: now)
   }
 
-  private static func spentByCategory(
-    _ transactions: [Transaction],
-    category: String,
-    now: Date,
-    calendar: Calendar
-  ) -> Double {
-    transactions
-      .filter { isCurrentMonth($0.occurredAt, now: now, calendar: calendar) && $0.category == category }
-      .reduce(0) { $0 + $1.amount }
-  }
-
   static func categoryBudgets(
     _ transactions: [Transaction],
     limits: CategoryLimits,
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [CategoryBudget] {
-    limits.keys.map { category in
+    var spentByCategory: [String: Double] = [:]
+    for transaction in transactions where isCurrentMonth(transaction.occurredAt, now: now, calendar: calendar) {
+      spentByCategory[transaction.category, default: 0] += transaction.amount
+    }
+    return limits.keys.map { category in
       let limit = limits[category] ?? nil
       let hasLimit = (limit ?? 0) > 0
-      let spent = spentByCategory(transactions, category: category, now: now, calendar: calendar)
+      let spent = spentByCategory[category] ?? 0
       let pct = hasLimit ? Formatting.percent(spent, total: limit ?? 0) : 0
       return CategoryBudget(
         category: category,
@@ -87,8 +82,12 @@ enum BudgetSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> BudgetTotals {
-    let current = transactions.filter { isCurrentMonth($0.occurredAt, now: now, calendar: calendar) }
-    let totalSpent = current.reduce(0.0) { $0 + $1.amount }
+    var totalSpent = 0.0
+    var transactionCount = 0
+    for transaction in transactions where isCurrentMonth(transaction.occurredAt, now: now, calendar: calendar) {
+      totalSpent += transaction.amount
+      transactionCount += 1
+    }
     let totalLimit = limits.values.reduce(0.0) { $0 + ($1 ?? 0) }
     let pct = Formatting.percent(totalSpent, total: totalLimit)
     return BudgetTotals(
@@ -96,7 +95,8 @@ enum BudgetSelectors {
       totalLimit: totalLimit,
       pct: pct,
       left: totalLimit - totalSpent,
-      over: totalLimit > 0 && totalSpent / totalLimit >= 0.9
+      over: totalLimit > 0 && totalSpent / totalLimit >= 0.9,
+      transactionCount: transactionCount
     )
   }
 
@@ -131,22 +131,30 @@ enum BudgetSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [SuggestedCategoryBudgetUpdate] {
-    categories.flatMap { category -> [SuggestedCategoryBudgetUpdate] in
-      let lookback = categoryLookbackSpend(
-        transactions, categoryId: category.id, monthCount: monthCount, now: now, calendar: calendar
-      )
-      if lookback.total <= 0 { return [] }
-      let suggestedLimit = lookback.monthlyAverage.rounded()
+    let startDate = calendar.date(
+      byAdding: .month, value: -(monthCount - 1), to: monthStart(now, calendar: calendar)
+    ) ?? now
+    let start = startDate.timeIntervalSince1970 * 1000
+    let end = now.timeIntervalSince1970 * 1000
+    var spendByCategoryId: [String: Double] = [:]
+    for transaction in transactions {
+      guard let categoryId = transaction.categoryId else { continue }
+      let occurred = Double(transaction.occurredAt ?? 0)
+      guard occurred >= start, occurred <= end else { continue }
+      spendByCategoryId[categoryId, default: 0] += transaction.amount
+    }
+    return categories.compactMap { category in
+      let total = spendByCategoryId[category.id] ?? 0
+      if total <= 0 { return nil }
+      let suggestedLimit = (total / Double(monthCount)).rounded()
       let currentLimit = category.monthlyBudgetMinor.map { Double($0) / 100 }
-      if currentLimit == suggestedLimit { return [] }
-      return [
-        SuggestedCategoryBudgetUpdate(
-          id: category.id,
-          name: category.name,
-          suggestedLimit: suggestedLimit,
-          currentLimit: currentLimit
-        ),
-      ]
+      if currentLimit == suggestedLimit { return nil }
+      return SuggestedCategoryBudgetUpdate(
+        id: category.id,
+        name: category.name,
+        suggestedLimit: suggestedLimit,
+        currentLimit: currentLimit
+      )
     }
   }
 
