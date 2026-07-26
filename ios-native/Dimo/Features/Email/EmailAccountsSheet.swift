@@ -3,23 +3,12 @@ import SwiftUI
 struct EmailSettingsSection: View {
   @Bindable var store: EmailFeatureStore
   @State private var disconnectCandidate: EmailUIAccount?
-  @State private var confirmDeleteModel = false
-  @State private var confirmCellularDownload = false
   @State private var confirmReanalyseAll = false
   @State private var modelPickerPresented = false
   @State private var confirmSelectedModelNonZDR = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 22) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Email")
-          .font(DimoFont.display(18, weight: .semibold))
-          .foregroundStyle(Theme.ink)
-        Text("Gmail accounts, analysis, models, and privacy")
-          .font(DimoFont.body(12))
-          .foregroundStyle(Theme.muted)
-      }
-
       accountsSection
       analyzerSection
       privacySection
@@ -28,8 +17,6 @@ struct EmailSettingsSection: View {
       OpenRouterModelPicker(store: store)
     }
     .onAppear {
-      // Avoid a full catalog refetch every time settings opens; that stalls the
-      // model switcher. Refresh only when connected with an empty local catalog.
       if case .connected = store.openRouterConnectionState, store.openRouterModels.isEmpty {
         store.refreshOpenRouterModels()
       }
@@ -51,33 +38,13 @@ struct EmailSettingsSection: View {
       Text("Dimo will delete this account's device-only Gmail credential and all local email suggestions. Existing Dimo transactions are unchanged. Reviewed suggestions remain in sync and return if you reconnect the same account.")
     }
     .alert(
-      "Use cellular data?",
-      isPresented: $confirmCellularDownload
-    ) {
-      Button("Download using cellular") {
-        store.downloadModel(allowCellular: true)
-      }
-      Button("Wait for Wi-Fi", role: .cancel) {}
-    } message: {
-      Text("Gemma is \(store.modelDownloadSizeDescription). Carrier data charges may apply.")
-    }
-    .alert(
-      "Delete downloaded Gemma model?",
-      isPresented: $confirmDeleteModel
-    ) {
-      Button("Delete model", role: .destructive) { store.deleteModel() }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("If Local Gemma is selected, email analysis will become unconfigured. Gmail accounts and reviewed suggestions are not removed.")
-    }
-    .alert(
       "Reanalyse all emails?",
       isPresented: $confirmReanalyseAll
     ) {
       Button("Reanalyse all emails") { store.reanalyzeAllEmails() }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Dimo will rerun the selected analyzer for every unreviewed email whose content is still retained. Reviewed suggestions and existing Dimo transactions are unchanged.")
+      Text("Dimo will rerun OpenRouter for every unreviewed email whose content is still retained. Reviewed suggestions and existing Dimo transactions are unchanged.")
     }
     .alert(
       "Allow non-ZDR analysis?",
@@ -248,7 +215,7 @@ struct EmailSettingsSection: View {
 
       if store.selectedProvider == nil {
         Label(
-          "Email analysis is not configured. Choose Local Gemma or OpenRouter. Fetched emails wait on this iPhone until analyzed; analyzed suggestions then sync through Dimo for restore.",
+          "Email analysis is not configured. Connect OpenRouter with a valid key and choose a model. Fetched emails wait on this iPhone until analyzed; analyzed suggestions then sync through Dimo for restore.",
           systemImage: "exclamationmark.triangle.fill"
         )
         .font(DimoFont.body(12))
@@ -256,118 +223,26 @@ struct EmailSettingsSection: View {
         .emailSettingsCard()
       }
 
-      gemmaCard
       openRouterCard
 
       VStack(alignment: .leading, spacing: 8) {
         Text("Reanalyse email suggestions")
           .font(DimoFont.body(13, weight: .semibold))
           .foregroundStyle(Theme.ink)
-        Text("Resets every eligible unreviewed email, updates the UI, then starts the selected analyzer. Processing is limited to ten emails per minute.")
+        Text("Resets every eligible unreviewed email, updates the UI, then reruns OpenRouter analysis.")
           .font(DimoFont.body(11))
           .foregroundStyle(Theme.muted)
           .fixedSize(horizontal: false, vertical: true)
         ActionButton(
           title: store.isReanalyzing ? "Reanalysing emails…" : "Reanalyse all emails",
           variant: .secondary,
-          enabled: !store.isReanalyzing && !store.accounts.isEmpty && store.selectedProvider != nil
+          enabled: !store.isReanalyzing && !store.accounts.isEmpty && store.isOpenRouterReady
         ) {
           confirmReanalyseAll = true
         }
       }
       .emailSettingsCard()
     }
-  }
-
-  private var gemmaCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top, spacing: 12) {
-        Image(systemName: store.selectedProvider == .gemma ? "checkmark.circle.fill" : "cpu")
-          .font(.system(size: 17, weight: .semibold))
-          .foregroundStyle(store.selectedProvider == .gemma ? Theme.green : Theme.muted)
-          .frame(width: 40, height: 40)
-          .background(store.selectedProvider == .gemma ? Theme.greenSoft : Theme.canvasDeep)
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Local Gemma")
-            .font(DimoFont.body(14, weight: .semibold))
-            .foregroundStyle(Theme.ink)
-          Text("Choose 270M or 1B · GGUF via llama.cpp · Analyzes on this iPhone · suggestions sync through Dimo")
-            .font(DimoFont.body(11))
-            .foregroundStyle(Theme.muted)
-        }
-        Spacer()
-      }
-
-      if !store.gemmaModelOptions.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Model size")
-            .font(DimoFont.body(12, weight: .semibold))
-            .foregroundStyle(Theme.ink)
-          ForEach(store.gemmaModelOptions) { option in
-            Button {
-              store.selectGemmaModelVariant(option.variant)
-            } label: {
-              HStack(alignment: .top, spacing: 10) {
-                Image(systemName: store.selectedGemmaModelVariant == option.variant
-                  ? "checkmark.circle.fill"
-                  : "circle")
-                  .foregroundStyle(
-                    store.selectedGemmaModelVariant == option.variant ? Theme.green : Theme.muted
-                  )
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(option.title)
-                    .font(DimoFont.body(13, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                  Text("\(option.subtitle) · \(option.downloadSizeDescription)")
-                    .font(DimoFont.body(11))
-                    .foregroundStyle(Theme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-              }
-              .padding(10)
-              .background(
-                store.selectedGemmaModelVariant == option.variant
-                  ? Theme.greenSoft
-                  : Theme.canvasDeep
-              )
-              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      }
-
-      Text(modelTitle)
-        .font(DimoFont.body(12, weight: .semibold))
-        .foregroundStyle(Theme.ink)
-      Text(modelDetail)
-        .font(DimoFont.body(11))
-        .foregroundStyle(Theme.muted)
-        .fixedSize(horizontal: false, vertical: true)
-
-      if let progress = store.modelState.progress {
-        ProgressView(value: min(max(progress, 0), 1)).tint(Theme.green)
-      }
-
-      if store.selectedProvider != .gemma {
-        ActionButton(title: "Use Local Gemma", variant: .secondary) {
-          store.selectGemma()
-        }
-      }
-
-      modelActions
-
-      HStack(spacing: 16) {
-        if let termsURL = store.modelTermsURL { Link("Gemma terms", destination: termsURL) }
-        if let attributionURL = store.modelAttributionURL { Link("Attribution", destination: attributionURL) }
-      }
-      .font(DimoFont.body(11, weight: .medium))
-      .foregroundStyle(Theme.green)
-    }
-    .emailSettingsCard()
   }
 
   private var openRouterCard: some View {
@@ -383,7 +258,7 @@ struct EmailSettingsSection: View {
           Text("OpenRouter")
             .font(DimoFont.body(14, weight: .semibold))
             .foregroundStyle(Theme.ink)
-          Text("Bring your own key · Analysis via OpenRouter · suggestions sync through Dimo")
+          Text(openRouterSubtitle)
             .font(DimoFont.body(11))
             .foregroundStyle(Theme.muted)
         }
@@ -391,140 +266,208 @@ struct EmailSettingsSection: View {
         openRouterStatusBadge
       }
 
-      switch store.openRouterConnectionState {
-      case .failed(let message):
-        Label(message, systemImage: "exclamationmark.triangle.fill")
-          .font(DimoFont.body(10, weight: .medium))
-          .foregroundStyle(Theme.danger)
-          .fixedSize(horizontal: false, vertical: true)
-        ActionButton(title: "Retry OpenRouter", variant: .accent) {
-          store.retryOpenRouterConnection()
-        }
-        SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .font(DimoFont.body(12))
-          .padding(12)
-          .background(Theme.canvasDeep)
-          .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        Text("Retry uses the key already saved on this iPhone. Enter a different key only if you want to replace it.")
-          .font(DimoFont.body(10))
-          .foregroundStyle(Theme.muted)
-        ActionButton(title: "Validate and save key", variant: .secondary, enabled: !store.openRouterAPIKeyInput.isEmpty) {
-          store.saveOpenRouterKey()
-        }
-      case .disconnected:
-        SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .font(DimoFont.body(12))
-          .padding(12)
-          .background(Theme.canvasDeep)
-          .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        Text("Use a dedicated, revocable OpenRouter key with a spending limit. The key stays in this iPhone's Keychain. Analysis goes to OpenRouter; analyzed suggestions sync through Dimo.")
-          .font(DimoFont.body(10))
-          .foregroundStyle(Theme.muted)
-        ActionButton(title: "Validate and save key", variant: .accent, enabled: !store.openRouterAPIKeyInput.isEmpty) {
-          store.saveOpenRouterKey()
-        }
-      case .validating:
-        HStack { ProgressView().controlSize(.small); Text("Validating key and loading models…") }
-          .font(DimoFont.body(11))
-          .foregroundStyle(Theme.muted)
-      case .connected:
-        if store.selectedProvider == .openRouter,
-           openRouterNeedsManualRetry {
-          Label(store.analysisStatusDetail, systemImage: "exclamationmark.triangle.fill")
-            .font(DimoFont.body(10, weight: .medium))
-            .foregroundStyle(Theme.danger)
-            .fixedSize(horizontal: false, vertical: true)
-          ActionButton(title: "Retry OpenRouter analysis", variant: .accent) {
-            store.retryOpenRouterAnalysis()
-          }
-        }
+      Picker(
+        "OpenRouter access",
+        selection: Binding(
+          get: { store.openRouterAccessMode },
+          set: { store.selectOpenRouterAccessMode($0) }
+        )
+      ) {
+        Text("Free models").tag(OpenRouterAccessMode.freeShared)
+        Text("Bring your own key").tag(OpenRouterAccessMode.bringYourOwnKey)
+      }
+      .pickerStyle(.segmented)
 
-        Button {
-          modelPickerPresented = true
-        } label: {
-          HStack {
-            VStack(alignment: .leading, spacing: 3) {
-              Text(store.selectedOpenRouterModel?.name ?? "Choose an OpenRouter model")
-                .font(DimoFont.body(12, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-              Text(store.selectedOpenRouterModelID ?? OpenRouterClient.defaultModelID)
-                .font(DimoFont.body(9))
-                .foregroundStyle(Theme.muted)
-                .lineLimit(1)
-            }
-            Spacer()
-            Image(systemName: "chevron.right").foregroundStyle(Theme.faint)
-          }
-          .padding(12)
-          .background(Theme.canvasDeep)
-          .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        }
-        .buttonStyle(.plain)
+      switch store.openRouterAccessMode {
+      case .freeShared:
+        freeOpenRouterBody
+      case .bringYourOwnKey:
+        byokOpenRouterBody
+      }
+    }
+    .emailSettingsCard()
+  }
 
-        if store.selectedProvider != .openRouter,
-           let selectedModel = store.selectedOpenRouterModel {
-          ActionButton(title: "Use OpenRouter", variant: .accent) {
-            if selectedModel.hasZDREndpoint {
+  private var openRouterSubtitle: String {
+    switch store.openRouterAccessMode {
+    case .freeShared:
+      return "Free models via Dimo · no personal key · suggestions sync through Dimo"
+    case .bringYourOwnKey:
+      return "Bring your own key · Analysis via OpenRouter · suggestions sync through Dimo"
+    }
+  }
+
+  @ViewBuilder
+  private var freeOpenRouterBody: some View {
+    switch store.openRouterConnectionState {
+    case .failed(let message):
+      Label(message, systemImage: "exclamationmark.triangle.fill")
+        .font(DimoFont.body(10, weight: .medium))
+        .foregroundStyle(Theme.danger)
+        .fixedSize(horizontal: false, vertical: true)
+      Text("Free models need an online Dimo session. No OpenRouter key is stored on this iPhone.")
+        .font(DimoFont.body(10))
+        .foregroundStyle(Theme.muted)
+      ActionButton(title: "Retry free models", variant: .accent) {
+        store.retryOpenRouterConnection()
+      }
+    case .disconnected:
+      Text("Connect to Dimo sync to load free OpenRouter models. Selected email text is sent through Dimo’s servers to OpenRouter for analysis.")
+        .font(DimoFont.body(10))
+        .foregroundStyle(Theme.muted)
+      ActionButton(title: "Load free models", variant: .accent) {
+        store.retryOpenRouterConnection()
+      }
+    case .validating:
+      HStack { ProgressView().controlSize(.small); Text("Loading free OpenRouter models…") }
+        .font(DimoFont.body(11))
+        .foregroundStyle(Theme.muted)
+    case .connected:
+      openRouterConnectedControls(showRemoveKey: false)
+    }
+  }
+
+  @ViewBuilder
+  private var byokOpenRouterBody: some View {
+    switch store.openRouterConnectionState {
+    case .failed(let message):
+      Label(message, systemImage: "exclamationmark.triangle.fill")
+        .font(DimoFont.body(10, weight: .medium))
+        .foregroundStyle(Theme.danger)
+        .fixedSize(horizontal: false, vertical: true)
+      ActionButton(title: "Retry OpenRouter", variant: .accent) {
+        store.retryOpenRouterConnection()
+      }
+      SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .font(DimoFont.body(12))
+        .padding(12)
+        .background(Theme.canvasDeep)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+      Text("Retry uses the key already saved on this iPhone. Enter a different key only if you want to replace it.")
+        .font(DimoFont.body(10))
+        .foregroundStyle(Theme.muted)
+      ActionButton(title: "Validate and save key", variant: .secondary, enabled: !store.openRouterAPIKeyInput.isEmpty) {
+        store.saveOpenRouterKey()
+      }
+    case .disconnected:
+      SecureField("sk-or-v1-…", text: $store.openRouterAPIKeyInput)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .font(DimoFont.body(12))
+        .padding(12)
+        .background(Theme.canvasDeep)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+      Text("Use a dedicated, revocable OpenRouter key with a spending limit. The key stays in this iPhone's Keychain. Analysis goes from this iPhone to OpenRouter; analyzed suggestions sync through Dimo.")
+        .font(DimoFont.body(10))
+        .foregroundStyle(Theme.muted)
+      ActionButton(title: "Validate and save key", variant: .accent, enabled: !store.openRouterAPIKeyInput.isEmpty) {
+        store.saveOpenRouterKey()
+      }
+    case .validating:
+      HStack { ProgressView().controlSize(.small); Text("Validating key and loading models…") }
+        .font(DimoFont.body(11))
+        .foregroundStyle(Theme.muted)
+    case .connected:
+      openRouterConnectedControls(showRemoveKey: true)
+    }
+  }
+
+  @ViewBuilder
+  private func openRouterConnectedControls(showRemoveKey: Bool) -> some View {
+    if store.selectedProvider == .openRouter,
+       openRouterNeedsManualRetry {
+      Label(store.analysisStatusDetail, systemImage: "exclamationmark.triangle.fill")
+        .font(DimoFont.body(10, weight: .medium))
+        .foregroundStyle(Theme.danger)
+        .fixedSize(horizontal: false, vertical: true)
+      ActionButton(title: "Retry OpenRouter analysis", variant: .accent) {
+        store.retryOpenRouterAnalysis()
+      }
+    }
+
+    Button {
+      modelPickerPresented = true
+    } label: {
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text(store.selectedOpenRouterModel?.name ?? "Choose an OpenRouter model")
+            .font(DimoFont.body(12, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+          Text(store.selectedOpenRouterModelID ?? OpenRouterClient.defaultModelID)
+            .font(DimoFont.body(9))
+            .foregroundStyle(Theme.muted)
+            .lineLimit(1)
+        }
+        Spacer()
+        Image(systemName: "chevron.right").foregroundStyle(Theme.faint)
+      }
+      .padding(12)
+      .background(Theme.canvasDeep)
+      .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+    .buttonStyle(.plain)
+
+    if store.selectedProvider != .openRouter,
+       let selectedModel = store.selectedOpenRouterModel {
+      ActionButton(title: "Use OpenRouter", variant: .accent) {
+        if selectedModel.hasZDREndpoint {
+          store.selectOpenRouterModel(selectedModel.id, allowNonZDR: false)
+        } else {
+          confirmSelectedModelNonZDR = true
+        }
+      }
+    }
+
+    if store.openRouterPrivacyMode == .allowNonZDR {
+      Label(
+        "Non-ZDR enabled for analysis. Analyzed suggestions still sync through Dimo with their email text.",
+        systemImage: "exclamationmark.shield.fill"
+      )
+      .font(DimoFont.body(10, weight: .medium))
+      .foregroundStyle(Theme.danger)
+      .fixedSize(horizontal: false, vertical: true)
+    } else {
+      Label(
+        "Zero-data-retention routes for analysis. Analyzed suggestions still sync through Dimo with their email text.",
+        systemImage: "lock.shield.fill"
+      )
+      .font(DimoFont.body(10, weight: .medium))
+      .foregroundStyle(Theme.green)
+      .fixedSize(horizontal: false, vertical: true)
+    }
+
+    if let selectedModel = store.selectedOpenRouterModel {
+      Toggle(
+        "Zero-data-retention routes only",
+        isOn: Binding(
+          get: { store.openRouterPrivacyMode == .zdrOnly },
+          set: { enabled in
+            if enabled {
               store.selectOpenRouterModel(selectedModel.id, allowNonZDR: false)
             } else {
               confirmSelectedModelNonZDR = true
             }
           }
-        }
-
-        if store.openRouterPrivacyMode == .allowNonZDR {
-          Label(
-            "Non-ZDR enabled for analysis. Analyzed suggestions still sync through Dimo with their email text.",
-            systemImage: "exclamationmark.shield.fill"
-          )
-            .font(DimoFont.body(10, weight: .medium))
-            .foregroundStyle(Theme.danger)
-            .fixedSize(horizontal: false, vertical: true)
-        } else {
-          Label(
-            "Zero-data-retention routes for analysis. Analyzed suggestions still sync through Dimo with their email text.",
-            systemImage: "lock.shield.fill"
-          )
-            .font(DimoFont.body(10, weight: .medium))
-            .foregroundStyle(Theme.green)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        if let selectedModel = store.selectedOpenRouterModel {
-          Toggle(
-            "Zero-data-retention routes only",
-            isOn: Binding(
-              get: { store.openRouterPrivacyMode == .zdrOnly },
-              set: { enabled in
-                if enabled {
-                  store.selectOpenRouterModel(selectedModel.id, allowNonZDR: false)
-                } else {
-                  confirmSelectedModelNonZDR = true
-                }
-              }
-            )
-          )
-          .font(DimoFont.body(11, weight: .medium))
-          .tint(Theme.green)
-          .disabled(!selectedModel.hasZDREndpoint)
-          if !selectedModel.hasZDREndpoint {
-            Text("Choose a model with a ZDR badge to enable this protection.")
-              .font(DimoFont.body(9))
-              .foregroundStyle(Theme.muted)
-          }
-        }
-
-        HStack(spacing: 10) {
-          compactAction("Refresh models", tint: Theme.green) { store.refreshOpenRouterModels() }
-          compactAction("Remove key", tint: Theme.danger) { store.removeOpenRouterKey() }
-        }
+        )
+      )
+      .font(DimoFont.body(11, weight: .medium))
+      .tint(Theme.green)
+      .disabled(!selectedModel.hasZDREndpoint)
+      if !selectedModel.hasZDREndpoint {
+        Text("Choose a model with a ZDR badge to enable this protection.")
+          .font(DimoFont.body(9))
+          .foregroundStyle(Theme.muted)
       }
     }
-    .emailSettingsCard()
+
+    HStack(spacing: 10) {
+      compactAction("Refresh models", tint: Theme.green) { store.refreshOpenRouterModels() }
+      if showRemoveKey {
+        compactAction("Remove key", tint: Theme.danger) { store.removeOpenRouterKey() }
+      }
+    }
   }
 
   @ViewBuilder
@@ -554,60 +497,6 @@ struct EmailSettingsSection: View {
     }
   }
 
-  @ViewBuilder
-  private var modelActions: some View {
-    switch store.modelState {
-    case .notInstalled:
-      ActionButton(title: "Download Gemma", variant: .accent) {
-        if store.requiresCellularDownloadConfirmation {
-          confirmCellularDownload = true
-        } else {
-          store.downloadModel(allowCellular: false)
-        }
-      }
-
-    case .checkingStorage, .verifying:
-      HStack(spacing: 10) {
-        ProgressView().controlSize(.small).tint(Theme.green)
-        Text(store.modelState == .checkingStorage ? "Checking storage…" : "Verifying download…")
-          .font(DimoFont.body(12, weight: .medium))
-          .foregroundStyle(Theme.muted)
-      }
-
-    case .downloading:
-      ActionButton(title: "Pause download", variant: .secondary) {
-        store.pauseModelDownload()
-      }
-
-    case .paused:
-      HStack(spacing: 10) {
-        compactAction("Resume", tint: Theme.green) { requestModelRetry() }
-        compactAction("Cancel", tint: Theme.danger) { store.cancelModelDownload() }
-      }
-
-    case .installed:
-      VStack(spacing: 10) {
-        ActionButton(title: "Retry Gemma analysis", variant: .accent) {
-          store.retryGemmaAnalysis()
-        }
-        ActionButton(title: "Delete downloaded model", variant: .danger) {
-          confirmDeleteModel = true
-        }
-      }
-
-    case .failed:
-      HStack(spacing: 10) {
-        compactAction("Retry", tint: Theme.green) { requestModelRetry() }
-        compactAction("Delete", tint: Theme.danger) { confirmDeleteModel = true }
-      }
-
-    case .unavailable:
-      Text("Email analysis is unavailable on this device.")
-        .font(DimoFont.body(12))
-        .foregroundStyle(Theme.muted)
-    }
-  }
-
   private var privacySection: some View {
     VStack(alignment: .leading, spacing: 10) {
       sectionHeading("Privacy", detail: nil)
@@ -624,12 +513,15 @@ struct EmailSettingsSection: View {
 
   private var privacyDescription: String {
     switch store.selectedProvider {
-    case .gemma:
-      return "Local Gemma analyzes email on this iPhone. Gmail credentials never leave the device. Analyzed suggestions, including the full email text, sync through Dimo so they restore across your signed-in devices."
     case .openRouter:
-      return "Selected email content is sent from this iPhone to OpenRouter and the chosen model provider for analysis. Analyzed suggestions, including the full email text, then sync through Dimo. OpenRouter keys stay in this iPhone's Keychain."
+      switch store.openRouterAccessMode {
+      case .freeShared:
+        return "Selected email content is sent from this iPhone through Dimo’s servers to OpenRouter for free-model analysis. Analyzed suggestions, including the full email text, then sync through Dimo. No personal OpenRouter key is stored on this iPhone."
+      case .bringYourOwnKey:
+        return "Selected email content is sent from this iPhone to OpenRouter and the chosen model provider for analysis. Analyzed suggestions, including the full email text, then sync through Dimo. OpenRouter keys stay in this iPhone's Keychain."
+      }
     case nil:
-      return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you choose an analyzer; analyzed suggestions later sync through Dimo for restore."
+      return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you configure OpenRouter; analyzed suggestions later sync through Dimo for restore."
     }
   }
 
@@ -669,45 +561,6 @@ struct EmailSettingsSection: View {
     return account.initialScanComplete ? "Ready to refresh" : "Seven-day scan not complete"
   }
 
-  private var modelTitle: String {
-    let variant = store.selectedGemmaModelVariant.title
-    switch store.modelState {
-    case .notInstalled: return "\(variant) is not downloaded"
-    case .checkingStorage: return "Preparing download"
-    case .downloading: return "Downloading \(variant)"
-    case .paused: return "Download paused"
-    case .verifying: return "Verifying \(variant)"
-    case .installed(let version): return "\(variant) \(version) installed"
-    case .failed: return "\(variant) download failed"
-    case .unavailable: return "\(variant) unavailable"
-    }
-  }
-
-  private var modelDetail: String {
-    let variant = store.selectedGemmaModelVariant.title
-    switch store.modelState {
-    case .notInstalled:
-      return "Download \(variant) to analyze email suggestions. \(store.modelDownloadSizeDescription) download; \(store.modelStorageRequirementDescription). Wi-Fi is preferred."
-    case .checkingStorage:
-      return store.modelStorageRequirementDescription
-    case .downloading:
-      return "You can pause and resume. New emails wait for Gemma before analysis."
-    case .paused:
-      return "The partial download remains staged on this iPhone."
-    case .verifying:
-      return "Checking the exact file size and SHA-256 digest before installation."
-    case .installed:
-      if let detail = store.gemmaStatusDetail {
-        return detail
-      }
-      return store.isGemmaAnalyzerAvailable
-        ? "\(variant) is ready and analyzes one message at a time on this iPhone. Analyzed suggestions sync through Dimo for restore."
-        : "The model file is installed. Tap Retry Gemma analysis to initialize it and retry failed emails."
-    case .failed(let message), .unavailable(let message):
-      return message
-    }
-  }
-
   private func compactAction(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Text(title)
@@ -720,16 +573,6 @@ struct EmailSettingsSection: View {
         .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(Theme.line))
     }
     .buttonStyle(.plain)
-  }
-
-  private func requestModelRetry() {
-    if store.requiresCellularDownloadConfirmation {
-      // Starting again is intentional here: resume data retains the original
-      // Wi-Fi-only request policy and cannot safely be mutated to allow cellular.
-      confirmCellularDownload = true
-    } else {
-      store.retryModelDownload()
-    }
   }
 }
 

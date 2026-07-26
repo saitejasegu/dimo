@@ -7,12 +7,7 @@ build/
 # SPM
 .swiftpm/
 .Package.resolved
-# Keep the small vendored LiteRTLM Swift shim; ignore any other local packages.
-Packages/*
-!Packages/LiteRTLM/
-!Packages/LiteRTLM/**
-Packages/LiteRTLM/.build/
-Packages/LiteRTLM/.swiftpm/
+Packages/
 Package.resolved
 
 # Xcode user state

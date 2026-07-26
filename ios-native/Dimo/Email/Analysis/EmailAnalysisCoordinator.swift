@@ -1,29 +1,5 @@
 import Foundation
 
-actor GemmaEmailAnalyzer: EmailAnalysisProviding {
-  private let model: any EmailLanguageModel
-  private let modelID: String
-
-  init(model: any EmailLanguageModel, modelID: String) {
-    self.model = model
-    self.modelID = modelID
-  }
-
-  func load() async throws { try await model.load() }
-
-  func analyze(_ request: EmailAnalysisRequest) async throws -> EmailAnalysisEnvelope {
-    let result = try await model.analyze(request)
-    return EmailAnalysisEnvelope(
-      result: result,
-      analyzer: .gemma,
-      modelID: modelID,
-      requestID: nil
-    )
-  }
-
-  func unload() async { await model.unload() }
-}
-
 actor OpenRouterEmailAnalyzer: EmailAnalysisProviding {
   private let client: OpenRouterClient
   private let model: OpenRouterModel
@@ -68,6 +44,80 @@ actor OpenRouterEmailAnalyzer: EmailAnalysisProviding {
   }
 }
 
+/// Free-mode analyzer: prompt + validation stay on-device; completions go through Convex.
+actor ConvexFreeOpenRouterEmailAnalyzer: EmailAnalysisProviding {
+  private let transport: any OpenRouterConvexTransporting
+  private let model: OpenRouterModel
+  private let privacyMode: OpenRouterPrivacyMode
+
+  init(
+    transport: any OpenRouterConvexTransporting,
+    model: OpenRouterModel,
+    privacyMode: OpenRouterPrivacyMode
+  ) {
+    self.transport = transport
+    self.model = model
+    self.privacyMode = privacyMode
+  }
+
+  func analyze(_ request: EmailAnalysisRequest) async throws -> EmailAnalysisEnvelope {
+    let prompt = EmailPromptBuilder.build(request)
+    do {
+      return try await complete(
+        request: request,
+        prompt: prompt,
+        outputTokenLimit: OpenRouterClient.standardOutputTokenLimit
+      )
+    } catch let error as OpenRouterClientError {
+      switch error {
+      case .invalidOutput(let message)
+        where message.localizedCaseInsensitiveContains("incomplete"):
+        return try await complete(
+          request: request,
+          prompt: prompt,
+          outputTokenLimit: OpenRouterClient.incompleteOutputRetryTokenLimit
+        )
+      default:
+        throw error
+      }
+    }
+  }
+
+  private func complete(
+    request: EmailAnalysisRequest,
+    prompt: String,
+    outputTokenLimit: Int
+  ) async throws -> EmailAnalysisEnvelope {
+    let remote: OpenRouterConvexAnalyzeResult
+    do {
+      remote = try await transport.analyzeEmail(
+        modelId: model.id,
+        privacyMode: privacyMode,
+        prompt: prompt,
+        outputTokenLimit: outputTokenLimit
+      )
+    } catch let error as OpenRouterConvexTransportError {
+      throw error.openRouterClientError
+    }
+
+    do {
+      let result = try EmailStructuredOutputValidator.validate(
+        response: remote.content,
+        request: request,
+        analyzer: .openRouter
+      )
+      return EmailAnalysisEnvelope(
+        result: result,
+        analyzer: .openRouter,
+        modelID: remote.modelId,
+        requestID: remote.requestId
+      )
+    } catch {
+      throw OpenRouterClientError.invalidOutput(String(reflecting: error))
+    }
+  }
+}
+
 actor EmailAnalysisCoordinator {
   private var providers: [EmailAnalysisProvider: any EmailAnalysisProviding] = [:]
 
@@ -93,7 +143,6 @@ enum EmailAnalysisCoordinatorError: LocalizedError, Sendable {
 
   var errorDescription: String? {
     switch self {
-    case .providerUnavailable(.gemma): return "Local Gemma is not ready."
     case .providerUnavailable(.openRouter): return "OpenRouter is not configured."
     }
   }

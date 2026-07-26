@@ -31,8 +31,6 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     from: "7.0.0"
-  LlamaCpp:
-    path: Packages/LlamaCpp
 
 targets:
   Dimo:
@@ -76,8 +74,6 @@ targets:
       - package: ConvexMobile
       - package: GRDB
         product: GRDB
-      - package: LlamaCpp
-        product: LlamaCpp
     scheme:
       testTargets:
         - DimoTests

@@ -12,6 +12,8 @@ import type * as compat from "../compat.js";
 import type * as crons from "../crons.js";
 import type * as exchangeRates from "../exchangeRates.js";
 import type * as migrations from "../migrations.js";
+import type * as openRouter from "../openRouter.js";
+import type * as openRouterLib from "../openRouterLib.js";
 import type * as recurringJobs from "../recurringJobs.js";
 import type * as syncTyped from "../syncTyped.js";
 import type * as tombstonePurge from "../tombstonePurge.js";
@@ -28,6 +30,8 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   exchangeRates: typeof exchangeRates;
   migrations: typeof migrations;
+  openRouter: typeof openRouter;
+  openRouterLib: typeof openRouterLib;
   recurringJobs: typeof recurringJobs;
   syncTyped: typeof syncTyped;
   tombstonePurge: typeof tombstonePurge;

@@ -192,40 +192,57 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
 
   var id: String
   var selectedProvider: String?
+  /// Legacy column retained for SQLite migrations; unused after local Gemma removal.
   var gemmaModelVariant: String?
+  var openRouterAccessMode: String?
   var openRouterModelID: String?
+  var lastFreeOpenRouterModelID: String?
+  var lastBYOKOpenRouterModelID: String?
   var openRouterPrivacyMode: String
   var nonZDRConsentVersion: Int?
+  var lastFreeOpenRouterPrivacyMode: String?
+  var lastFreeNonZDRConsentVersion: Int?
+  var lastBYOKOpenRouterPrivacyMode: String?
+  var lastBYOKNonZDRConsentVersion: Int?
   var syncWindow: String
   var updatedAt: Int
 
   func toModel() throws -> EmailAnalysisSettings {
-    let provider = try selectedProvider.map { rawValue in
-      guard let value = EmailAnalysisProvider(rawValue: rawValue) else {
-        throw EmailRepositoryError.invalidAnalysis
-      }
-      return value
-    }
-    let gemmaVariant: EmailGemmaModelVariant
-    if let gemmaModelVariant,
-       let value = EmailGemmaModelVariant(rawValue: gemmaModelVariant) {
-      gemmaVariant = value
+    // Former Local Gemma selections become unconfigured until OpenRouter is set up.
+    let provider: EmailAnalysisProvider?
+    if let selectedProvider {
+      provider = EmailAnalysisProvider(rawValue: selectedProvider)
     } else {
-      // Unknown / removed variants (e.g. former gemma3-4b) fall back to default.
-      gemmaVariant = .defaultValue
+      provider = nil
     }
+    let accessMode = openRouterAccessMode.flatMap(OpenRouterAccessMode.init(rawValue:))
+      ?? .bringYourOwnKey
     guard let privacyMode = OpenRouterPrivacyMode(rawValue: openRouterPrivacyMode) else {
       throw EmailRepositoryError.invalidAnalysis
     }
     guard let syncWindow = EmailSyncWindow(rawValue: syncWindow) else {
       throw EmailRepositoryError.invalidAnalysis
     }
+    let freePrivacy = lastFreeOpenRouterPrivacyMode
+      .flatMap(OpenRouterPrivacyMode.init(rawValue:))
+      ?? privacyMode
+    let byokPrivacy = lastBYOKOpenRouterPrivacyMode
+      .flatMap(OpenRouterPrivacyMode.init(rawValue:))
+      ?? privacyMode
     return EmailAnalysisSettings(
       selectedProvider: provider,
-      gemmaModelVariant: gemmaVariant,
+      openRouterAccessMode: accessMode,
       openRouterModelID: openRouterModelID,
+      lastFreeOpenRouterModelID: lastFreeOpenRouterModelID,
+      lastBYOKOpenRouterModelID: lastBYOKOpenRouterModelID,
       openRouterPrivacyMode: privacyMode,
       nonZDRConsentVersion: nonZDRConsentVersion,
+      lastFreeOpenRouterPrivacyMode: freePrivacy,
+      lastFreeNonZDRConsentVersion: lastFreeNonZDRConsentVersion
+        ?? (accessMode == .freeShared ? nonZDRConsentVersion : nil),
+      lastBYOKOpenRouterPrivacyMode: byokPrivacy,
+      lastBYOKNonZDRConsentVersion: lastBYOKNonZDRConsentVersion
+        ?? (accessMode == .bringYourOwnKey ? nonZDRConsentVersion : nil),
       syncWindow: syncWindow,
       updatedAt: updatedAt
     )
@@ -235,10 +252,18 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
     EmailAnalysisSettingsRecord(
       id: EmailAnalysisSettings.singletonID,
       selectedProvider: value.selectedProvider?.rawValue,
-      gemmaModelVariant: value.gemmaModelVariant.rawValue,
+      // Column is NOT NULL from v5; Local Gemma is gone, so persist the historical default.
+      gemmaModelVariant: "gemma3-270m",
+      openRouterAccessMode: value.openRouterAccessMode.rawValue,
       openRouterModelID: value.openRouterModelID,
+      lastFreeOpenRouterModelID: value.lastFreeOpenRouterModelID,
+      lastBYOKOpenRouterModelID: value.lastBYOKOpenRouterModelID,
       openRouterPrivacyMode: value.openRouterPrivacyMode.rawValue,
       nonZDRConsentVersion: value.nonZDRConsentVersion,
+      lastFreeOpenRouterPrivacyMode: value.lastFreeOpenRouterPrivacyMode.rawValue,
+      lastFreeNonZDRConsentVersion: value.lastFreeNonZDRConsentVersion,
+      lastBYOKOpenRouterPrivacyMode: value.lastBYOKOpenRouterPrivacyMode.rawValue,
+      lastBYOKNonZDRConsentVersion: value.lastBYOKNonZDRConsentVersion,
       syncWindow: value.syncWindow.rawValue,
       updatedAt: value.updatedAt
     )

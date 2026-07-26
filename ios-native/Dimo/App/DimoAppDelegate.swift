@@ -15,15 +15,7 @@ final class DimoAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     handleEventsForBackgroundURLSession identifier: String,
     completionHandler: @escaping () -> Void
   ) {
-    guard let modelServices = GemmaModelServicesProvider.shared(),
-          let manager = modelServices.manager(forBackgroundSessionIdentifier: identifier) else {
-      completionHandler()
-      return
-    }
-    GemmaBackgroundSessionEvents.registerCompletion(completionHandler)
-    Task {
-      await manager.restoreBackgroundDownload()
-    }
+    completionHandler()
   }
 
   func userNotificationCenter(

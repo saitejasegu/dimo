@@ -217,4 +217,11 @@ export default defineSchema({
   })
     .index("by_date_currency", ["date", "currency"])
     .index("by_date", ["date"]),
+
+  // Per-owner hourly usage for the shared OpenRouter free-model proxy.
+  openRouterUsage: defineTable({
+    ownerId: v.string(),
+    windowStartMs: v.number(),
+    requestCount: v.number(),
+  }).index("by_owner", ["ownerId"]),
 });

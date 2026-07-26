@@ -130,43 +130,12 @@ struct EmailDeterministicEvidence: Hashable, Sendable {
   var reference: String?
 }
 
-protocol EmailLanguageModel: Sendable {
-  func load() async throws
-  func analyze(_ request: EmailAnalysisRequest) async throws -> EmailAnalysisResult
-  func unload() async
-}
-
-enum EmailLanguageModelError: LocalizedError, Sendable {
-  case modelNotInstalled
-  case runtimeUnavailable
-  case unsupportedDevice
-  case corruptModel
-  case initializationFailed(String)
-  case outOfMemory
-  case timedOut
+enum EmailStructuredOutputError: LocalizedError, Sendable {
   case invalidOutput(String)
-  case generationFailed(String)
 
   var errorDescription: String? {
     switch self {
-    case .modelNotInstalled: return "Gemma has not been downloaded."
-    case .runtimeUnavailable: return "The on-device language model runtime is unavailable."
-    case .unsupportedDevice: return "This device does not support the on-device model."
-    case .corruptModel: return "The downloaded model is corrupt."
-    case .initializationFailed(let message): return "Gemma could not be initialized: \(message)"
-    case .outOfMemory: return "There is not enough memory to run Gemma."
-    case .timedOut: return "Gemma analysis timed out."
-    case .invalidOutput(let message): return "Gemma returned invalid output: \(message)"
-    case .generationFailed(let message): return "Gemma analysis failed: \(message)"
-    }
-  }
-
-  var shouldUnloadRuntime: Bool {
-    switch self {
-    case .unsupportedDevice, .corruptModel, .initializationFailed, .outOfMemory, .timedOut:
-      return true
-    case .modelNotInstalled, .runtimeUnavailable, .invalidOutput, .generationFailed:
-      return false
+    case .invalidOutput(let message): return "Invalid analysis output: \(message)"
     }
   }
 }

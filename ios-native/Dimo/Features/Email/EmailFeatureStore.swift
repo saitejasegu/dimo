@@ -192,15 +192,6 @@ struct EmailUIAccount: Identifiable, Hashable, Sendable {
   var initialScanComplete = false
 }
 
-struct EmailUIGemmaModelOption: Identifiable, Hashable, Sendable {
-  var id: String { variant.rawValue }
-  var variant: EmailGemmaModelVariant
-  var title: String
-  var subtitle: String
-  var downloadSizeDescription: String
-  var storageRequirementDescription: String
-}
-
 struct EmailUIRefundCandidate: Identifiable, Hashable, Sendable {
   var id: String
   var merchant: String
@@ -273,29 +264,6 @@ struct EmailUILatePurchaseMatch: Hashable, Sendable {
   var transactionName: String
 }
 
-enum EmailUIModelState: Equatable, Sendable {
-  case notInstalled
-  case checkingStorage
-  case downloading(progress: Double)
-  case paused(progress: Double)
-  case verifying
-  case installed(version: String)
-  case failed(message: String)
-  case unavailable(message: String)
-
-  var isInstalled: Bool {
-    if case .installed = self { return true }
-    return false
-  }
-
-  var progress: Double? {
-    switch self {
-    case .downloading(let progress), .paused(let progress): return progress
-    default: return nil
-    }
-  }
-}
-
 struct EmailUIPurchaseReviewDraft: Identifiable, Equatable, Sendable {
   var suggestionID: String
   var groupID: String? = nil
@@ -345,23 +313,15 @@ struct EmailFeatureActions {
   var acceptPurchase: (_ draft: EmailUIPurchaseReviewDraft) async throws -> Void = { _ in }
   var linkPurchaseToTransaction: (_ suggestionID: String, _ transactionID: String) async throws -> Void = { _, _ in }
   var applyFullRefund: (_ suggestionID: String, _ transactionID: String) async throws -> Void = { _, _ in }
-  var downloadModel: (_ allowCellular: Bool) async throws -> Void = { _ in }
-  var pauseModelDownload: () async -> Void = {}
-  var cancelModelDownload: () async -> Void = {}
-  var retryModelDownload: () async throws -> Void = {}
-  var retryGemmaAnalysis: () async throws -> Void = {}
   var reanalyzeAllEmails: () async throws -> Void = {}
-  var deleteModel: () async throws -> Void = {}
-  var selectGemma: () async throws -> Void = {}
-  var selectGemmaModelVariant: (_ variant: EmailGemmaModelVariant) async throws -> Void = { _ in }
   var saveOpenRouterKey: (_ apiKey: String) async throws -> Void = { _ in }
   var removeOpenRouterKey: () async throws -> Void = {}
   var refreshOpenRouterModels: () async throws -> Void = {}
   var selectOpenRouterModel: (_ modelID: String, _ allowNonZDR: Bool) async throws -> Void = { _, _ in }
+  var selectOpenRouterAccessMode: (_ mode: OpenRouterAccessMode) async throws -> Void = { _ in }
   var selectProvider: (_ provider: EmailAnalysisProvider?) async throws -> Void = { _ in }
   var selectSyncWindow: (_ window: EmailSyncWindow) async throws -> Void = { _ in }
   var retryAnalysis: (_ messageID: String) async throws -> Void = { _ in }
-  var retryWithAlternateProvider: (_ messageID: String) async throws -> Void = { _ in }
   var retryOpenRouterConnection: () async throws -> Void = {}
   var retryOpenRouterAnalysis: () async throws -> Void = {}
   var loadEmailDetail: (_ messageID: String) async throws -> EmailUIEmailDetail = { _ in
@@ -387,12 +347,8 @@ final class EmailFeatureStore {
   var accounts: [EmailUIAccount]
   var suggestions: [EmailUISuggestion]
   var allEmails: [EmailUIMessage]
-  var modelState: EmailUIModelState
   var selectedProvider: EmailAnalysisProvider?
-  var selectedGemmaModelVariant: EmailGemmaModelVariant = .defaultValue
-  var gemmaModelOptions: [EmailUIGemmaModelOption] = []
-  var isGemmaAnalyzerAvailable = false
-  var gemmaStatusDetail: String?
+  var openRouterAccessMode: OpenRouterAccessMode = .bringYourOwnKey
   var openRouterConnectionState: OpenRouterUIConnectionState = .disconnected
   var openRouterModels: [OpenRouterModel] = []
   var selectedOpenRouterModelID: String?
@@ -401,7 +357,7 @@ final class EmailFeatureStore {
   var openRouterAPIKeyInput = ""
   var isRefreshingOpenRouterModels = false
   var isUpdatingSyncWindow = false
-  var analysisStatusDetail = "Email analysis is not configured. Choose Local Gemma or OpenRouter in Email settings."
+  var analysisStatusDetail = "Email analysis is not configured. Choose Free models or Bring your own key in Email settings."
   var activeCurrency: Currency
   var categories: [CategoryEntity]
   var paymentMethods: [PaymentMethodOption]
@@ -412,13 +368,7 @@ final class EmailFeatureStore {
   var sourceEmailsPresentation: EmailUISourceEmailsPresentation?
   var isRefreshing = false
   var isReanalyzing = false
-  var requiresCellularDownloadConfirmation = false
   var lastActionError: String?
-
-  var modelDownloadSizeDescription: String
-  var modelStorageRequirementDescription: String
-  var modelTermsURL: URL?
-  var modelAttributionURL: URL?
 
   private var actions: EmailFeatureActions
 
@@ -426,29 +376,19 @@ final class EmailFeatureStore {
     accounts: [EmailUIAccount] = [],
     suggestions: [EmailUISuggestion] = [],
     allEmails: [EmailUIMessage] = [],
-    modelState: EmailUIModelState = .notInstalled,
     selectedProvider: EmailAnalysisProvider? = nil,
     activeCurrency: Currency = .INR,
     categories: [CategoryEntity] = [],
     paymentMethods: [PaymentMethodOption] = [],
-    modelDownloadSizeDescription: String = "about 292 MB",
-    modelStorageRequirementDescription: String = "1 GB free storage required",
-    modelTermsURL: URL? = URL(string: "https://ai.google.dev/gemma/terms"),
-    modelAttributionURL: URL? = URL(string: "https://huggingface.co/ggml-org/gemma-3-270m-it-GGUF"),
     actions: EmailFeatureActions = EmailFeatureActions()
   ) {
     self.accounts = accounts
     self.suggestions = suggestions
     self.allEmails = allEmails
-    self.modelState = modelState
     self.selectedProvider = selectedProvider
     self.activeCurrency = activeCurrency
     self.categories = categories
     self.paymentMethods = paymentMethods
-    self.modelDownloadSizeDescription = modelDownloadSizeDescription
-    self.modelStorageRequirementDescription = modelStorageRequirementDescription
-    self.modelTermsURL = modelTermsURL
-    self.modelAttributionURL = modelAttributionURL
     self.actions = actions
   }
 
@@ -506,10 +446,18 @@ final class EmailFeatureStore {
 
   var activeAnalyzerTitle: String {
     switch selectedProvider {
-    case .gemma: return "Local Gemma · \(selectedGemmaModelVariant.title)"
     case .openRouter: return "OpenRouter"
     case nil: return "Analysis not configured"
     }
+  }
+
+  var isOpenRouterReady: Bool {
+    selectedProvider == .openRouter
+      && selectedOpenRouterModelID != nil
+      && {
+        if case .connected = openRouterConnectionState { return true }
+        return false
+      }()
   }
 
   var selectedOpenRouterModel: OpenRouterModel? {
@@ -669,31 +617,6 @@ final class EmailFeatureStore {
     }
   }
 
-  func requestModelDownload() {
-    guard !requiresCellularDownloadConfirmation else { return }
-    downloadModel(allowCellular: false)
-  }
-
-  func downloadModel(allowCellular: Bool) {
-    run { try await self.actions.downloadModel(allowCellular) }
-  }
-
-  func cancelModelDownload() {
-    Task { await actions.cancelModelDownload() }
-  }
-
-  func pauseModelDownload() {
-    Task { await actions.pauseModelDownload() }
-  }
-
-  func retryModelDownload() {
-    run { try await self.actions.retryModelDownload() }
-  }
-
-  func retryGemmaAnalysis() {
-    run { try await self.actions.retryGemmaAnalysis() }
-  }
-
   func reanalyzeAllEmails() {
     guard !isReanalyzing else { return }
     isReanalyzing = true
@@ -707,18 +630,6 @@ final class EmailFeatureStore {
         self.presentActionError(error)
       }
     }
-  }
-
-  func deleteModel() {
-    run { try await self.actions.deleteModel() }
-  }
-
-  func selectGemma() {
-    run { try await self.actions.selectGemma() }
-  }
-
-  func selectGemmaModelVariant(_ variant: EmailGemmaModelVariant) {
-    run { try await self.actions.selectGemmaModelVariant(variant) }
   }
 
   func saveOpenRouterKey() {
@@ -749,6 +660,10 @@ final class EmailFeatureStore {
     run { try await self.actions.selectOpenRouterModel(modelID, allowNonZDR) }
   }
 
+  func selectOpenRouterAccessMode(_ mode: OpenRouterAccessMode) {
+    run { try await self.actions.selectOpenRouterAccessMode(mode) }
+  }
+
   func selectProvider(_ provider: EmailAnalysisProvider?) {
     run { try await self.actions.selectProvider(provider) }
   }
@@ -771,10 +686,6 @@ final class EmailFeatureStore {
 
   func retryAnalysis(messageID: String) {
     run { try await self.actions.retryAnalysis(messageID) }
-  }
-
-  func retryWithAlternateProvider(messageID: String) {
-    run { try await self.actions.retryWithAlternateProvider(messageID) }
   }
 
   func retryOpenRouterConnection() {

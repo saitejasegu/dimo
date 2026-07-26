@@ -20,7 +20,7 @@ Web, desktop, iOS, and Android share the same Convex backend and WorkOS account.
 - Account sync status, sign-in (Google / Apple via WorkOS), and preferences
 - Read-only lending summary and activity on web, desktop, and responsive mobile web
 - **Native iOS / Android:** lending tracker with address-book contacts, repayments, and shareable outstanding summaries. Shared summaries list only the current unsettled cycle using signed amounts and `DD-MMM-YYYY` dates. Contact names and IDs sync; photos stay on-device.
-- **Native iOS:** Liquid Glass tab UI (iOS 26+); optional Gmail → AI expense / refund suggestions (on-device Local Gemma or user-supplied OpenRouter)
+- **Native iOS:** Liquid Glass tab UI (iOS 26+); optional Gmail → AI expense / refund suggestions (OpenRouter free models via Convex, or user-supplied OpenRouter key)
 - **Native Android:** Jetpack Compose tab UI; core parity with iOS except Email / Gmail / AI suggestions. Full cloud replacement from Android preserves iOS-owned `emailMessage` data.
 
 ## Architecture

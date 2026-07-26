@@ -1120,14 +1120,6 @@ final class LendSelectorsTests: XCTestCase {
 
 final class EmailFeatureStoreTests: XCTestCase {
   @MainActor
-  func testGemmaDownloadCopyReflects270MArtifact() {
-    let store = EmailFeatureStore()
-
-    XCTAssertEqual(store.modelDownloadSizeDescription, "about 304 MB")
-    XCTAssertEqual(store.modelStorageRequirementDescription, "1 GB free storage required")
-  }
-
-  @MainActor
   func testPurchasesIsTheDefaultFilterAndAllIsLast() {
     let store = EmailFeatureStore(allEmails: [
       emailMessage(id: "pending", analysisState: .pending),
@@ -1398,34 +1390,6 @@ final class EmailStructuredOutputValidatorTests: XCTestCase {
     XCTAssertEqual(result.confidence, .high)
   }
 
-  func testGemmaDemotesCopiedPurchaseWithoutPaymentEvidenceToIrrelevant() throws {
-    let response = """
-    {"schemaVersion":1,"kind":"purchase","merchant":null,"amount":null,"currency":null,"occurredAt":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
-    """
-    let analysisRequest = EmailAnalysisRequest(
-      messageId: "newsletter-1",
-      accountSubject: "gmail-subject",
-      senderName: "Shop Weekly",
-      senderAddress: "deals@shop.example",
-      subject: "This week's deals",
-      receivedAt: date("2026-07-10T10:30:00Z"),
-      normalizedBody: "Save on shoes from ₹999. Unsubscribe anytime.",
-      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
-      paymentMethods: [],
-      merchantHistory: [],
-      activeCurrency: .INR
-    )
-
-    let result = try EmailStructuredOutputValidator.validate(
-      response: response,
-      request: analysisRequest,
-      analyzer: .gemma,
-      now: date("2026-07-11T00:00:00Z")
-    )
-
-    XCTAssertEqual(result.kind, .irrelevant)
-  }
-
   func testGemmaKeepsPurchaseWhenPaymentEvidenceIsPresent() throws {
     let response = """
     {"schemaVersion":1,"kind":"purchase","merchant":"Acme Store","amount":"123.45","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
@@ -1440,139 +1404,6 @@ final class EmailStructuredOutputValidatorTests: XCTestCase {
 
     XCTAssertEqual(result.kind, .purchase)
     XCTAssertEqual(result.amount, Decimal(string: "123.45"))
-  }
-
-  func testGemmaDemotesBankOfferEmailWithRupeeAmountsToIrrelevant() throws {
-    let response = """
-    {"schemaVersion":1,"kind":"purchase","merchant":"ICICI Bank","amount":"30000","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
-    """
-    let analysisRequest = EmailAnalysisRequest(
-      messageId: "icici-offers",
-      accountSubject: "gmail-subject",
-      senderName: "ICICI Bank",
-      senderAddress: "services@customer.icici.bank.in",
-      subject: "Up to ₹30,000 off on electronics with Credit Card",
-      receivedAt: date("2026-07-18T04:38:00Z"),
-      normalizedBody: """
-      Offers from brands you love
-      Save up to ₹30,000 using ICICI Bank Credit Card EMIs
-      Shop the latest electronics now and split the cost into easy EMIs.
-      Up to ₹3,000 instant cashback. Valid till Sep 26, 2026.
-      Up to ₹10,000 off. Valid till Jul 31, 2026.
-      Click here. Know More.
-      """,
-      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
-      paymentMethods: [],
-      merchantHistory: [],
-      activeCurrency: .INR
-    )
-
-    let result = try EmailStructuredOutputValidator.validate(
-      response: response,
-      request: analysisRequest,
-      analyzer: .gemma,
-      now: date("2026-07-18T09:00:00Z")
-    )
-
-    XCTAssertEqual(result.kind, .irrelevant)
-  }
-
-  func testGemmaDemotesCreditCardApplicationPromoToIrrelevant() throws {
-    let response = """
-    {"schemaVersion":1,"kind":"purchase","merchant":"Scapia Federal Credit Card","amount":"0","currency":"INR","categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
-    """
-    let analysisRequest = EmailAnalysisRequest(
-      messageId: "scapia-promo",
-      accountSubject: "gmail-subject",
-      senderName: "Scapia Federal Credit Card",
-      senderAddress: "scapia_info@federalbank.co.in",
-      subject: "Unlock your credit limit",
-      receivedAt: date("2026-07-18T08:42:00Z"),
-      normalizedBody: """
-      You're almost there! Continue your Scapia Federal Credit Card application to view your credit limit instantly.
-      Zero forex markup. Save on international transactions with no forex markup.
-      Zero joining or annual fees.
-      """,
-      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
-      paymentMethods: [],
-      merchantHistory: [],
-      activeCurrency: .INR
-    )
-
-    let result = try EmailStructuredOutputValidator.validate(
-      response: response,
-      request: analysisRequest,
-      analyzer: .gemma,
-      now: date("2026-07-18T09:00:00Z")
-    )
-
-    XCTAssertEqual(result.kind, .irrelevant)
-  }
-
-  func testGemmaDemotesNewLoginSecurityAlertToIrrelevant() throws {
-    let response = """
-    {"schemaVersion":1,"kind":"purchase","merchant":"SpaceXAI","amount":null,"currency":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
-    """
-    let analysisRequest = EmailAnalysisRequest(
-      messageId: "xai-login",
-      accountSubject: "gmail-subject",
-      senderName: "SpaceXAI",
-      senderAddress: "noreply@x.ai",
-      subject: "New login to your xAI account",
-      receivedAt: date("2026-07-17T19:46:00Z"),
-      normalizedBody: """
-      Your xAI account has been accessed from a new IP address.
-      We've noticed a new login to your xAI account.
-      If you notice any suspicious activity, please change your password.
-      """,
-      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
-      paymentMethods: [],
-      merchantHistory: [],
-      activeCurrency: .INR
-    )
-
-    let result = try EmailStructuredOutputValidator.validate(
-      response: response,
-      request: analysisRequest,
-      analyzer: .gemma,
-      now: date("2026-07-18T09:00:00Z")
-    )
-
-    XCTAssertEqual(result.kind, .irrelevant)
-  }
-
-  func testGemmaDemotesAmazonSignInAlertToIrrelevant() throws {
-    let response = """
-    {"schemaVersion":1,"kind":"purchase","merchant":"amazon.com","amount":null,"currency":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}
-    """
-    let analysisRequest = EmailAnalysisRequest(
-      messageId: "amazon-signin",
-      accountSubject: "gmail-subject",
-      senderName: "amazon.com",
-      senderAddress: "account-update@amazon.com",
-      subject: "amazon.com: Sign-in",
-      receivedAt: date("2026-07-18T08:55:00Z"),
-      normalizedBody: """
-      Saiteja, Someone signed-in to your account.
-      Date Jul 18, 2026
-      Time 02:25 PM IST
-      Device generic web browser macOS Desktop
-      Location Telangana, IN
-      """,
-      categories: [EmailCategoryOption(id: "shopping", name: "Shopping")],
-      paymentMethods: [],
-      merchantHistory: [],
-      activeCurrency: .INR
-    )
-
-    let result = try EmailStructuredOutputValidator.validate(
-      response: response,
-      request: analysisRequest,
-      analyzer: .gemma,
-      now: date("2026-07-18T09:00:00Z")
-    )
-
-    XCTAssertEqual(result.kind, .irrelevant)
   }
 
   func testGemmaKeepsPurchaseEvenWhenReceiptFooterSaysUnsubscribe() throws {
@@ -3022,21 +2853,7 @@ final class EmailPurchaseGroupingRepositoryTests: XCTestCase {
   }
 }
 
-final class EmailGemmaPacingTests: XCTestCase {
-  func testPacingAllowsAtMostTenStartsPerMinuteAtNominalTemperature() {
-    XCTAssertEqual(
-      EmailGemmaPacing.minimumStartInterval(for: .nominal),
-      .seconds(6)
-    )
-  }
-
-  func testPacingSlowsToOneStartPerMinuteWhenDeviceIsWarm() {
-    XCTAssertEqual(
-      EmailGemmaPacing.minimumStartInterval(for: .fair),
-      .seconds(60)
-    )
-  }
-
+final class EmailAnalysisPacingTests: XCTestCase {
   func testOpenRouterPacingAllowsUpToTwentyStartsPerMinute() {
     XCTAssertEqual(
       EmailOpenRouterPacing.minimumStartInterval,
@@ -3075,37 +2892,6 @@ final class EmailSyncWindowTests: XCTestCase {
         )
       )
     }
-  }
-}
-
-final class EmailGemmaOnlyRouterTests: XCTestCase {
-  func testGemmaFailureIsPropagatedWithoutFallback() async throws {
-    let router = EmailLanguageModelRouter(gemma: FailingGemmaLanguageModel())
-    try await router.load()
-
-    do {
-      _ = try await router.analyze(EmailAnalysisRequest(
-        messageId: "message",
-        accountSubject: "account",
-        senderAddress: "merchant@example.com",
-        subject: "Receipt",
-        receivedAt: .now,
-        normalizedBody: "Receipt",
-        categories: [],
-        paymentMethods: [],
-        merchantHistory: [],
-        activeCurrency: .INR
-      ))
-      XCTFail("Expected Gemma failure to be propagated")
-    } catch let error as EmailLanguageModelError {
-      guard case .generationFailed = error else {
-        return XCTFail("Unexpected error: \(error)")
-      }
-    }
-
-    let failureReason = await router.failureReason()
-    XCTAssertEqual(failureReason, "Analysis failed")
-    XCTAssertEqual(EmailUIMessageAnalysisState.failed.title, "Analysis failed")
   }
 }
 
@@ -3276,31 +3062,7 @@ final class GmailMessageParserTests: XCTestCase {
   }
 }
 
-final class EmailGemmaResponseTextTests: XCTestCase {
-  func testSelectsJSONFromFinalChannelWhenOrdinaryContentIsEmpty() {
-    let json = #"{"schemaVersion":1,"kind":"irrelevant"}"#
-
-    XCTAssertEqual(
-      EmailGemmaResponseText.select(
-        content: "",
-        channels: ["analysis": "I should classify this email.", "final": json]
-      ),
-      json
-    )
-  }
-
-  func testPrefersTheCandidateContainingJSON() {
-    let json = #"{"schemaVersion":1,"kind":"purchase"}"#
-
-    XCTAssertEqual(
-      EmailGemmaResponseText.select(
-        content: "No structured response here.",
-        channels: ["answer": "Result: \(json)"]
-      ),
-      "Result: \(json)"
-    )
-  }
-
+final class EmailPromptBuilderTests: XCTestCase {
   func testPromptReservesContextForOneRepairTurn() {
     XCTAssertGreaterThanOrEqual(
       EmailPromptBuilder.reservedOutputTokens,
@@ -3323,14 +3085,14 @@ final class EmailGemmaResponseTextTests: XCTestCase {
       merchantHistory: [],
       activeCurrency: .INR
     )
-    let prompt = EmailPromptBuilder.build(request, provider: .gemma)
+    let prompt = EmailPromptBuilder.build(request)
 
     XCTAssertTrue(prompt.contains(body))
     XCTAssertTrue(prompt.hasPrefix("You are a JSON extraction function."))
     XCTAssertTrue(prompt.hasSuffix("Return only the JSON object now."))
   }
 
-  func testMerchantHistoryIsExcludedFromGemmaAndIncludedForOpenRouter() {
+  func testMerchantHistoryIsIncludedInPrompt() {
     let request = EmailAnalysisRequest(
       messageId: "message",
       accountSubject: "account",
@@ -3344,100 +3106,10 @@ final class EmailGemmaResponseTextTests: XCTestCase {
       activeCurrency: .INR
     )
 
-    let gemmaPrompt = EmailPromptBuilder.build(request, provider: .gemma)
-    let openRouterPrompt = EmailPromptBuilder.build(request, provider: .openRouter)
+    let prompt = EmailPromptBuilder.build(request)
 
-    XCTAssertFalse(gemmaPrompt.contains("Merchant/category history"))
-    XCTAssertFalse(gemmaPrompt.contains("Example Merchant"))
-    XCTAssertTrue(openRouterPrompt.contains("Merchant/category history:"))
-    XCTAssertTrue(openRouterPrompt.contains("Example Merchant"))
-  }
-}
-
-private actor FailingGemmaLanguageModel: EmailLanguageModel {
-  func load() async throws {}
-
-  func analyze(_ request: EmailAnalysisRequest) async throws -> EmailAnalysisResult {
-    throw EmailLanguageModelError.generationFailed("test failure")
-  }
-
-  func unload() async {}
-}
-
-final class GemmaModelManifestTests: XCTestCase {
-  func testAcceptsStorageBudgetAtLeastTwiceTheArtifactSize() throws {
-    var manifest = manifest(exactByteCount: 100, minimumFreeStorageBytes: 200)
-    try manifest.validate()
-
-    manifest.minimumFreeStorageBytes = 199
-    XCTAssertThrowsError(try manifest.validate())
-  }
-
-  func testRefreshRemovesLegacyLiteRTInstallAndRecognizesGGUF() async throws {
-    let fileManager = FileManager.default
-    let root = fileManager.temporaryDirectory.appending(
-      path: "dimo-gemma-model-test-\(UUID().uuidString)",
-      directoryHint: .isDirectory
-    )
-    defer { try? fileManager.removeItem(at: root) }
-
-    let legacy = root.appending(path: "Gemma3-270M/old-litert", directoryHint: .isDirectory)
-    try fileManager.createDirectory(at: legacy, withIntermediateDirectories: true)
-    try Data(repeating: 1, count: 8).write(
-      to: legacy.appending(path: "model.litertlm")
-    )
-
-    let current = root.appending(
-      path: "Gemma3-270M/test-version",
-      directoryHint: .isDirectory
-    )
-    try fileManager.createDirectory(at: current, withIntermediateDirectories: true)
-    let expectedModelURL = current.appending(path: "model.gguf")
-    try Data(repeating: 0, count: 100).write(to: expectedModelURL)
-
-    let manager = GemmaModelManager(
-      manifest: manifest(exactByteCount: 100, minimumFreeStorageBytes: 200),
-      rootURL: root,
-      fileManager: fileManager
-    ) { _, _ in }
-
-    await manager.refreshState()
-
-    XCTAssertFalse(fileManager.fileExists(atPath: legacy.path))
-    let installedURLs = await manager.installedURLs()
-    XCTAssertEqual(installedURLs?.model, expectedModelURL)
-  }
-
-  func testBundledManifestsLoadForAllVariants() throws {
-    let manifests = try GemmaModelManifest.loadAll()
-    XCTAssertEqual(Set(manifests.keys), Set(EmailGemmaModelVariant.allCases))
-    XCTAssertEqual(manifests[.gemma3_270m]?.familyDirectoryName, "Gemma3-270M")
-    XCTAssertEqual(manifests[.gemma3_1b]?.familyDirectoryName, "Gemma3-1B")
-    XCTAssertEqual(manifests[.gemma3_270m]?.runtimeContextTokens, 4_096)
-    XCTAssertEqual(manifests[.gemma3_1b]?.runtimeContextTokens, 8_192)
-    XCTAssertTrue(manifests[.gemma3_270m]?.downloadURL.pathExtension == "gguf")
-    XCTAssertTrue(manifests[.gemma3_1b]?.downloadURL.pathExtension == "gguf")
-  }
-
-  private func manifest(
-    exactByteCount: Int64,
-    minimumFreeStorageBytes: Int64
-  ) -> GemmaModelManifest {
-    GemmaModelManifest(
-      variant: .gemma3_270m,
-      modelName: "Gemma 3 270M IT",
-      version: "test-version",
-      runtimeFormatVersion: "llama.cpp test",
-      familyDirectoryName: "Gemma3-270M",
-      backgroundSessionIdentifier: "app.dimo.ios.gemma3-270m-model-download-test",
-      downloadURL: URL(string: "https://example.com/model.gguf")!,
-      exactByteCount: exactByteCount,
-      sha256: String(repeating: "a", count: 64),
-      minimumFreeStorageBytes: minimumFreeStorageBytes,
-      promptSchemaVersion: EmailAnalysisResult.schemaVersion,
-      termsURL: URL(string: "https://example.com/terms")!,
-      attributionURL: URL(string: "https://example.com/model")!
-    )
+    XCTAssertTrue(prompt.contains("Merchant/category history:"))
+    XCTAssertTrue(prompt.contains("Example Merchant"))
   }
 }
 
@@ -3450,22 +3122,38 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
 
     XCTAssertNil(try repository.emailAnalysisSettings().selectedProvider)
     XCTAssertEqual(try repository.emailAnalysisSettings().syncWindow, .oneDay)
+    XCTAssertEqual(
+      try repository.emailAnalysisSettings().openRouterAccessMode,
+      .bringYourOwnKey
+    )
 
     var settings = try repository.emailAnalysisSettings()
     settings.selectedProvider = .openRouter
-    settings.gemmaModelVariant = .gemma3_1b
+    settings.openRouterAccessMode = .freeShared
     settings.openRouterModelID = OpenRouterClient.defaultModelID
+    settings.lastFreeOpenRouterModelID = OpenRouterClient.defaultModelID
+    settings.lastBYOKOpenRouterModelID = "openai/gpt-4o-mini"
     settings.openRouterPrivacyMode = .allowNonZDR
     settings.nonZDRConsentVersion = 1
+    settings.lastFreeOpenRouterPrivacyMode = .allowNonZDR
+    settings.lastFreeNonZDRConsentVersion = 1
+    settings.lastBYOKOpenRouterPrivacyMode = .zdrOnly
+    settings.lastBYOKNonZDRConsentVersion = nil
     settings.syncWindow = .threeMonths
     try repository.saveEmailAnalysisSettings(settings)
 
     let restored = try repository.emailAnalysisSettings()
     XCTAssertEqual(restored.selectedProvider, .openRouter)
-    XCTAssertEqual(restored.gemmaModelVariant, .gemma3_1b)
+    XCTAssertEqual(restored.openRouterAccessMode, .freeShared)
     XCTAssertEqual(restored.openRouterModelID, OpenRouterClient.defaultModelID)
+    XCTAssertEqual(restored.lastFreeOpenRouterModelID, OpenRouterClient.defaultModelID)
+    XCTAssertEqual(restored.lastBYOKOpenRouterModelID, "openai/gpt-4o-mini")
     XCTAssertEqual(restored.openRouterPrivacyMode, .allowNonZDR)
     XCTAssertEqual(restored.nonZDRConsentVersion, 1)
+    XCTAssertEqual(restored.lastFreeOpenRouterPrivacyMode, .allowNonZDR)
+    XCTAssertEqual(restored.lastFreeNonZDRConsentVersion, 1)
+    XCTAssertEqual(restored.lastBYOKOpenRouterPrivacyMode, .zdrOnly)
+    XCTAssertNil(restored.lastBYOKNonZDRConsentVersion)
     XCTAssertEqual(restored.syncWindow, .threeMonths)
   }
 

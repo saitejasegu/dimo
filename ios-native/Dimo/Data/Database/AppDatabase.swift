@@ -257,7 +257,8 @@ enum AppDatabase {
       try db.alter(table: "emailAnalysisSettings") { t in
         t.add(column: "gemmaModelVariant", .text)
           .notNull()
-          .defaults(to: EmailGemmaModelVariant.defaultValue.rawValue)
+          // Historical default for the removed Local Gemma variant column.
+          .defaults(to: "gemma3-270m")
       }
     }
     migrator.registerMigration("v6-typed-entities") { db in
@@ -432,6 +433,66 @@ enum AppDatabase {
       try db.alter(table: "syncedEmailMessages") { table in
         table.add(column: "purchaseGroupId", .text)
       }
+    }
+    migrator.registerMigration("v8-remove-local-gemma-provider") { db in
+      try db.execute(
+        sql: """
+          UPDATE emailAnalysisSettings
+          SET selectedProvider = NULL, updatedAt = ?
+          WHERE selectedProvider = 'gemma'
+          """,
+        arguments: [Int(Date().timeIntervalSince1970 * 1_000)]
+      )
+    }
+    migrator.registerMigration("v9-openrouter-access-mode") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "openRouterAccessMode", .text)
+          .notNull()
+          .defaults(to: OpenRouterAccessMode.bringYourOwnKey.rawValue)
+      }
+    }
+    migrator.registerMigration("v10-openrouter-mode-model-memory") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "lastFreeOpenRouterModelID", .text)
+        t.add(column: "lastBYOKOpenRouterModelID", .text)
+      }
+      // Seed BYOK memory from the active model for existing installs.
+      try db.execute(
+        sql: """
+          UPDATE emailAnalysisSettings
+          SET lastBYOKOpenRouterModelID = openRouterModelID
+          WHERE openRouterAccessMode = ?
+            AND openRouterModelID IS NOT NULL
+          """,
+        arguments: [OpenRouterAccessMode.bringYourOwnKey.rawValue]
+      )
+      try db.execute(
+        sql: """
+          UPDATE emailAnalysisSettings
+          SET lastFreeOpenRouterModelID = openRouterModelID
+          WHERE openRouterAccessMode = ?
+            AND openRouterModelID IS NOT NULL
+          """,
+        arguments: [OpenRouterAccessMode.freeShared.rawValue]
+      )
+    }
+    migrator.registerMigration("v11-openrouter-mode-privacy-memory") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "lastFreeOpenRouterPrivacyMode", .text)
+        t.add(column: "lastFreeNonZDRConsentVersion", .integer)
+        t.add(column: "lastBYOKOpenRouterPrivacyMode", .text)
+        t.add(column: "lastBYOKNonZDRConsentVersion", .integer)
+      }
+      // Seed both mode memories from the previous global privacy setting.
+      try db.execute(
+        sql: """
+          UPDATE emailAnalysisSettings
+          SET lastFreeOpenRouterPrivacyMode = openRouterPrivacyMode,
+              lastFreeNonZDRConsentVersion = nonZDRConsentVersion,
+              lastBYOKOpenRouterPrivacyMode = openRouterPrivacyMode,
+              lastBYOKNonZDRConsentVersion = nonZDRConsentVersion
+          """
+      )
     }
     return migrator
   }

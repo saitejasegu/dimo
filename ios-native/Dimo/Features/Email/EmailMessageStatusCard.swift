@@ -5,7 +5,6 @@ struct EmailMessageStatusCard: View {
   var onOpen: () -> Void = {}
   var onRestore: (() -> Void)? = nil
   var onRetry: (() -> Void)? = nil
-  var onRetryWithAlternate: (() -> Void)? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -103,30 +102,16 @@ struct EmailMessageStatusCard: View {
         .buttonStyle(.plain)
       }
 
-      if email.analysisState == .failed, onRetry != nil || onRetryWithAlternate != nil {
+      if email.analysisState == .failed, let onRetry {
         Divider().overlay(Theme.lineSoft)
-        VStack(alignment: .leading, spacing: 4) {
-          if let onRetry {
-            Button(action: onRetry) {
-              Label(retryTitle, systemImage: "arrow.clockwise")
-                .font(DimoFont.body(13, weight: .semibold))
-                .foregroundStyle(Theme.green)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 32)
-            }
-            .buttonStyle(.plain)
-          }
-          if let onRetryWithAlternate {
-            Button(action: onRetryWithAlternate) {
-              Label(alternateTitle, systemImage: "arrow.triangle.2.circlepath")
-                .font(DimoFont.body(13, weight: .semibold))
-                .foregroundStyle(Theme.green)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 32)
-            }
-            .buttonStyle(.plain)
-          }
+        Button(action: onRetry) {
+          Label(retryTitle, systemImage: "arrow.clockwise")
+            .font(DimoFont.body(13, weight: .semibold))
+            .foregroundStyle(Theme.green)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 32)
         }
+        .buttonStyle(.plain)
       }
     }
     .padding(16)
@@ -139,13 +124,9 @@ struct EmailMessageStatusCard: View {
   private var retryTitle: String {
     switch email.analyzer {
     case .openRouter: return "Retry with OpenRouter"
-    case .gemma: return "Retry with Local Gemma"
+    case .gemma: return "Retry analysis"
     case nil: return "Retry analysis"
     }
-  }
-
-  private var alternateTitle: String {
-    email.analyzer == .openRouter ? "Try with Local Gemma" : "Try with OpenRouter"
   }
 
   private var statusIcon: String {

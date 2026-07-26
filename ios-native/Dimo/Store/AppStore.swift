@@ -238,7 +238,7 @@ final class AppStore {
       await refreshExpenseReminderAuthorization()
       await refreshExpenseReminderSchedule()
 
-      // Start Convex before email so OpenRouter/Gemma work cannot delay sync.
+      // Start Convex before email so OpenRouter work cannot delay sync.
       remoteStartTask?.cancel()
       remoteStartTask = Task { [weak self] in
         await self?.startRemoteServices(repository: repo)
@@ -292,6 +292,9 @@ final class AppStore {
         return
       }
       convexClient = client
+      emailController?.attachOpenRouterConvexTransport(
+        OpenRouterConvexTransport(client: client)
+      )
 
       let transport = ConvexSyncTransport(client: client)
       let coordinator = SyncCoordinator(repository: repo, transport: transport)
@@ -313,6 +316,7 @@ final class AppStore {
     hydrateTask?.cancel()
     hydrateTask = nil
     pendingHydrateEntities = nil
+    emailController?.attachOpenRouterConvexTransport(nil)
     await emailController?.tearDown()
     emailController = nil
     entityObservation?.cancel()

@@ -22,7 +22,7 @@ private struct EmailDeterministicValidationResult {
   var paymentMethodId: String?
 }
 
-/// Extracts only literal evidence used to validate Gemma output. This does not
+/// Extracts only literal evidence used to validate model output. This does not
 /// classify an email and is never used as a standalone analysis fallback.
 private enum EmailDeterministicEvidenceExtractor {
   static func extract(_ request: EmailAnalysisRequest) -> EmailDeterministicValidationResult {
@@ -141,17 +141,17 @@ enum EmailStructuredOutputValidator {
   static func validate(
     response: String,
     request: EmailAnalysisRequest,
-    analyzer: EmailAnalyzerType = .gemma,
+    analyzer: EmailAnalyzerType = .openRouter,
     now: Date = .now
   ) throws -> EmailAnalysisResult {
     let object = try EmailJSONEnvelopeExtractor.extract(response)
     let data = Data(object.utf8)
     guard let dictionary = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      throw EmailLanguageModelError.invalidOutput("The response is not a JSON object.")
+      throw EmailStructuredOutputError.invalidOutput("The response is not a JSON object.")
     }
     let output = try decodeOutput(dictionary)
     guard output.schemaVersion == EmailAnalysisResult.schemaVersion else {
-      throw EmailLanguageModelError.invalidOutput("Unsupported schema version.")
+      throw EmailStructuredOutputError.invalidOutput("Unsupported schema version.")
     }
 
     let paymentMethodIds = Set(request.paymentMethods.map(\.id))
@@ -281,20 +281,6 @@ enum EmailStructuredOutputValidator {
     if amount == nil || currency == nil { confidence = .low }
     if correctedOutput { confidence = .low }
 
-    // Small on-device models often copy kind=purchase from the schema example
-    // with no money fields. Keep financial kinds only when amount+currency are
-    // evidenced. Do not reject real receipts just because the footer says
-    // "unsubscribe" — that previously marked almost every email irrelevant.
-    if analyzer == .gemma,
-       !gemmaAcceptsFinancialClassification(
-         kind: output.kind,
-         amount: amount,
-         currency: currency,
-         source: source
-       ) {
-      return .irrelevant(analyzer: analyzer)
-    }
-
     return EmailAnalysisResult(
       kind: output.kind,
       merchant: merchant,
@@ -310,104 +296,11 @@ enum EmailStructuredOutputValidator {
     )
   }
 
-  /// Local Gemma over-classifies empty `purchase` copies and marketing mail.
-  /// Require evidenced money; hard-reject security/application/promo content.
-  private static func gemmaAcceptsFinancialClassification(
-    kind: EmailAnalysisKind,
-    amount: Decimal?,
-    currency: Currency?,
-    source: String
-  ) -> Bool {
-    guard kind != .irrelevant else { return true }
-    guard amount != nil, currency != nil else { return false }
-    if hasBlockingNonTransactionSignals(in: source) { return false }
-    // Card applications, limit unlocks, shipping updates, etc. are never purchases.
-    if hasHardPromoSignals(in: source) { return false }
-    // Bare "unsubscribe" footers appear on real receipts — only demote those
-    // when the email also lacks completed-payment language.
-    if hasSoftPromoSignals(in: source), !hasCompletedPaymentSignals(in: source) {
-      return false
-    }
-    return true
-  }
-
-  private static func hasCompletedPaymentSignals(in source: String) -> Bool {
-    let patterns = [
-      #"\b(?:you\s+)?paid\b"#,
-      #"\bpayment\s+(?:successful|received|confirmed|completed|done)\b"#,
-      #"\bamount\s+paid\b"#,
-      #"\b(?:has\s+been\s+)?(?:debited|charged|refunded|credited)\b"#,
-      #"\b(?:debit|refund)\s+(?:of|for|alert)\b"#,
-      #"\b(?:txn|transaction)\s*(?:id|no|number)\b"#,
-      #"\bsuccessful\s+transaction\b"#,
-      #"\bbooking\s+(?:id|no|number|confirmed)\b"#,
-      #"\border\s+(?:confirmed|placed|completed)\b"#,
-      #"\bpurchase\s+(?:successful|confirmed|complete)\b"#,
-      #"\bspent\b"#,
-      #"\bbill(?:ed|ing)\s+amount\b"#,
-      #"\btotal\s+(?:amount|paid)\b"#,
-      #"\breceipt\b"#,
-      #"\binvoice\b"#,
-      #"\bupi\b"#,
-      #"\b(?:neft|imps|rtgs)\b"#,
-    ]
-    return matchesAny(patterns, in: source)
-  }
-
-  private static func hasBlockingNonTransactionSignals(in source: String) -> Bool {
-    let patterns = [
-      #"\b(?:otp|one[-\s]?time\s+password|verification\s+code)\b"#,
-      #"\b(?:payment\s+failed|transaction\s+declined|pending\s+authorization|pre[-\s]?auth)\b"#,
-      #"\b(?:password\s+reset|change\s+your\s+password|suspicious\s+activity)\b"#,
-      #"\b(?:sign[-\s]?in(?:\s+attempt)?|signed[-\s]?in|log\s*ins?|logged[-\s]?in)\b"#,
-      #"\b(?:new\s+login|new\s+sign[-\s]?in|new\s+ip(?:\s+address)?)\b"#,
-      #"\b(?:accessed\s+from|account\s+has\s+been\s+accessed)\b"#,
-      #"\bsomeone\s+signed\b"#,
-      #"\b(?:new\s+device|security\s+alert|account\s+activity)\b"#,
-    ]
-    return matchesAny(patterns, in: source)
-  }
-
-  private static func hasHardPromoSignals(in source: String) -> Bool {
-    let patterns = [
-      #"\b(?:promotional|newsletter|marketing)\b"#,
-      #"\b(?:credit\s+limit|credit\s+card\s+application|card\s+application)\b"#,
-      #"\b(?:unlock\s+your\s+credit|continue\s+your\s+.{0,40}application)\b"#,
-      #"\b(?:zero\s+forex|forex\s+markup|joining\s+or\s+annual\s+fees|zero\s+joining)\b"#,
-      #"\b(?:out\s+for\s+delivery|shipped|shipping\s+update|tracking\s+number)\b"#,
-      #"\b(?:account\s+statement|available\s+balance)\b"#,
-      // Bank/merchant offer blasts often include ₹ amounts but are not payments.
-      #"\b(?:offers?\s+from|shop\s+the\s+latest|know\s+more|click\s+here)\b"#,
-      #"\b(?:up\s+to\s+(?:₹|rs\.?|inr|\$)|instant\s+cashback|cashback\s+offer)\b"#,
-      #"\b(?:valid\s+(?:till|until|thru|through)|offer\s+valid)\b"#,
-      #"\b(?:easy\s+emis?|split\s+the\s+cost|using\s+.{0,40}credit\s+card\s+emis?)\b"#,
-      #"\b(?:flat\s+\d+%?\s+off|\d+%\s+off|save\s+up\s+to)\b"#,
-    ]
-    return matchesAny(patterns, in: source)
-  }
-
-  private static func hasSoftPromoSignals(in source: String) -> Bool {
-    matchesAny([#"\bunsubscribe\b"#], in: source)
-  }
-
-  private static func matchesAny(_ patterns: [String], in source: String) -> Bool {
-    let range = NSRange(source.startIndex..., in: source)
-    for pattern in patterns {
-      guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-        continue
-      }
-      if regex.firstMatch(in: source, options: [], range: range) != nil {
-        return true
-      }
-    }
-    return false
-  }
-
   private static func decodeOutput(_ dictionary: [String: Any]) throws -> EmailStructuredOutput {
     guard let schemaVersion = integerValue(dictionary["schemaVersion"]),
           let rawKind = stringValue(dictionary["kind"]),
           let kind = EmailAnalysisKind(rawValue: rawKind.lowercased()) else {
-      throw EmailLanguageModelError.invalidOutput("The schema version or kind is invalid.")
+      throw EmailStructuredOutputError.invalidOutput("The schema version or kind is invalid.")
     }
     let amount: String?
     if let text = stringValue(dictionary["amount"]) {
@@ -703,7 +596,7 @@ enum EmailJSONEnvelopeExtractor {
   static func extract(_ response: String) throws -> String {
     let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let startIndex = trimmed.firstIndex(of: "{") else {
-      throw EmailLanguageModelError.invalidOutput("Expected a JSON object.")
+      throw EmailStructuredOutputError.invalidOutput("Expected a JSON object.")
     }
     let candidate = trimmed[startIndex...]
     var depth = 0
@@ -729,7 +622,7 @@ enum EmailJSONEnvelopeExtractor {
       } else if character == "}" {
         depth -= 1
         if depth < 0 {
-          throw EmailLanguageModelError.invalidOutput("The JSON object is unbalanced.")
+          throw EmailStructuredOutputError.invalidOutput("The JSON object is unbalanced.")
         }
         if depth == 0 {
           endIndex = candidate.index(after: index)
@@ -738,7 +631,7 @@ enum EmailJSONEnvelopeExtractor {
       }
     }
     guard !insideString, depth == 0, let endIndex else {
-      throw EmailLanguageModelError.invalidOutput("The JSON object is incomplete.")
+      throw EmailStructuredOutputError.invalidOutput("The JSON object is incomplete.")
     }
     return String(candidate[..<endIndex])
   }

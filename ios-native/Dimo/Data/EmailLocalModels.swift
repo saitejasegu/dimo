@@ -19,8 +19,14 @@ enum EmailAnalyzerKind: String, Codable, CaseIterable, Hashable, Sendable {
 }
 
 enum EmailAnalysisProvider: String, Codable, CaseIterable, Hashable, Sendable {
-  case gemma
   case openRouter
+}
+
+enum OpenRouterAccessMode: String, Codable, CaseIterable, Hashable, Sendable {
+  /// Shared OpenRouter key via authenticated Convex actions; free models only.
+  case freeShared
+  /// User-supplied OpenRouter key stored in Keychain.
+  case bringYourOwnKey
 }
 
 enum OpenRouterPrivacyMode: String, Codable, CaseIterable, Hashable, Sendable {
@@ -84,20 +90,37 @@ struct EmailAnalysisSettings: Codable, Hashable, Sendable {
   static let singletonID = "settings"
 
   var selectedProvider: EmailAnalysisProvider?
-  var gemmaModelVariant: EmailGemmaModelVariant
+  var openRouterAccessMode: OpenRouterAccessMode
   var openRouterModelID: String?
+  /// Last Free-mode model, restored when switching back from BYOK.
+  var lastFreeOpenRouterModelID: String?
+  /// Last BYOK model, restored when switching back from Free.
+  var lastBYOKOpenRouterModelID: String?
+  /// Active privacy mode for the current access mode.
   var openRouterPrivacyMode: OpenRouterPrivacyMode
   var nonZDRConsentVersion: Int?
+  /// Free-mode ZDR preference, restored when switching back from BYOK.
+  var lastFreeOpenRouterPrivacyMode: OpenRouterPrivacyMode
+  var lastFreeNonZDRConsentVersion: Int?
+  /// BYOK ZDR preference, restored when switching back from Free.
+  var lastBYOKOpenRouterPrivacyMode: OpenRouterPrivacyMode
+  var lastBYOKNonZDRConsentVersion: Int?
   var syncWindow: EmailSyncWindow
   var updatedAt: Int
 
   static var defaults: EmailAnalysisSettings {
     EmailAnalysisSettings(
       selectedProvider: nil,
-      gemmaModelVariant: .defaultValue,
+      openRouterAccessMode: .bringYourOwnKey,
       openRouterModelID: nil,
+      lastFreeOpenRouterModelID: nil,
+      lastBYOKOpenRouterModelID: nil,
       openRouterPrivacyMode: .zdrOnly,
       nonZDRConsentVersion: nil,
+      lastFreeOpenRouterPrivacyMode: .zdrOnly,
+      lastFreeNonZDRConsentVersion: nil,
+      lastBYOKOpenRouterPrivacyMode: .zdrOnly,
+      lastBYOKNonZDRConsentVersion: nil,
       syncWindow: .defaultValue,
       updatedAt: Int(Date().timeIntervalSince1970 * 1_000)
     )

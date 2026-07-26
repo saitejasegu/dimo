@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import Network
 import OSLog
 import UIKit
 
@@ -12,8 +11,6 @@ private let emailAnalysisLogger = Logger(
 enum EmailFeatureControllerError: LocalizedError {
   case gmailNotConfigured
   case invalidSuggestion
-  case modelUnavailable
-  case gemmaUnavailable(String)
   case analysisNotConfigured
   case openRouterNotConfigured
   case nonZDRConsentRequired
@@ -24,14 +21,10 @@ enum EmailFeatureControllerError: LocalizedError {
       return "Gmail OAuth is not configured for this build."
     case .invalidSuggestion:
       return "The email suggestion is missing a valid amount, date, or category."
-    case .modelUnavailable:
-      return "The Gemma model manager is unavailable in this build."
-    case .gemmaUnavailable(let reason):
-      return reason
     case .analysisNotConfigured:
-      return "Email analysis is not configured. Choose Local Gemma or OpenRouter in Email settings."
+      return "Email analysis is not configured. Choose Free models or Bring your own key in Email settings."
     case .openRouterNotConfigured:
-      return "Add a valid OpenRouter key and choose a model first."
+      return "Configure OpenRouter in Email settings before analyzing."
     case .nonZDRConsentRequired:
       return "This model has no zero-data-retention route. Confirm non-ZDR use before selecting it."
     }
@@ -51,35 +44,29 @@ private enum EmailAnalysisAttemptOutcome: Equatable {
 final class EmailFeatureController: EmailBackgroundWorkProviding {
   let store: EmailFeatureStore
 
+  private static let legacyGemmaModelsCleanupKey = "email.legacyGemmaModelsCleaned"
+
   private let userId: String
   private let repository: Repository
   private let vault: GmailCredentialVault
   private let oauthClient: GmailOAuthClient?
   private let tokenManager: GmailAccessTokenManager?
   private let syncCoordinator: EmailSyncCoordinator?
-  private let modelServices: GemmaModelServices?
-  private let gemmaThrottle = EmailAnalysisStartThrottle.gemma
   private let openRouterThrottle = EmailAnalysisStartThrottle.openRouter
   private let openRouterVault = OpenRouterCredentialVault()
   private let openRouterClient = OpenRouterClient()
   private let analysisCoordinator = EmailAnalysisCoordinator()
 
-  private var router: EmailLanguageModelRouter?
-  private var gemmaAnalyzer: GemmaEmailAnalyzer?
   private var analysisSettings: EmailAnalysisSettings = .defaults
   private var openRouterModels: [OpenRouterModel] = []
+  private var openRouterConvexTransport: (any OpenRouterConvexTransporting)?
   private var accountsObservation: DatabaseCancellable?
   private var suggestionsObservation: DatabaseCancellable?
   private var messageSummariesObservation: DatabaseCancellable?
-  private var modelStateTask: Task<Void, Never>?
   private var foregroundWork: Task<Void, Never>?
   private var analysisWork: Task<Void, Never>?
   private var pendingAnalysisTask: Task<Int, Error>?
   private var pendingAnalysisRunId: UUID?
-  private var gemmaRecoveryTask: Task<Void, Never>?
-  private var notificationTokens: [NSObjectProtocol] = []
-  private let pathMonitor = NWPathMonitor()
-  private let pathQueue = DispatchQueue(label: "app.dimo.ios.email-network")
 
   private var accountRecords: [EmailAccountRecordModel] = []
   private var suggestionRecords: [EmailMessageRecordModel] = []
@@ -88,9 +75,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private var paymentMethods: [PaymentMethodOption] = []
   private var transactions: [Transaction] = []
   private var currency: Currency = .INR
-  private var lastModelProgress = 0.0
-  private var lastDownloadAllowedCellular = false
-  private var installedModelVersionPrepared: String?
   private var stopped = false
   private var uiScrolling = false
   private var resumeAfterScrollTask: Task<Void, Never>?
@@ -123,8 +107,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       tokenManager = nil
       syncCoordinator = nil
     }
-
-    modelServices = GemmaModelServicesProvider.shared()
   }
 
   func start(
@@ -134,6 +116,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     currency: Currency
   ) async {
     stopped = false
+    cleanupLegacyGemmaModelsIfNeeded()
     updateDomain(
       categories: categories,
       paymentMethods: paymentMethods,
@@ -144,7 +127,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     analysisSettings = (try? repository.emailAnalysisSettings()) ?? .defaults
     publishAnalysisSettings()
     startObservations()
-    startResourceMonitoring()
     EmailBackgroundWorkRegistry.provider = self
     EmailBackgroundTasks.schedule(
       requiresAnalysisNetworkConnectivity: analysisSettings.selectedProvider == .openRouter
@@ -156,23 +138,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       store.lastActionError = "Email retention cleanup failed: \(error.localizedDescription)"
     }
 
-    publishGemmaModelCatalog()
-    if modelServices == nil {
-      store.modelState = .unavailable(message: "Gemma model manifests could not be loaded.")
-    }
-
-    // Gemma state / OpenRouter validation are not required to wire Connect Gmail.
-    // Keep them off the awaited start path so launch and the Email tab stay responsive.
     Task { [weak self] in
       guard let self, !self.stopped else { return }
-      await self.observeActiveGemmaModel()
-    }
-    Task { [weak self] in
-      guard let self, !self.stopped else { return }
-      if (try? await self.openRouterVault.credential(dimoUserId: self.userId)) != nil {
-        self.store.openRouterConnectionState = .validating
-      }
-      guard !self.stopped else { return }
       await self.restoreOpenRouterConfiguration()
     }
 
@@ -200,7 +167,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     publishSuggestions()
   }
 
-  /// Soft-pauses Gemma / analysis loops while the user is actively scrolling.
+  /// Soft-pauses analysis while the user is actively scrolling.
   func setUIScrolling(_ scrolling: Bool) {
     uiScrolling = scrolling
     resumeAfterScrollTask?.cancel()
@@ -208,7 +175,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     resumeAfterScrollTask = Task { [weak self] in
       try? await Task.sleep(nanoseconds: 300_000_000)
       guard let self, !self.stopped, !self.uiScrolling else { return }
-      await self.resumeGemmaAnalysisIfNeeded()
+      await self.resumeAnalysisIfNeeded()
     }
   }
 
@@ -230,8 +197,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     pendingPublishSuggestions = false
     pendingPublishEmails = false
     foregroundWork?.cancel()
-    gemmaRecoveryTask?.cancel()
-    gemmaRecoveryTask = nil
     if let analysisWork {
       analysisWork.cancel()
       await analysisWork.value
@@ -243,23 +208,12 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       self.pendingAnalysisTask = nil
       pendingAnalysisRunId = nil
     }
-    modelStateTask?.cancel()
     accountsObservation?.cancel()
     suggestionsObservation?.cancel()
     messageSummariesObservation?.cancel()
-    pathMonitor.cancel()
-    notificationTokens.forEach(NotificationCenter.default.removeObserver)
-    notificationTokens.removeAll()
     oauthClient?.cancel()
     await syncCoordinator?.stop()
-    await router?.unload()
-    gemmaAnalyzer = nil
     await analysisCoordinator.removeAll()
-    if let modelServices {
-      for manager in modelServices.managers.values {
-        await manager.cancelDownload()
-      }
-    }
     await tokenManager?.clearAll()
     try? await vault.removeAll(dimoUserId: userId)
     try? await openRouterVault.remove(dimoUserId: userId)
@@ -283,8 +237,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   func performEmailBackgroundRefresh() async -> Bool {
     guard let syncCoordinator else { return !hasConnectedAccounts }
     do {
-      // Initial range scans stay foreground-first. Background refresh only
-      // advances accounts that already have a durable history cursor.
       let incrementalAccounts = try repository.emailAccounts().filter {
         $0.syncState != .disconnected
           && $0.backfillCompletedAt != nil
@@ -311,14 +263,10 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         requiresNetworkConnectivity: analysisSettings.selectedProvider == .openRouter
       )
     }
-    guard let provider = analysisSettings.selectedProvider else { return true }
-    if provider == .gemma {
-      guard await canRunGemma(), await activeModelManager()?.installedURLs() != nil else {
-        return false
-      }
-    } else if let retry = try? repository.emailAnalysisRetryState(),
-              let notBefore = retry.notBefore,
-              notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
+    guard analysisSettings.selectedProvider == .openRouter else { return true }
+    if let retry = try? repository.emailAnalysisRetryState(),
+       let notBefore = retry.notBefore,
+       notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
       return true
     }
     do {
@@ -336,11 +284,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     pendingAnalysisTask?.cancel()
     Task { [weak self] in
       await self?.syncCoordinator?.stop()
-      await self?.router?.resourcePressureDidIncrease()
-      self?.router = nil
-      self?.gemmaAnalyzer = nil
-      await self?.analysisCoordinator.set(nil, for: .gemma)
-      self?.store.isGemmaAnalyzerAvailable = false
+      await self?.analysisCoordinator.set(nil, for: .openRouter)
     }
   }
 
@@ -401,39 +345,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
           transactionId: transactionId
         )
       },
-      downloadModel: { [weak self] allowCellular in
-        guard let self else { return }
-        try await self.startModelDownload(allowCellular: allowCellular)
-      },
-      pauseModelDownload: { [weak self] in
-        await self?.activeModelManager()?.pauseDownload()
-      },
-      cancelModelDownload: { [weak self] in
-        await self?.activeModelManager()?.cancelDownload()
-      },
-      retryModelDownload: { [weak self] in
-        guard let self else { return }
-        try await self.retryModelDownload()
-      },
-      retryGemmaAnalysis: { [weak self] in
-        guard let self else { return }
-        try await self.retryGemmaAnalysis()
-      },
       reanalyzeAllEmails: { [weak self] in
         guard let self else { return }
         try await self.reanalyzeAllEmails()
-      },
-      deleteModel: { [weak self] in
-        guard let self else { return }
-        try await self.deleteModel()
-      },
-      selectGemma: { [weak self] in
-        guard let self else { return }
-        try await self.selectGemma()
-      },
-      selectGemmaModelVariant: { [weak self] variant in
-        guard let self else { return }
-        try await self.selectGemmaModelVariant(variant)
       },
       saveOpenRouterKey: { [weak self] key in
         guard let self else { return }
@@ -451,6 +365,10 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         guard let self else { return }
         try await self.selectOpenRouterModel(modelID, allowNonZDR: allowNonZDR)
       },
+      selectOpenRouterAccessMode: { [weak self] mode in
+        guard let self else { return }
+        try await self.selectOpenRouterAccessMode(mode)
+      },
       selectProvider: { [weak self] provider in
         guard let self else { return }
         try await self.switchProvider(to: provider)
@@ -462,10 +380,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       retryAnalysis: { [weak self] messageID in
         guard let self else { return }
         try await self.retryAnalysis(messageID: messageID)
-      },
-      retryWithAlternateProvider: { [weak self] messageID in
-        guard let self else { return }
-        try await self.retryWithAlternateProvider(messageID: messageID)
       },
       retryOpenRouterConnection: { [weak self] in
         guard let self else { return }
@@ -480,6 +394,18 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         return try self.loadEmailDetail(messageId: messageId)
       }
     ))
+  }
+
+  private func cleanupLegacyGemmaModelsIfNeeded() {
+    let defaults = UserDefaults.standard
+    guard !defaults.bool(forKey: Self.legacyGemmaModelsCleanupKey) else { return }
+    let support = FileManager.default.urls(
+      for: .applicationSupportDirectory,
+      in: .userDomainMask
+    )[0]
+    let modelsDirectory = support.appendingPathComponent("Dimo/Models", isDirectory: true)
+    try? FileManager.default.removeItem(at: modelsDirectory)
+    defaults.set(true, forKey: Self.legacyGemmaModelsCleanupKey)
   }
 
   private func startObservations() {
@@ -510,7 +436,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
-  /// Coalesce GRDB/email observation bursts so Home isn't invalidated every row.
   private func schedulePublishUI(accounts: Bool, suggestions: Bool, emails: Bool) {
     pendingPublishAccounts = pendingPublishAccounts || accounts
     pendingPublishSuggestions = pendingPublishSuggestions || suggestions
@@ -525,70 +450,12 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       self.pendingPublishAccounts = false
       self.pendingPublishSuggestions = false
       self.pendingPublishEmails = false
-      // Prefer utility QoS so scrolling Home stays ahead of email list remaps.
       await Task(priority: .utility) { @MainActor in
         if publishAccounts { self.publishAccounts() }
         if publishSuggestions { self.publishSuggestions() }
         if publishEmails { self.publishAllEmails() }
       }.value
     }
-  }
-
-  private func startResourceMonitoring() {
-    pathMonitor.pathUpdateHandler = { [weak self] path in
-      Task { @MainActor in
-        self?.store.requiresCellularDownloadConfirmation = path.usesInterfaceType(.cellular)
-      }
-    }
-    pathMonitor.start(queue: pathQueue)
-
-    let center = NotificationCenter.default
-    notificationTokens.append(center.addObserver(
-      forName: UIApplication.didReceiveMemoryWarningNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor in
-        await self?.pauseGemmaExecution(
-          reason: "Gemma was paused because the iPhone reported memory pressure. Analysis retries automatically when the device recovers."
-        )
-      }
-    })
-    notificationTokens.append(center.addObserver(
-      forName: ProcessInfo.thermalStateDidChangeNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor in
-        guard let self else { return }
-        switch ProcessInfo.processInfo.thermalState {
-        case .serious, .critical:
-          await self.pauseGemmaExecution(
-            reason: "Gemma is paused until this iPhone cools down. Analysis retries automatically when it recovers."
-          )
-        case .nominal, .fair:
-          await self.resumeGemmaAnalysisIfNeeded()
-        @unknown default:
-          break
-        }
-      }
-    })
-    notificationTokens.append(center.addObserver(
-      forName: .NSProcessInfoPowerStateDidChange,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor in
-        guard let self else { return }
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
-          await self.pauseGemmaExecution(
-            reason: "Gemma is paused while Low Power Mode is on. Turn it off, or wait — analysis retries when Low Power Mode ends."
-          )
-        } else {
-          await self.resumeGemmaAnalysisIfNeeded()
-        }
-      }
-    })
   }
 
   private func connectAccount() async throws {
@@ -611,8 +478,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         syncState: .idle,
         createdAt: existing?.createdAt ?? Int(account.connectedAt.timeIntervalSince1970 * 1_000)
       ))
-      // Restore reviewed suggestions from the synced entity store before Gmail
-      // refresh so the same messages stay reviewed and are not re-analyzed.
       try repository.materializeSyncedEmailMessages(accountId: account.subject)
     } catch {
       try? await vault.remove(subject: account.subject, dimoUserId: userId)
@@ -629,7 +494,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
     await tokenManager?.invalidate(subject: accountId)
     _ = try repository.deleteEmailAccount(id: accountId)
-    await unloadGemmaIfNoConnectedAccounts()
   }
 
   private func refresh(accountId: String?) async throws {
@@ -662,15 +526,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     pendingAnalysisRunId = runId
     let task = Task { [weak self] () throws -> Int in
       guard let self else { throw CancellationError() }
-      var analyzedCount = 0
-      do {
-        analyzedCount = try await self.analyzePending(maximumCount: maximumCount)
-        await self.unloadGemmaAfterAnalysis(analyzedCount: analyzedCount)
-        return analyzedCount
-      } catch {
-        await self.unloadGemmaAfterAnalysis(analyzedCount: analyzedCount)
-        throw error
-      }
+      return try await self.analyzePending(maximumCount: maximumCount)
     }
     pendingAnalysisTask = task
     defer {
@@ -714,46 +570,28 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       try repository.markEmailSuggestionUnactionable(messageKey: message.key)
       return .processed
     }
-    guard let provider = message.analysisProviderOverride ?? analysisSettings.selectedProvider else {
+    guard analysisSettings.selectedProvider == .openRouter else {
       store.analysisStatusDetail = EmailFeatureControllerError.analysisNotConfigured.localizedDescription
       return .paused
     }
     let request = makeAnalysisRequest(message: message, body: body)
 
     do {
-      let envelope: EmailAnalysisEnvelope
-      switch provider {
-      case .gemma:
-        guard await canRunGemma(), let analyzer = await preparedGemmaAnalyzer() else {
-          let detail = store.gemmaStatusDetail ?? "Local Gemma is not ready."
-          store.analysisStatusDetail = detail
-          scheduleGemmaRecoveryRetry(after: .seconds(15))
-          return .paused
-        }
-        try await gemmaThrottle.waitForNextStart(
-          minimumInterval: EmailGemmaPacing.minimumStartInterval(
-            for: ProcessInfo.processInfo.thermalState
-          )
-        )
-        envelope = try await analyzer.analyze(request)
-        if let router { await publishRouterState(router) }
-      case .openRouter:
-        if let retry = try repository.emailAnalysisRetryState(),
-           let notBefore = retry.notBefore,
-           notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
-          store.analysisStatusDetail = retry.reason ?? "OpenRouter analysis is waiting to retry."
-          return .paused
-        }
-        guard let analyzer = try await preparedOpenRouterAnalyzer() else {
-          store.analysisStatusDetail = EmailFeatureControllerError.openRouterNotConfigured.localizedDescription
-          return .paused
-        }
-        try await openRouterThrottle.waitForNextStart(
-          minimumInterval: EmailOpenRouterPacing.minimumStartInterval
-        )
-        envelope = try await analyzer.analyze(request)
-        try repository.clearEmailAnalysisRetryState()
+      if let retry = try repository.emailAnalysisRetryState(),
+         let notBefore = retry.notBefore,
+         notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
+        store.analysisStatusDetail = retry.reason ?? "OpenRouter analysis is waiting to retry."
+        return .paused
       }
+      guard let analyzer = try await preparedOpenRouterAnalyzer() else {
+        store.analysisStatusDetail = EmailFeatureControllerError.openRouterNotConfigured.localizedDescription
+        return .paused
+      }
+      try await openRouterThrottle.waitForNextStart(
+        minimumInterval: EmailOpenRouterPacing.minimumStartInterval
+      )
+      let envelope = try await analyzer.analyze(request)
+      try repository.clearEmailAnalysisRetryState()
       try Task.checkCancellation()
       guard !stopped else { throw CancellationError() }
       try repository.saveEmailAnalysis(
@@ -802,15 +640,12 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       }
     } catch {
       emailAnalysisLogger.error(
-        "Email analysis failure; message: \(message.key, privacy: .private(mask: .hash)); provider: \(provider.rawValue, privacy: .public); model: \((provider == .gemma ? self.activeManifest()?.version : self.analysisSettings.openRouterModelID) ?? "none", privacy: .public); error: \(String(reflecting: error), privacy: .public)"
+        "Email analysis failure; message: \(message.key, privacy: .private(mask: .hash)); model: \(self.analysisSettings.openRouterModelID ?? "none", privacy: .public); error: \(String(reflecting: error), privacy: .public)"
       )
-      if let router { await publishRouterState(router) }
       try repository.markEmailAnalysisFailed(
         messageKey: message.key,
-        analyzer: provider == .gemma ? .gemma : .openRouter,
-        modelVersion: provider == .gemma
-          ? activeManifest()?.version
-          : analysisSettings.openRouterModelID
+        analyzer: .openRouter,
+        modelVersion: analysisSettings.openRouterModelID
       )
       store.analysisStatusDetail = "Analysis failed"
       return .processed
@@ -867,7 +702,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     return PersistedEmailAnalysis(
       analyzerType: envelope.analyzer == .gemma ? .gemma : .openRouter,
       modelVersion: envelope.modelID,
-      promptVersion: activeManifest()?.promptSchemaVersion ?? EmailAnalysisResult.schemaVersion,
+      promptVersion: EmailAnalysisResult.schemaVersion,
       classification: EmailMessageClassification(rawValue: result.kind.rawValue) ?? .irrelevant,
       merchant: result.merchant,
       amount: result.amount.map { NSDecimalNumber(decimal: $0).stringValue },
@@ -880,75 +715,103 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     )
   }
 
-  private func preparedGemmaAnalyzer() async -> GemmaEmailAnalyzer? {
-    // The model is intentionally lazy. Merely installing Gemma or opening the
-    // app must not map its weights into memory without a connected mailbox.
-    guard hasConnectedAccounts else { return nil }
-    guard let manager = activeModelManager(),
-          let urls = await manager.installedURLs(),
-          let manifest = activeManifest() else {
-      store.gemmaStatusDetail = "Download the selected Local Gemma model before analysis."
-      return nil
+  /// Attach the authenticated Convex client once sync login succeeds.
+  func attachOpenRouterConvexTransport(_ transport: (any OpenRouterConvexTransporting)?) {
+    openRouterConvexTransport = transport
+    guard analysisSettings.openRouterAccessMode == .freeShared else { return }
+    Task { [weak self] in
+      await self?.restoreOpenRouterConfiguration()
     }
-    if let gemmaAnalyzer { return gemmaAnalyzer }
-    store.analysisStatusDetail = "Loading Local Gemma…"
-    store.gemmaStatusDetail = "Loading Local Gemma…"
-    let contextTokens = manifest.runtimeContextTokens
-    let runtime = LlamaCppEmailRuntime(
-      modelURL: urls.model,
-      cacheURL: urls.cache,
-      contextTokens: contextTokens
-    )
-    let next = EmailLanguageModelRouter(
-      gemma: GemmaEmailLanguageModel(
-        runtime: runtime,
-        contextTokens: contextTokens,
-        timeout: .seconds(60)
-      )
-    )
-    try? await next.load()
-    router = next
-    await publishRouterState(next)
-    guard await next.availability() == .gemma else {
-      store.analysisStatusDetail = store.gemmaStatusDetail ?? "Local Gemma failed to load."
-      return nil
-    }
-    let analyzer = GemmaEmailAnalyzer(model: next, modelID: manifest.version)
-    gemmaAnalyzer = analyzer
-    await analysisCoordinator.set(analyzer, for: .gemma)
-    return analyzer
   }
 
-  private func publishRouterState(_ router: EmailLanguageModelRouter) async {
-    store.isGemmaAnalyzerAvailable = await router.availability() == .gemma
-    store.gemmaStatusDetail = await router.failureReason()
-  }
-
-  private func preparedOpenRouterAnalyzer() async throws -> OpenRouterEmailAnalyzer? {
-    guard let credential = try await openRouterVault.credential(dimoUserId: userId),
-          let modelID = analysisSettings.openRouterModelID else { return nil }
+  private func preparedOpenRouterAnalyzer() async throws -> (any EmailAnalysisProviding)? {
+    guard let modelID = analysisSettings.openRouterModelID else { return nil }
     guard let model = openRouterModels.first(where: { $0.id == modelID }) else {
       throw OpenRouterClientError.modelUnavailable
     }
     if analysisSettings.openRouterPrivacyMode == .zdrOnly, !model.hasZDREndpoint {
       throw OpenRouterClientError.modelUnavailable
     }
-    let analyzer = OpenRouterEmailAnalyzer(
-      client: openRouterClient,
-      model: model,
-      privacyMode: analysisSettings.openRouterPrivacyMode,
-      apiKey: credential.apiKey
-    )
-    await analysisCoordinator.set(analyzer, for: .openRouter)
-    return analyzer
+
+    switch analysisSettings.openRouterAccessMode {
+    case .freeShared:
+      guard model.isFree else { throw OpenRouterClientError.modelUnavailable }
+      guard let transport = openRouterConvexTransport else {
+        throw OpenRouterConvexTransportError.notReady.openRouterClientError
+      }
+      let analyzer = ConvexFreeOpenRouterEmailAnalyzer(
+        transport: transport,
+        model: model,
+        privacyMode: analysisSettings.openRouterPrivacyMode
+      )
+      await analysisCoordinator.set(analyzer, for: .openRouter)
+      return analyzer
+    case .bringYourOwnKey:
+      guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
+        return nil
+      }
+      let analyzer = OpenRouterEmailAnalyzer(
+        client: openRouterClient,
+        model: model,
+        privacyMode: analysisSettings.openRouterPrivacyMode,
+        apiKey: credential.apiKey
+      )
+      await analysisCoordinator.set(analyzer, for: .openRouter)
+      return analyzer
+    }
   }
 
   private func restoreOpenRouterConfiguration() async {
+    switch analysisSettings.openRouterAccessMode {
+    case .freeShared:
+      await restoreFreeOpenRouterConfiguration()
+    case .bringYourOwnKey:
+      await restoreBYOKOpenRouterConfiguration()
+    }
+  }
+
+  private func restoreFreeOpenRouterConfiguration() async {
+    guard let transport = openRouterConvexTransport else {
+      store.openRouterConnectionState = .disconnected
+      if analysisSettings.selectedProvider == .openRouter {
+        store.analysisStatusDetail =
+          OpenRouterConvexTransportError.notReady.localizedDescription
+      }
+      return
+    }
+    store.openRouterConnectionState = .validating
+    do {
+      let models = try await transport.listFreeModels()
+      openRouterModels = models
+      store.openRouterModels = models
+      store.openRouterConnectionState = .connected(
+        label: "Free models",
+        creditLimit: nil,
+        limitRemaining: nil
+      )
+      try ensureDefaultFreeModelSelection(in: models)
+      if let selected = analysisSettings.openRouterModelID,
+         !models.contains(where: { $0.id == selected }) {
+        store.analysisStatusDetail = "The selected OpenRouter model is no longer available."
+      }
+      publishAnalysisSettings()
+    } catch {
+      let message = (error as? OpenRouterConvexTransportError)?.errorDescription
+        ?? error.localizedDescription
+      store.openRouterConnectionState = .failed(message)
+      if analysisSettings.selectedProvider == .openRouter {
+        store.analysisStatusDetail = message
+      }
+    }
+  }
+
+  private func restoreBYOKOpenRouterConfiguration() async {
     do {
       guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
         store.openRouterConnectionState = .disconnected
         return
       }
+      store.openRouterConnectionState = .validating
       let keyInfo = try await openRouterClient.validateKey(credential.apiKey)
       openRouterModels = try await openRouterClient.models(apiKey: credential.apiKey)
       store.openRouterModels = openRouterModels
@@ -974,7 +837,159 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
+  private func ensureDefaultFreeModelSelection(in models: [OpenRouterModel]) throws {
+    if let selected = analysisSettings.openRouterModelID,
+       models.contains(where: { $0.id == selected && $0.isFree }) {
+      rememberModelSelection(selected, for: .freeShared)
+      try saveAnalysisSettings()
+      return
+    }
+    if let remembered = analysisSettings.lastFreeOpenRouterModelID,
+       models.contains(where: { $0.id == remembered && $0.isFree }) {
+      analysisSettings.openRouterModelID = remembered
+      try saveAnalysisSettings()
+      return
+    }
+    if models.contains(where: { $0.id == OpenRouterClient.defaultModelID }) {
+      analysisSettings.openRouterModelID = OpenRouterClient.defaultModelID
+      rememberModelSelection(OpenRouterClient.defaultModelID, for: .freeShared)
+      try saveAnalysisSettings()
+      return
+    }
+    if let firstFree = models.first(where: \.isFree) {
+      analysisSettings.openRouterModelID = firstFree.id
+      rememberModelSelection(firstFree.id, for: .freeShared)
+      try saveAnalysisSettings()
+    }
+  }
+
+  private func rememberModelSelection(_ modelID: String?, for mode: OpenRouterAccessMode) {
+    guard let modelID else { return }
+    switch mode {
+    case .freeShared:
+      analysisSettings.lastFreeOpenRouterModelID = modelID
+    case .bringYourOwnKey:
+      analysisSettings.lastBYOKOpenRouterModelID = modelID
+    }
+  }
+
+  private func rememberPrivacySelection(
+    privacyMode: OpenRouterPrivacyMode,
+    consentVersion: Int?,
+    for mode: OpenRouterAccessMode
+  ) {
+    switch mode {
+    case .freeShared:
+      analysisSettings.lastFreeOpenRouterPrivacyMode = privacyMode
+      analysisSettings.lastFreeNonZDRConsentVersion = consentVersion
+    case .bringYourOwnKey:
+      analysisSettings.lastBYOKOpenRouterPrivacyMode = privacyMode
+      analysisSettings.lastBYOKNonZDRConsentVersion = consentVersion
+    }
+  }
+
+  private func restorePrivacySelection(for mode: OpenRouterAccessMode) {
+    switch mode {
+    case .freeShared:
+      analysisSettings.openRouterPrivacyMode = analysisSettings.lastFreeOpenRouterPrivacyMode
+      analysisSettings.nonZDRConsentVersion = analysisSettings.lastFreeNonZDRConsentVersion
+    case .bringYourOwnKey:
+      analysisSettings.openRouterPrivacyMode = analysisSettings.lastBYOKOpenRouterPrivacyMode
+      analysisSettings.nonZDRConsentVersion = analysisSettings.lastBYOKNonZDRConsentVersion
+    }
+  }
+
+  private func selectOpenRouterAccessMode(_ mode: OpenRouterAccessMode) async throws {
+    guard analysisSettings.openRouterAccessMode != mode else { return }
+    if let pendingAnalysisTask {
+      pendingAnalysisTask.cancel()
+      _ = try? await pendingAnalysisTask.value
+      self.pendingAnalysisTask = nil
+      pendingAnalysisRunId = nil
+    }
+    analysisWork?.cancel()
+    if let analysisWork { await analysisWork.value }
+    self.analysisWork = nil
+    await analysisCoordinator.set(nil, for: .openRouter)
+    try repository.clearEmailAnalysisRetryState()
+
+    let previousMode = analysisSettings.openRouterAccessMode
+    // Remember model + ZDR preference for the mode we're leaving.
+    rememberModelSelection(analysisSettings.openRouterModelID, for: previousMode)
+    rememberPrivacySelection(
+      privacyMode: analysisSettings.openRouterPrivacyMode,
+      consentVersion: analysisSettings.nonZDRConsentVersion,
+      for: previousMode
+    )
+
+    analysisSettings.openRouterAccessMode = mode
+
+    // Restore remembered model + ZDR preference for the mode we're entering.
+    switch mode {
+    case .freeShared:
+      analysisSettings.openRouterModelID = analysisSettings.lastFreeOpenRouterModelID
+    case .bringYourOwnKey:
+      analysisSettings.openRouterModelID = analysisSettings.lastBYOKOpenRouterModelID
+    }
+    restorePrivacySelection(for: mode)
+
+    try saveAnalysisSettings()
+    publishAnalysisSettings()
+    openRouterModels = []
+    store.openRouterModels = []
+    store.openRouterConnectionState = .validating
+    await restoreOpenRouterConfiguration()
+    // Keep OpenRouter active across Free/BYOK switches when the restored mode
+    // already has a compatible model + privacy setup (avoids tapping Use
+    // OpenRouter again after every mode change).
+    await activateRestoredOpenRouterModeIfPossible()
+  }
+
+  /// After a Free/BYOK switch, keep analysis active when the restored model and
+  /// privacy settings are compatible with the new catalog.
+  private func activateRestoredOpenRouterModeIfPossible() async {
+    guard case .connected = store.openRouterConnectionState else {
+      analysisSettings.selectedProvider = nil
+      try? saveAnalysisSettings()
+      publishAnalysisSettings()
+      return
+    }
+    guard let modelID = analysisSettings.openRouterModelID,
+          let model = openRouterModels.first(where: { $0.id == modelID }) else {
+      analysisSettings.selectedProvider = nil
+      try? saveAnalysisSettings()
+      publishAnalysisSettings()
+      return
+    }
+    if analysisSettings.openRouterAccessMode == .freeShared, !model.isFree {
+      analysisSettings.selectedProvider = nil
+      try? saveAnalysisSettings()
+      publishAnalysisSettings()
+      return
+    }
+    if analysisSettings.openRouterPrivacyMode == .zdrOnly, !model.hasZDREndpoint {
+      // Mode previously required ZDR, but remembered model is non-ZDR — need consent.
+      analysisSettings.selectedProvider = nil
+      try? saveAnalysisSettings()
+      publishAnalysisSettings()
+      store.analysisStatusDetail =
+        "Confirm non-ZDR use for this model, or choose a ZDR model."
+      return
+    }
+
+    analysisSettings.selectedProvider = .openRouter
+    try? saveAnalysisSettings()
+    publishAnalysisSettings()
+    EmailBackgroundTasks.scheduleAnalysis(requiresNetworkConnectivity: true)
+    analysisWork = Task(priority: .utility) { [weak self] in
+      _ = try? await self?.runPendingAnalysis()
+      self?.analysisWork = nil
+    }
+  }
+
   private func saveOpenRouterKey(_ apiKey: String) async throws {
+    analysisSettings.openRouterAccessMode = .bringYourOwnKey
+    try saveAnalysisSettings()
     let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     store.openRouterConnectionState = .validating
     do {
@@ -988,9 +1003,19 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         creditLimit: info.limit,
         limitRemaining: info.limitRemaining
       )
-      if analysisSettings.openRouterModelID == nil,
-         models.contains(where: { $0.id == OpenRouterClient.defaultModelID }) {
-        analysisSettings.openRouterModelID = OpenRouterClient.defaultModelID
+      if analysisSettings.openRouterModelID == nil {
+        if let remembered = analysisSettings.lastBYOKOpenRouterModelID,
+           models.contains(where: { $0.id == remembered }) {
+          analysisSettings.openRouterModelID = remembered
+        } else if models.contains(where: { $0.id == OpenRouterClient.defaultModelID }) {
+          analysisSettings.openRouterModelID = OpenRouterClient.defaultModelID
+        }
+        if let selected = analysisSettings.openRouterModelID {
+          rememberModelSelection(selected, for: .bringYourOwnKey)
+          try saveAnalysisSettings()
+        }
+      } else {
+        rememberModelSelection(analysisSettings.openRouterModelID, for: .bringYourOwnKey)
         try saveAnalysisSettings()
       }
       publishAnalysisSettings()
@@ -1003,34 +1028,59 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private func removeOpenRouterKey() async throws {
     try await switchProvider(to: analysisSettings.selectedProvider == .openRouter ? nil : analysisSettings.selectedProvider)
     try await openRouterVault.remove(dimoUserId: userId)
-    openRouterModels = []
-    store.openRouterModels = []
-    store.openRouterConnectionState = .disconnected
+    if analysisSettings.openRouterAccessMode == .bringYourOwnKey {
+      openRouterModels = []
+      store.openRouterModels = []
+      store.openRouterConnectionState = .disconnected
+    }
     await analysisCoordinator.set(nil, for: .openRouter)
   }
 
   private func refreshOpenRouterModels() async throws {
-    guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
-      throw EmailFeatureControllerError.openRouterNotConfigured
-    }
-    let info = try await openRouterClient.validateKey(credential.apiKey)
-    openRouterModels = try await openRouterClient.models(apiKey: credential.apiKey)
-    store.openRouterModels = openRouterModels
-    store.openRouterConnectionState = .connected(
-      label: info.label,
-      creditLimit: info.limit,
-      limitRemaining: info.limitRemaining
-    )
-    if let selected = analysisSettings.openRouterModelID,
-       !openRouterModels.contains(where: { $0.id == selected }) {
-      store.analysisStatusDetail = "The selected OpenRouter model is no longer available."
+    switch analysisSettings.openRouterAccessMode {
+    case .freeShared:
+      guard let transport = openRouterConvexTransport else {
+        throw OpenRouterConvexTransportError.notReady
+      }
+      store.openRouterConnectionState = .validating
+      let models = try await transport.listFreeModels()
+      openRouterModels = models
+      store.openRouterModels = models
+      store.openRouterConnectionState = .connected(
+        label: "Free models",
+        creditLimit: nil,
+        limitRemaining: nil
+      )
+      try ensureDefaultFreeModelSelection(in: models)
+      publishAnalysisSettings()
+      if let selected = analysisSettings.openRouterModelID,
+         !models.contains(where: { $0.id == selected }) {
+        store.analysisStatusDetail = "The selected OpenRouter model is no longer available."
+      }
+    case .bringYourOwnKey:
+      guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
+        throw EmailFeatureControllerError.openRouterNotConfigured
+      }
+      let info = try await openRouterClient.validateKey(credential.apiKey)
+      openRouterModels = try await openRouterClient.models(apiKey: credential.apiKey)
+      store.openRouterModels = openRouterModels
+      store.openRouterConnectionState = .connected(
+        label: info.label,
+        creditLimit: info.limit,
+        limitRemaining: info.limitRemaining
+      )
+      if let selected = analysisSettings.openRouterModelID,
+         !openRouterModels.contains(where: { $0.id == selected }) {
+        store.analysisStatusDetail = "The selected OpenRouter model is no longer available."
+      }
     }
   }
 
   private func selectOpenRouterModel(_ modelID: String, allowNonZDR: Bool) async throws {
-    // The catalog is populated only after the credential has been validated.
-    // Do not make selection wait on another serialized Keychain read.
     guard let model = openRouterModels.first(where: { $0.id == modelID }) else {
+      throw EmailFeatureControllerError.openRouterNotConfigured
+    }
+    if analysisSettings.openRouterAccessMode == .freeShared, !model.isFree {
       throw EmailFeatureControllerError.openRouterNotConfigured
     }
     if !model.hasZDREndpoint, !allowNonZDR {
@@ -1048,14 +1098,17 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       && analysisSettings.nonZDRConsentVersion == consentVersion
 
     analysisSettings.openRouterModelID = model.id
+    rememberModelSelection(model.id, for: analysisSettings.openRouterAccessMode)
     analysisSettings.openRouterPrivacyMode = privacyMode
     analysisSettings.nonZDRConsentVersion = consentVersion
+    rememberPrivacySelection(
+      privacyMode: privacyMode,
+      consentVersion: consentVersion,
+      for: analysisSettings.openRouterAccessMode
+    )
 
-    // Same OpenRouter selection: skip teardown. Changing model/privacy while
-    // already on OpenRouter only persists settings — the next analysis rebuilds
-    // the analyzer from analysisSettings. Avoid cancelling in-flight work
-    // (forceRestart made the picker feel stuck).
     if unchanged {
+      try? saveAnalysisSettings()
       publishAnalysisSettings()
       return
     }
@@ -1069,48 +1122,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     try await switchProvider(to: .openRouter)
   }
 
-  private func selectGemma() async throws {
-    try await switchProvider(to: .gemma)
-    guard !store.modelState.isInstalled else { return }
-    if store.requiresCellularDownloadConfirmation {
-      store.analysisStatusDetail =
-        "Local Gemma is selected. Confirm the \(analysisSettings.gemmaModelVariant.title) download in Email settings."
-    } else {
-      try await startModelDownload(allowCellular: false)
-    }
-  }
-
-  private func selectGemmaModelVariant(_ variant: EmailGemmaModelVariant) async throws {
-    guard analysisSettings.gemmaModelVariant != variant else { return }
-    analysisWork?.cancel()
-    if let analysisWork { await analysisWork.value }
-    self.analysisWork = nil
-    if let pendingAnalysisTask {
-      pendingAnalysisTask.cancel()
-      _ = try? await pendingAnalysisTask.value
-      self.pendingAnalysisTask = nil
-      pendingAnalysisRunId = nil
-    }
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
-    installedModelVersionPrepared = nil
-    analysisSettings.gemmaModelVariant = variant
-    try saveAnalysisSettings()
-    publishAnalysisSettings()
-    publishGemmaModelCatalog()
-    await observeActiveGemmaModel()
-    if analysisSettings.selectedProvider == .gemma, !store.modelState.isInstalled {
-      if store.requiresCellularDownloadConfirmation {
-        store.analysisStatusDetail =
-          "\(variant.title) is selected. Confirm the model download in Email settings."
-      } else {
-        try await startModelDownload(allowCellular: false)
-      }
-    }
-  }
-
   private func selectSyncWindow(_ window: EmailSyncWindow) async throws {
     guard analysisSettings.syncWindow != window else { return }
     await syncCoordinator?.stop()
@@ -1120,8 +1131,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       try saveAnalysisSettings()
       try enforceRetention()
 
-      // Gmail page tokens belong to the original query. Reset every account so
-      // the new cutoff is applied from page one, including when the range grows.
       let accounts = try repository.emailAccounts()
       for account in accounts {
         try repository.updateEmailAccount(id: account.id) { value in
@@ -1154,10 +1163,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     analysisWork?.cancel()
     if let analysisWork { await analysisWork.value }
     self.analysisWork = nil
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
+    await analysisCoordinator.set(nil, for: .openRouter)
     try repository.clearEmailAnalysisRetryState()
     analysisSettings.selectedProvider = provider
     try saveAnalysisSettings()
@@ -1177,76 +1183,30 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
           message.state == .analysisFailed else {
       throw EmailRepositoryError.invalidSuggestionState
     }
-    guard let provider = Self.analysisProvider(
-      analyzerType: message.analyzerType,
-      override: message.analysisProviderOverride,
-      selected: analysisSettings.selectedProvider
-    ) else {
+    guard analysisSettings.selectedProvider == .openRouter else {
       throw EmailFeatureControllerError.analysisNotConfigured
     }
-    switch provider {
-    case .gemma:
-      guard store.modelState.isInstalled else {
-        throw EmailFeatureControllerError.gemmaUnavailable(
-          "Download Local Gemma before retrying this email."
-        )
-      }
-    case .openRouter:
-      guard try await preparedOpenRouterAnalyzer() != nil else {
-        throw EmailFeatureControllerError.openRouterNotConfigured
-      }
-      // Manual retry should not wait out a prior OpenRouter backoff window.
-      try repository.clearEmailAnalysisRetryState()
+    guard try await preparedOpenRouterAnalyzer() != nil else {
+      throw EmailFeatureControllerError.openRouterNotConfigured
     }
-    try repository.retryEmailAnalysis(messageKey: messageID, providerOverride: provider)
-    try refreshEmailUIFromRepository()
-    _ = try await runPendingAnalysis(maximumCount: 1)
-  }
-
-  private func retryWithAlternateProvider(messageID: String) async throws {
-    guard let message = try repository.emailMessage(key: messageID),
-          message.state == .analysisFailed else {
-      throw EmailRepositoryError.invalidSuggestionState
-    }
-    let alternate: EmailAnalysisProvider = message.analyzerType == .openRouter ? .gemma : .openRouter
-    switch alternate {
-    case .gemma:
-      guard store.modelState.isInstalled else {
-        throw EmailFeatureControllerError.gemmaUnavailable("Download Local Gemma before retrying this email.")
-      }
-    case .openRouter:
-      guard try await preparedOpenRouterAnalyzer() != nil else {
-        throw EmailFeatureControllerError.openRouterNotConfigured
-      }
-      try repository.clearEmailAnalysisRetryState()
-    }
-    try repository.retryEmailAnalysis(messageKey: messageID, providerOverride: alternate)
+    try repository.clearEmailAnalysisRetryState()
+    try repository.retryEmailAnalysis(messageKey: messageID, providerOverride: .openRouter)
     try refreshEmailUIFromRepository()
     _ = try await runPendingAnalysis(maximumCount: 1)
   }
 
   private func retryOpenRouterConnection() async throws {
     store.openRouterConnectionState = .validating
-    guard let credential = try await openRouterVault.credential(dimoUserId: userId) else {
-      store.openRouterConnectionState = .disconnected
-      throw EmailFeatureControllerError.openRouterNotConfigured
-    }
     do {
-      let keyInfo = try await openRouterClient.validateKey(credential.apiKey)
-      openRouterModels = try await openRouterClient.models(apiKey: credential.apiKey)
-      store.openRouterModels = openRouterModels
-      store.openRouterConnectionState = .connected(
-        label: keyInfo.label,
-        creditLimit: keyInfo.limit,
-        limitRemaining: keyInfo.limitRemaining
-      )
+      try await refreshOpenRouterModels()
       try repository.clearEmailAnalysisRetryState()
       publishAnalysisSettings()
       try await resumeOpenRouterAnalysisQueue()
     } catch {
-      store.openRouterConnectionState = .failed(error.localizedDescription)
+      let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      store.openRouterConnectionState = .failed(message)
       if analysisSettings.selectedProvider == .openRouter {
-        store.analysisStatusDetail = error.localizedDescription
+        store.analysisStatusDetail = message
       }
       throw error
     }
@@ -1280,15 +1240,51 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     _ = try await runPendingAnalysis()
   }
 
-  private static func analysisProvider(
-    analyzerType: EmailAnalyzerKind?,
-    override: EmailAnalysisProvider?,
-    selected: EmailAnalysisProvider?
-  ) -> EmailAnalysisProvider? {
-    switch analyzerType {
-    case .openRouter: return .openRouter
-    case .gemma: return .gemma
-    case .rules, nil: return override ?? selected
+  private func reanalyzeAllEmails() async throws {
+    guard analysisSettings.selectedProvider == .openRouter else {
+      throw EmailFeatureControllerError.analysisNotConfigured
+    }
+    guard try await preparedOpenRouterAnalyzer() != nil else {
+      throw EmailFeatureControllerError.openRouterNotConfigured
+    }
+    if let analysisWork {
+      analysisWork.cancel()
+      await analysisWork.value
+      self.analysisWork = nil
+    }
+    if let pendingAnalysisTask {
+      pendingAnalysisTask.cancel()
+      _ = try? await pendingAnalysisTask.value
+      self.pendingAnalysisTask = nil
+      pendingAnalysisRunId = nil
+    }
+    try repository.clearEmailAnalysisRetryState()
+
+    let resetCount = try repository.resetEmailMessagesForReanalysis()
+    try refreshEmailUIFromRepository()
+    await Task.yield()
+
+    guard resetCount > 0 else { return }
+    _ = try await runPendingAnalysis()
+  }
+
+  private func refreshEmailUIFromRepository() throws {
+    suggestionRecords = try repository.emailSuggestions()
+    messageSummaries = try repository.emailMessageSummaries()
+    store.purchaseReview = nil
+    store.refundReview = nil
+    store.emailDetail = nil
+    publishSuggestions()
+    publishAllEmails()
+  }
+
+  private func resumeAnalysisIfNeeded() async {
+    guard !stopped else { return }
+    guard analysisSettings.selectedProvider == .openRouter else { return }
+    guard analysisWork == nil, pendingAnalysisTask == nil else { return }
+    analysisWork = Task(priority: .utility) { [weak self] in
+      _ = try? await self?.runPendingAnalysis()
+      self?.analysisWork = nil
     }
   }
 
@@ -1299,85 +1295,20 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
 
   private func publishAnalysisSettings() {
     store.selectedProvider = analysisSettings.selectedProvider
-    store.selectedGemmaModelVariant = analysisSettings.gemmaModelVariant
+    store.openRouterAccessMode = analysisSettings.openRouterAccessMode
     store.selectedOpenRouterModelID = analysisSettings.openRouterModelID
     store.openRouterPrivacyMode = analysisSettings.openRouterPrivacyMode
     store.syncWindow = analysisSettings.syncWindow
     switch analysisSettings.selectedProvider {
-    case .gemma:
-      let variant = analysisSettings.gemmaModelVariant.title
-      store.analysisStatusDetail = store.modelState.isInstalled
-        ? "\(variant) will load only when an email needs analysis."
-        : "\(variant) is selected. Download the model to begin analysis."
     case .openRouter:
+      let modeLabel = analysisSettings.openRouterAccessMode == .freeShared
+        ? "OpenRouter Free"
+        : "OpenRouter"
       store.analysisStatusDetail = analysisSettings.openRouterModelID.map {
-        "OpenRouter · \($0)"
+        "\(modeLabel) · \($0)"
       } ?? "Choose an OpenRouter model."
     case nil:
       store.analysisStatusDetail = EmailFeatureControllerError.analysisNotConfigured.localizedDescription
-    }
-  }
-
-  private func activeManifest() -> GemmaModelManifest? {
-    modelServices?.manifest(for: analysisSettings.gemmaModelVariant)
-  }
-
-  private func activeModelManager() -> GemmaModelManager? {
-    modelServices?.manager(for: analysisSettings.gemmaModelVariant)
-  }
-
-  private func publishGemmaModelCatalog() {
-    guard let modelServices else { return }
-    store.gemmaModelOptions = EmailGemmaModelVariant.allCases.compactMap { variant in
-      guard let manifest = modelServices.manifest(for: variant) else { return nil }
-      return EmailUIGemmaModelOption(
-        variant: variant,
-        title: variant.title,
-        subtitle: variant.subtitle,
-        downloadSizeDescription: Self.fileSizeDescription(
-          bytes: manifest.exactByteCount,
-          prefix: "about "
-        ),
-        storageRequirementDescription: Self.fileSizeDescription(
-          bytes: manifest.minimumFreeStorageBytes,
-          suffix: " free storage required"
-        )
-      )
-    }
-    applyActiveManifestMetadata()
-  }
-
-  private func applyActiveManifestMetadata() {
-    guard let manifest = activeManifest() else { return }
-    store.modelDownloadSizeDescription = Self.fileSizeDescription(
-      bytes: manifest.exactByteCount,
-      prefix: "about "
-    )
-    store.modelStorageRequirementDescription = Self.fileSizeDescription(
-      bytes: manifest.minimumFreeStorageBytes,
-      suffix: " free storage required"
-    )
-    store.modelTermsURL = manifest.termsURL
-    store.modelAttributionURL = manifest.attributionURL
-  }
-
-  private func observeActiveGemmaModel() async {
-    modelStateTask?.cancel()
-    modelStateTask = nil
-    applyActiveManifestMetadata()
-    guard let manager = activeModelManager() else {
-      store.modelState = .unavailable(message: "The selected Gemma model is unavailable in this build.")
-      return
-    }
-    await manager.refreshState()
-    await consumeModelState(await manager.state)
-    await manager.restoreBackgroundDownload()
-    modelStateTask = Task { [weak self] in
-      let states = await manager.observeState()
-      for await state in states {
-        guard !Task.isCancelled else { return }
-        await self?.consumeModelState(state)
-      }
     }
   }
 
@@ -1401,235 +1332,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     )
   }
 
-  private func consumeModelState(_ state: GemmaModelInstallationState) async {
-    switch state {
-    case .notInstalled:
-      store.modelState = .notInstalled
-      store.isGemmaAnalyzerAvailable = false
-      store.gemmaStatusDetail = nil
-    case .checking:
-      store.modelState = .checkingStorage
-    case .downloading(let progress, _, _):
-      lastModelProgress = progress
-      store.modelState = .downloading(progress: progress)
-    case .paused:
-      store.modelState = .paused(progress: lastModelProgress)
-    case .verifying, .initializing:
-      store.modelState = .verifying
-    case .installed(let version, _):
-      store.modelState = .installed(version: version)
-      if installedModelVersionPrepared != version {
-        await router?.unload()
-        router = nil
-        gemmaAnalyzer = nil
-        installedModelVersionPrepared = version
-      }
-      guard hasConnectedAccounts else {
-        await router?.unload()
-        router = nil
-        store.isGemmaAnalyzerAvailable = false
-        store.gemmaStatusDetail =
-          "Gemma is installed and will load after a Gmail account is connected."
-        return
-      }
-      if let router {
-        await publishRouterState(router)
-      } else {
-        store.isGemmaAnalyzerAvailable = false
-        store.gemmaStatusDetail =
-          "Gemma is installed and will load when an email needs analysis."
-      }
-      if analysisSettings.selectedProvider == .gemma, analysisWork == nil {
-        analysisWork = Task(priority: .utility) { [weak self] in
-          _ = try? await self?.runPendingAnalysis()
-          self?.analysisWork = nil
-        }
-      }
-    case .failed(let message):
-      store.modelState = .failed(message: message)
-      store.isGemmaAnalyzerAvailable = false
-      store.gemmaStatusDetail = message
-    }
-  }
-
-  private func startModelDownload(allowCellular: Bool) async throws {
-    guard let modelManager = activeModelManager() else {
-      throw EmailFeatureControllerError.modelUnavailable
-    }
-    lastDownloadAllowedCellular = allowCellular
-    await consumeModelState(.checking)
-    try await modelManager.startDownload(allowCellular: allowCellular)
-  }
-
-  private func retryModelDownload() async throws {
-    guard let modelManager = activeModelManager() else {
-      throw EmailFeatureControllerError.modelUnavailable
-    }
-    try await modelManager.retryDownload(allowCellular: lastDownloadAllowedCellular)
-  }
-
-  private func retryGemmaAnalysis() async throws {
-    guard analysisSettings.selectedProvider == .gemma else {
-      throw EmailFeatureControllerError.gemmaUnavailable("Select Local Gemma before retrying its analysis.")
-    }
-    guard store.modelState.isInstalled else {
-      throw EmailFeatureControllerError.gemmaUnavailable(
-        "Download Gemma before retrying on-device analysis."
-      )
-    }
-    if let reason = gemmaExecutionBlockReason() {
-      store.gemmaStatusDetail = reason
-      throw EmailFeatureControllerError.gemmaUnavailable(reason)
-    }
-
-    if let analysisWork {
-      analysisWork.cancel()
-      await analysisWork.value
-      self.analysisWork = nil
-    }
-    if let pendingAnalysisTask {
-      pendingAnalysisTask.cancel()
-      _ = try? await pendingAnalysisTask.value
-      self.pendingAnalysisTask = nil
-      pendingAnalysisRunId = nil
-    }
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-
-    let resetCount = try repository.resetEmailMessagesForReanalysis()
-    try refreshEmailUIFromRepository()
-    await Task.yield()
-    guard resetCount > 0 else { return }
-    _ = try await runPendingAnalysis()
-  }
-
-  private func reanalyzeAllEmails() async throws {
-    guard analysisSettings.selectedProvider != nil else {
-      throw EmailFeatureControllerError.analysisNotConfigured
-    }
-    switch analysisSettings.selectedProvider {
-    case .gemma:
-      guard store.modelState.isInstalled else {
-        throw EmailFeatureControllerError.gemmaUnavailable("Download Local Gemma before reanalysing emails.")
-      }
-    case .openRouter:
-      guard try await preparedOpenRouterAnalyzer() != nil else {
-        throw EmailFeatureControllerError.openRouterNotConfigured
-      }
-    case nil: break
-    }
-    if let analysisWork {
-      analysisWork.cancel()
-      await analysisWork.value
-      self.analysisWork = nil
-    }
-    if let pendingAnalysisTask {
-      pendingAnalysisTask.cancel()
-      _ = try? await pendingAnalysisTask.value
-      self.pendingAnalysisTask = nil
-      pendingAnalysisRunId = nil
-    }
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    try repository.clearEmailAnalysisRetryState()
-
-    let resetCount = try repository.resetEmailMessagesForReanalysis()
-    try refreshEmailUIFromRepository()
-    await Task.yield()
-
-    guard resetCount > 0 else { return }
-    _ = try await runPendingAnalysis()
-  }
-
-  /// Publishes the reset transaction synchronously instead of waiting for the
-  /// asynchronous GRDB observations, so SwiftUI shows the queued state before
-  /// any analyzer is allowed to start filling the fields again.
-  private func refreshEmailUIFromRepository() throws {
-    suggestionRecords = try repository.emailSuggestions()
-    messageSummaries = try repository.emailMessageSummaries()
-    store.purchaseReview = nil
-    store.refundReview = nil
-    store.emailDetail = nil
-    publishSuggestions()
-    publishAllEmails()
-  }
-
-  private func deleteModel() async throws {
-    guard let modelManager = activeModelManager() else {
-      throw EmailFeatureControllerError.modelUnavailable
-    }
-    analysisWork?.cancel()
-    pendingAnalysisTask?.cancel()
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
-    installedModelVersionPrepared = nil
-    store.isGemmaAnalyzerAvailable = false
-    store.gemmaStatusDetail = nil
-    try await modelManager.deleteDownloadedModel()
-    if analysisSettings.selectedProvider == .gemma {
-      analysisSettings.selectedProvider = nil
-      try saveAnalysisSettings()
-      publishAnalysisSettings()
-    }
-  }
-
   private var hasConnectedAccounts: Bool {
     accountRecords.contains { $0.syncState != .disconnected }
-  }
-
-  private func unloadGemmaIfNoConnectedAccounts() async {
-    guard !hasConnectedAccounts else { return }
-    analysisWork?.cancel()
-    if let analysisWork { await analysisWork.value }
-    self.analysisWork = nil
-    pendingAnalysisTask?.cancel()
-    if let pendingAnalysisTask { _ = try? await pendingAnalysisTask.value }
-    self.pendingAnalysisTask = nil
-    pendingAnalysisRunId = nil
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
-    store.isGemmaAnalyzerAvailable = false
-    store.gemmaStatusDetail = store.modelState.isInstalled
-      ? "Gemma is installed and will load after a Gmail account is connected."
-      : nil
-  }
-
-  /// Keeps the large runtime resident only while a queue is actively running.
-  /// A later Gmail refresh will lazily create it again after finding new work.
-  private func unloadGemmaAfterAnalysis(analyzedCount: Int) async {
-    let failureReason = await router?.failureReason()
-    await router?.unload()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
-
-    guard analysisSettings.selectedProvider == .gemma else { return }
-
-    guard store.modelState.isInstalled else {
-      store.isGemmaAnalyzerAvailable = false
-      return
-    }
-    guard hasConnectedAccounts else {
-      store.isGemmaAnalyzerAvailable = false
-      store.gemmaStatusDetail =
-        "Gemma is installed and will load after a Gmail account is connected."
-      return
-    }
-    if let failureReason {
-      store.isGemmaAnalyzerAvailable = false
-      store.gemmaStatusDetail = failureReason
-    } else {
-      store.isGemmaAnalyzerAvailable = true
-      store.gemmaStatusDetail = analyzedCount > 0
-        ? "Analysis complete. Gemma will load when a new email needs analysis."
-        : "Gemma is installed and will load when a new email needs analysis."
-    }
   }
 
   private func acceptPurchase(_ draft: EmailUIPurchaseReviewDraft) async throws {
@@ -1673,77 +1377,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       transaction: transaction,
       recurring: recurring
     )
-  }
-
-  private func pauseGemmaExecution(reason: String) async {
-    analysisWork?.cancel()
-    pendingAnalysisTask?.cancel()
-    await router?.resourcePressureDidIncrease()
-    router = nil
-    gemmaAnalyzer = nil
-    await analysisCoordinator.set(nil, for: .gemma)
-    store.isGemmaAnalyzerAvailable = false
-    store.gemmaStatusDetail = reason
-    store.analysisStatusDetail = reason
-    scheduleGemmaRecoveryRetry(after: .seconds(15))
-  }
-
-  private func scheduleGemmaRecoveryRetry(after delay: Duration) {
-    guard analysisSettings.selectedProvider == .gemma else { return }
-    gemmaRecoveryTask?.cancel()
-    gemmaRecoveryTask = Task { [weak self] in
-      try? await Task.sleep(for: delay)
-      guard let self, !self.stopped else { return }
-      await self.resumeGemmaAnalysisIfNeeded()
-    }
-  }
-
-  /// Resumes the pending-analysis queue after a recoverable Gemma pause
-  /// (memory pressure, heat, Low Power Mode, or a failed lazy load).
-  private func resumeGemmaAnalysisIfNeeded() async {
-    guard !stopped else { return }
-    guard analysisSettings.selectedProvider == .gemma else { return }
-    guard store.modelState.isInstalled else { return }
-    guard hasConnectedAccounts else { return }
-    if let blockReason = gemmaExecutionBlockReason() {
-      store.gemmaStatusDetail = blockReason
-      store.analysisStatusDetail = blockReason
-      scheduleGemmaRecoveryRetry(after: .seconds(30))
-      return
-    }
-    guard analysisWork == nil, pendingAnalysisTask == nil else { return }
-    store.gemmaStatusDetail = "Retrying local Gemma analysis…"
-    store.analysisStatusDetail = "Retrying local Gemma analysis…"
-    analysisWork = Task(priority: .utility) { [weak self] in
-      _ = try? await self?.runPendingAnalysis()
-      self?.analysisWork = nil
-    }
-  }
-
-  private func canRunGemma() async -> Bool {
-    gemmaExecutionBlockReason() == nil
-  }
-
-  private func gemmaExecutionBlockReason() -> String? {
-    guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
-      return "Gemma is paused while Low Power Mode is on. Turn it off, then retry."
-    }
-    switch ProcessInfo.processInfo.thermalState {
-    case .serious, .critical:
-      return "Gemma is paused until this iPhone cools down."
-    default: break
-    }
-    let support = FileManager.default.urls(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask
-    )[0]
-    let available = try? support.resourceValues(
-      forKeys: [.volumeAvailableCapacityForImportantUsageKey]
-    ).volumeAvailableCapacityForImportantUsage
-    guard (available ?? 0) >= 256 * 1_024 * 1_024 else {
-      return "Gemma needs at least 256 MB of currently available storage to run."
-    }
-    return nil
   }
 
   private func publishAccounts() {
@@ -1940,8 +1573,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
-  /// The retained source email for a transaction the user accepted from an
-  /// email suggestion, or nil when none is linked or it left this device.
   func sourceEmailDetail(forTransactionId transactionId: String) -> EmailUIEmailDetail? {
     sourceEmailDetails(forTransactionId: transactionId).first
   }
@@ -2061,19 +1692,6 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     let number = NSDecimalNumber(decimal: rounded).multiplying(byPowerOf10: 2)
     guard number != .notANumber else { return nil }
     return number.intValue
-  }
-
-  private static func fileSizeDescription(
-    bytes: Int64,
-    prefix: String = "",
-    suffix: String = ""
-  ) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.allowedUnits = [.useMB, .useGB]
-    formatter.countStyle = .file
-    formatter.includesUnit = true
-    formatter.isAdaptive = true
-    return prefix + formatter.string(fromByteCount: bytes) + suffix
   }
 
   private static func lastFour(in value: String) -> String? {

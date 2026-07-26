@@ -798,22 +798,17 @@ extension Repository {
   }
 
   func emailAnalysisSettings() throws -> EmailAnalysisSettings {
-    let (settings, shouldRewriteVariant) = try db.read { db -> (EmailAnalysisSettings, Bool) in
+    let (settings, shouldClearLegacyGemmaProvider) = try db.read { db -> (EmailAnalysisSettings, Bool) in
       guard let record = try EmailAnalysisSettingsRecord
         .fetchOne(db, key: EmailAnalysisSettings.singletonID)
       else {
         return (.defaults, false)
       }
       let settings = try record.toModel()
-      let needsRewrite: Bool
-      if let storedVariant = record.gemmaModelVariant {
-        needsRewrite = EmailGemmaModelVariant(rawValue: storedVariant) == nil
-      } else {
-        needsRewrite = false
-      }
-      return (settings, needsRewrite)
+      // Only rewrite when the stored provider is the removed Local Gemma value.
+      return (settings, record.selectedProvider == "gemma")
     }
-    if shouldRewriteVariant {
+    if shouldClearLegacyGemmaProvider {
       try saveEmailAnalysisSettings(settings)
     }
     return settings

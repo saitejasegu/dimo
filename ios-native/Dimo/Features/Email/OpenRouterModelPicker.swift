@@ -12,16 +12,22 @@ struct OpenRouterModelPicker: View {
   @State private var isPreparingCatalog = true
   @State private var confirmationCandidate: OpenRouterModel?
 
+  private var isFreeAccessMode: Bool {
+    store.openRouterAccessMode == .freeShared
+  }
+
   var body: some View {
     NavigationStack {
       VStack(spacing: 12) {
-        Picker("Model filter", selection: $filter) {
-          ForEach(OpenRouterModelFilter.allCases) { option in
-            Text(option.title).tag(option)
+        if !isFreeAccessMode {
+          Picker("Model filter", selection: $filter) {
+            ForEach(OpenRouterModelFilter.allCases) { option in
+              Text(option.title).tag(option)
+            }
           }
+          .pickerStyle(.segmented)
+          .padding(.horizontal, 16)
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
 
         if isPreparingCatalog, visibleRows.isEmpty {
           ProgressView("Preparing models…")
@@ -68,7 +74,11 @@ struct OpenRouterModelPicker: View {
       }
     }
     .task {
+      if isFreeAccessMode { filter = .free }
       await rebuildCatalog()
+    }
+    .onChange(of: store.openRouterAccessMode) { _, mode in
+      if mode == .freeShared { filter = .free }
     }
     .task(id: filterRequest) {
       await updateVisibleRows()
@@ -220,7 +230,10 @@ struct OpenRouterModelPicker: View {
   }
 
   private func beginSelection(_ model: OpenRouterModel) {
-    if model.requiresPriceConfirmation || !model.hasZDREndpoint {
+    if isFreeAccessMode, !model.isFree { return }
+    // Free access mode never offers paid models; skip paid pricing alerts.
+    let needsPriceConfirm = !isFreeAccessMode && model.requiresPriceConfirmation
+    if needsPriceConfirm || !model.hasZDREndpoint {
       confirmationCandidate = model
     } else {
       select(model)
