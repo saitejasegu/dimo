@@ -19,26 +19,38 @@ export interface BudgetTotals {
   over: boolean;
 }
 
-function spentByCategory(
-  transactions: Transaction[],
-  category: CategoryName,
-): number {
-  const now = new Date();
-  return transactions
-    .filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); })
-    .filter((t) => t.category === category)
-    .reduce((sum, t) => sum + t.amount, 0);
+/**
+ * Epoch bounds of the current local calendar month, so month membership is an integer
+ * comparison instead of a `new Date()` plus two getters per transaction.
+ */
+function currentMonthBounds(now: Date) {
+  return {
+    start: new Date(now.getFullYear(), now.getMonth(), 1).getTime(),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime(),
+  };
+}
+
+function inCurrentMonth(occurredAt: number | undefined, start: number, end: number) {
+  const at = occurredAt ?? 0;
+  return at >= start && at < end;
 }
 
 export function categoryBudgets(
   transactions: Transaction[],
   limits: CategoryLimits,
 ): CategoryBudget[] {
+  // One pass for every category, rather than a full scan per category.
+  const { start, end } = currentMonthBounds(new Date());
+  const spentByCategory = new Map<string, number>();
+  for (const t of transactions) {
+    if (!inCurrentMonth(t.occurredAt, start, end)) continue;
+    spentByCategory.set(t.category, (spentByCategory.get(t.category) ?? 0) + t.amount);
+  }
   return Object.keys(limits)
     .map((category) => {
       const limit = limits[category];
       const hasLimit = typeof limit === "number" && limit > 0;
-      const spent = spentByCategory(transactions, category);
+      const spent = spentByCategory.get(category) ?? 0;
       const pct = hasLimit ? percent(spent, limit as number) : 0;
       return {
         category,
@@ -56,8 +68,8 @@ export function budgetTotals(
   transactions: Transaction[],
   limits: CategoryLimits,
 ): BudgetTotals {
-  const now = new Date();
-  const current = transactions.filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); });
+  const { start, end } = currentMonthBounds(new Date());
+  const current = transactions.filter((t) => inCurrentMonth(t.occurredAt, start, end));
   const totalSpent = current.reduce((sum, t) => sum + t.amount, 0);
   const totalLimit = Object.values(limits).reduce<number>(
     (sum, limit) => sum + (limit ?? 0),
@@ -135,12 +147,12 @@ export function topCategories(
   transactions: Transaction[],
   limit: number,
 ): TopCategory[] {
-  const now = new Date();
-  transactions = transactions.filter((t) => { const date = new Date(t.occurredAt ?? 0); return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth(); });
+  const { start, end } = currentMonthBounds(new Date());
   const byCategory = new Map<CategoryName, number>();
   let total = 0;
 
   for (const t of transactions) {
+    if (!inCurrentMonth(t.occurredAt, start, end)) continue;
     byCategory.set(t.category, (byCategory.get(t.category) ?? 0) + t.amount);
     total += t.amount;
   }

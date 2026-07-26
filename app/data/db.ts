@@ -29,6 +29,12 @@ export interface DeviceMetaRecord {
   clockCounter: number;
   bootstrapVersion: number;
   lastPaymentMethodId: string | null;
+  /**
+   * Legacy-row repair generation already applied locally. Absent on databases created
+   * before the repairs were gated, which correctly forces one more pass. Cleared again
+   * whenever a pull merges rows that could themselves be legacy.
+   */
+  backfillVersion?: number;
 }
 
 export const EMPTY_PULLED_REVISIONS: Record<EntityType, number> = {

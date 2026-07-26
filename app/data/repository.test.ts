@@ -12,12 +12,17 @@ import {
   backfillRecurringCurrencies,
   getStoredRow,
   initializeLocalDatabase,
+  mergeRemotePage,
+  removeEntities,
+  runPendingBackfills,
+  saveEntities,
   saveEntity,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   purgeExpiredTombstones,
   sanitizePayload,
   tableForType,
+  tombstoneSweepDue,
 } from "@/data/repository";
 
 async function totalEntityCount() {
@@ -360,5 +365,116 @@ describe("tombstone retention", () => {
     expect(await db.transactions.get(key)).toBeUndefined();
     expect(await db.transactions.get(freshKey)).toBeTruthy();
     expect(await db.transactions.get(pendingKey)).toBeTruthy();
+  });
+
+  it("tombstones many rows in one pass with strictly increasing versions", async () => {
+    await initializeLocalDatabase();
+    const ids = ["tx-a", "tx-b", "tx-c"];
+    await saveEntities(
+      ids.map((id) => ({
+        entityType: "transaction" as const,
+        payload: {
+          id,
+          name: id,
+          amountMinor: 100,
+          occurredAt: Date.now(),
+          categoryId: "category-food",
+          paymentMethodId: "payment-method-cash",
+          currency: "INR",
+        },
+      })),
+    );
+
+    await removeEntities("transaction", [...ids, "tx-missing", "tx-a"]);
+
+    const rows = await Promise.all(ids.map((id) => getStoredRow("transaction", id)));
+    expect(rows.every((row) => row?.deleted)).toBe(true);
+    // Each delete carries its own version, so last-write-wins stays well defined.
+    const versions = rows.map((row) => `${row!.version.timestamp}:${row!.version.counter}`);
+    expect(new Set(versions).size).toBe(ids.length);
+    // One queued operation per row, replacing the create.
+    expect(await db.outbox.count()).toBe(ids.length);
+  });
+
+  it("issues consecutive versions for a batch save from one clock reservation", async () => {
+    await initializeLocalDatabase();
+    const before = await db.deviceMeta.get("device");
+    await saveEntities(
+      ["a", "b", "c", "d"].map((id) => ({
+        entityType: "transaction" as const,
+        payload: {
+          id: `tx-${id}`,
+          name: id,
+          amountMinor: 100,
+          occurredAt: Date.now(),
+          categoryId: "category-food",
+          paymentMethodId: "payment-method-cash",
+          currency: "INR",
+        },
+      })),
+    );
+    const rows = await Promise.all(
+      ["a", "b", "c", "d"].map((id) => getStoredRow("transaction", `tx-${id}`)),
+    );
+    const counters = rows.map((row) => row!.version.counter);
+    expect(counters).toEqual([...counters].sort((x, y) => x - y));
+    expect(new Set(counters).size).toBe(4);
+    const after = await db.deviceMeta.get("device");
+    // The reserved range is committed, so a later write cannot reuse these counters.
+    expect(after!.clockCounter).toBeGreaterThanOrEqual(Math.max(...counters));
+    expect(after!.clockTimestamp).toBeGreaterThanOrEqual(before!.clockTimestamp);
+  });
+
+  it("runs the legacy repairs once, then re-arms them when a pull delivers rows", async () => {
+    await initializeLocalDatabase();
+    const legacy = {
+      id: "recurring-legacy",
+      name: "Legacy",
+      amountMinor: 100_00,
+      categoryId: "category-bills",
+      paymentMethodId: "payment-method-cash",
+      frequency: "monthly" as const,
+      anchorDate: "2026-01-01",
+      paused: false,
+    };
+    await saveEntity("recurring", legacy);
+    await db.recurring.update(entityKey("recurring", legacy.id), { currency: undefined });
+
+    const first = await runPendingBackfills();
+    expect(first.currencies).toBe(1);
+    // Already applied: no scan, no further repairs.
+    await db.recurring.update(entityKey("recurring", legacy.id), { currency: undefined });
+    expect(await runPendingBackfills()).toEqual({ currencies: 0, paymentMethods: 0 });
+
+    // A pulled transaction re-arms the repairs so legacy remote data is normalized.
+    await mergeRemotePage(
+      "transaction",
+      [
+        {
+          key: entityKey("transaction", "tx-remote"),
+          workspaceId: "global",
+          entityId: "tx-remote",
+          version: { timestamp: Date.now(), counter: 0, deviceId: "remote" },
+          deleted: false,
+          serverRevision: 9,
+          name: "Remote",
+          amountMinor: 100,
+          occurredAt: Date.now(),
+          categoryId: "category-food",
+          paymentMethodId: "payment-method-cash",
+          currency: "INR",
+        } as never,
+      ],
+      9,
+    );
+    expect((await runPendingBackfills()).currencies).toBe(1);
+  });
+
+  it("throttles the tombstone retention sweep", async () => {
+    await initializeLocalDatabase();
+    const now = Date.now();
+    await purgeExpiredTombstones(now);
+    expect(tombstoneSweepDue(now)).toBe(false);
+    expect(tombstoneSweepDue(now + 7 * 60 * 60 * 1000)).toBe(true);
   });
 });

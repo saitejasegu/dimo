@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { money, spent } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
+import { usePagedTransactions } from "@/features/transactions/usePagedTransactions";
 import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { Card } from "@/components/ui/Card";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -23,12 +24,19 @@ export function ActivityScreen({ embedded = false }: { embedded?: boolean }) {
     filter,
     paymentFilter,
     paymentOptions,
-    groups,
+    filtered,
     summary,
-    shownCount,
     totalCount,
   } = useActivity();
-  const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
+  const { groups, hasMore, loadMore, shownCount } = usePagedTransactions(filtered, {
+    query,
+    filter,
+    paymentFilter,
+  });
+  const emojiByName = useMemo(
+    () => new Map(categories.map((c) => [c.name, c.emoji])),
+    [categories],
+  );
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
 
   const content = (
@@ -68,7 +76,7 @@ export function ActivityScreen({ embedded = false }: { embedded?: boolean }) {
                       key={tx.id}
                       transaction={tx}
                       currency={currency}
-                      onClick={() => actions.openDetail(tx.id)}
+                      onClick={actions.openDetail}
                       layout="list"
                       showCategoryPill
                       dividerTop
@@ -78,6 +86,11 @@ export function ActivityScreen({ embedded = false }: { embedded?: boolean }) {
               </Card>
             ))
           )}
+          {hasMore ? (
+            <Button variant="secondary" fullWidth onClick={loadMore}>
+              Load more
+            </Button>
+          ) : null}
         </div>
 
         <Card className="sticky top-0 p-[22px]">

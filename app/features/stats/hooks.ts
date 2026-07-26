@@ -30,7 +30,9 @@ export function useStats() {
     return {
       range: statsRange,
       scope,
-      bars: trendBars(statsRange, transactions, selectedMonth),
+      // Scoped rows only — the bars never cover a period outside the range, and
+      // iOS already derives them from the scope.
+      bars: trendBars(statsRange, scope.transactions, selectedMonth),
       categories,
       categoryCount,
       categoriesExpanded,

@@ -8,7 +8,7 @@ import { RecurringRow } from "@/components/common/RecurringRow";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function RecurringScreen() {
-  const { currency } = useAppState();
+  const { currency, rates } = useAppState();
   const actions = useAppActions();
   const { all, total, subtitle } = useRecurring();
 
@@ -35,7 +35,8 @@ export function RecurringScreen() {
             key={rec.id}
             recurring={rec}
             currency={currency}
-            onClick={() => actions.openEditRecurring(rec.id)}
+            rates={rates}
+            onClick={actions.openEditRecurring}
           />
         ))}
       </div>

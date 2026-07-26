@@ -58,10 +58,17 @@ export function useTabPagerSwipe({
   const skipAnimateRef = useRef(true);
   const handleIndexChange = useEffectEvent(onIndexChange);
 
-  const widthOf = () =>
+  // Measuring forces a synchronous layout, so the width is cached for the duration of
+  // a drag rather than read on every touchmove.
+  const cachedWidth = useRef(0);
+  const measureWidth = () =>
     containerRef.current?.getBoundingClientRect().width ||
     window.visualViewport?.width ||
     window.innerWidth;
+  // Only trust the cache mid-gesture; outside a drag (tab taps, resize) re-measure so
+  // an orientation change can never snap to a stale width.
+  const widthOf = () =>
+    draggingRef.current && cachedWidth.current ? cachedWidth.current : measureWidth();
 
   const apply = (offsetPx: number, transition: string) => {
     const el = trackRef.current;
@@ -92,6 +99,7 @@ export function useTabPagerSwipe({
 
   useEffect(() => {
     const onResize = () => {
+      cachedWidth.current = 0;
       if (draggingRef.current || settlingRef.current) return;
       snapToIndex(indexRef.current, false);
     };
@@ -142,6 +150,8 @@ export function useTabPagerSwipe({
       dragOffset = 0;
       tracking = true;
       draggingRef.current = false;
+      // One measurement per gesture; the pager cannot resize mid-drag.
+      cachedWidth.current = measureWidth();
     };
 
     const onTouchMove = (event: TouchEvent) => {

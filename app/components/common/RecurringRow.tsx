@@ -1,11 +1,16 @@
 "use client";
 
+import { memo } from "react";
 import type { Currency, Recurring } from "@/lib/types";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { recurringSubtitle } from "@/features/recurring/selectors";
-import { useAppState } from "@/store/app-store";
-import { convertMinor, toMajorUnits, toMinorUnits } from "@/features/currency/rates";
+import {
+  convertMinor,
+  toMajorUnits,
+  toMinorUnits,
+  type RateTable,
+} from "@/features/currency/rates";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 import { Badge } from "@/components/ui/Badge";
 
@@ -16,20 +21,20 @@ function subtitleClass(rec: Recurring): string {
 }
 
 /** Mobile: horizontal bordered row with amount + status stacked on the right. */
-export function RecurringRow({
+function RecurringRowImpl({
   recurring,
   currency,
+  rates,
   onClick,
 }: {
   recurring: Recurring;
   currency: Currency;
-  onClick: () => void;
+  rates: RateTable | null;
+  /** Receives the recurring id so callers can pass one stable callback. */
+  onClick: (id: string) => void;
 }) {
-  const { categories, rates } = useAppState();
-  const emoji =
-    recurring.emoji ??
-    categories.find((c) => c.id === recurring.categoryId)?.emoji ??
-    categories.find((c) => c.name === recurring.category)?.emoji;
+  // Hydration resolves the emoji onto the projection, so no store subscription here.
+  const emoji = recurring.emoji;
   const foreign = Boolean(recurring.currency && recurring.currency !== currency);
   const todayMinor = foreign
     ? convertMinor(
@@ -43,7 +48,7 @@ export function RecurringRow({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onClick(recurring.id)}
       className={cn(
         "flex w-full items-center gap-3 rounded-[14px] border border-line bg-surface px-3 py-3 text-left transition-colors hover:border-green",
         recurring.paused && "opacity-65",
@@ -82,3 +87,5 @@ export function RecurringRow({
     </button>
   );
 }
+
+export const RecurringRow = memo(RecurringRowImpl);

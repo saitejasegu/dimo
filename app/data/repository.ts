@@ -37,6 +37,25 @@ import {
  * repayments as money lent.
  */
 const BOOTSTRAP_VERSION = 4;
+
+/**
+ * Bump when a new legacy-row repair is added, so every client runs it once.
+ * The repairs scan whole tables, which is why they no longer run on every sync.
+ */
+const BACKFILL_VERSION = 1;
+
+/** Types whose rows the repairs inspect; arrival of these re-arms the repairs. */
+const BACKFILLED_TYPES: ReadonlySet<string> = new Set(["transaction", "recurring"]);
+
+async function backfillsPending(): Promise<boolean> {
+  const device = await db.deviceMeta.get("device");
+  return (device?.backfillVersion ?? 0) < BACKFILL_VERSION;
+}
+
+async function markBackfillsApplied() {
+  await db.deviceMeta.update("device", { backfillVersion: BACKFILL_VERSION });
+}
+
 const listeners = new Set<() => void>();
 
 type TypedTable =
@@ -105,6 +124,20 @@ function allTypedTables() {
   ];
 }
 
+/**
+ * Tables a versioned write actually touches: the entity's own store, the outbox, and
+ * deviceMeta for the logical clock. Scoping the transaction this narrowly means a
+ * transaction save no longer blocks reads of every other store.
+ */
+function writeTables(entityTypes: EntityType[]) {
+  const tables = new Set<TypedTable | typeof db.outbox | typeof db.deviceMeta>([
+    db.outbox,
+    db.deviceMeta,
+  ]);
+  for (const entityType of entityTypes) tables.add(tableForType(entityType));
+  return [...tables];
+}
+
 async function ensureDevice(): Promise<DeviceMetaRecord> {
   const current = await db.deviceMeta.get("device");
   if (current) return current;
@@ -120,16 +153,40 @@ async function ensureDevice(): Promise<DeviceMetaRecord> {
   return created;
 }
 
-async function nextVersion(): Promise<LogicalVersion> {
+/**
+ * Hands out consecutive logical versions from one deviceMeta read/write pair.
+ *
+ * Per-row clock round-trips dominate bulk writes (a CSV import of 1 000 rows spent
+ * ~2 000 IndexedDB ops purely on the clock). Reserving the whole run up front keeps
+ * versions strictly increasing with two ops total, which is all last-write-wins needs.
+ */
+interface VersionRun {
+  next: () => LogicalVersion;
+}
+
+async function startVersionRun(count: number): Promise<VersionRun> {
   const device = await ensureDevice();
   const now = Date.now();
   const timestamp = Math.max(now, device.clockTimestamp);
-  const counter = timestamp === device.clockTimestamp ? device.clockCounter + 1 : 0;
+  const firstCounter =
+    timestamp === device.clockTimestamp ? device.clockCounter + 1 : 0;
   await db.deviceMeta.update("device", {
     clockTimestamp: timestamp,
-    clockCounter: counter,
+    clockCounter: firstCounter + Math.max(0, count - 1),
   });
-  return { timestamp, counter, deviceId: device.deviceId };
+  let issued = 0;
+  return {
+    next: () => {
+      const counter = firstCounter + issued;
+      issued += 1;
+      return { timestamp, counter, deviceId: device.deviceId };
+    },
+  };
+}
+
+async function nextVersion(): Promise<LogicalVersion> {
+  const run = await startVersionRun(1);
+  return run.next();
 }
 
 /** Strip unknown fields and coerce shapes so Convex validators accept local rows. */
@@ -354,8 +411,9 @@ async function putInCurrentTransaction<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
   deleted = false,
+  clock?: VersionRun,
 ) {
-  const version = await nextVersion();
+  const version = clock ? clock.next() : await nextVersion();
   const row = toStoredRow(entityType, payload, version, deleted, 0);
   const operation: OutboxEntry = {
     operationId: randomId(),
@@ -447,7 +505,7 @@ export async function saveEntity<T extends EntityType>(
   entityType: T,
   payload: EntityPayloadMap[T],
 ) {
-  await db.transaction("rw", allTypedTables(), async () => {
+  await db.transaction("rw", writeTables([entityType]), async () => {
     await putInCurrentTransaction(entityType, payload);
   });
   notifyWrite();
@@ -457,9 +515,12 @@ export async function saveEntity<T extends EntityType>(
 export async function saveEntities(
   entities: Array<{ entityType: EntityType; payload: EntityPayload }>,
 ) {
-  await db.transaction("rw", allTypedTables(), async () => {
+  if (entities.length === 0) return;
+  const types = [...new Set(entities.map((entity) => entity.entityType))];
+  await db.transaction("rw", writeTables(types), async () => {
+    const clock = await startVersionRun(entities.length);
     for (const entity of entities) {
-      await putInCurrentTransaction(entity.entityType, entity.payload);
+      await putInCurrentTransaction(entity.entityType, entity.payload, false, clock);
     }
   });
   notifyWrite();
@@ -551,20 +612,60 @@ export async function backfillMissingPaymentMethodIds() {
   return updated;
 }
 
+/**
+ * Run the legacy-row repairs at most once per generation.
+ *
+ * Both repairs scan the transaction and recurring tables end to end. Running them on
+ * every sync cycle meant two full scans after every local write. The flag is cleared
+ * again by `mergeRemotePage` whenever a pull delivers rows that could be legacy, so
+ * data arriving from an older client is still repaired.
+ */
+export async function runPendingBackfills() {
+  if (!(await backfillsPending())) return { currencies: 0, paymentMethods: 0 };
+  const currencies = await backfillRecurringCurrencies();
+  const paymentMethods = await backfillMissingPaymentMethodIds();
+  await markBackfillsApplied();
+  return { currencies, paymentMethods };
+}
+
 export async function removeEntity<T extends EntityType>(
   entityType: T,
   id: string,
 ) {
-  const current = await getStoredRow(entityType, id);
-  if (!current || current.deleted) return;
-  await db.transaction("rw", allTypedTables(), async () => {
-    await putInCurrentTransaction(
-      entityType,
-      payloadFromStored(entityType, current) as EntityPayloadMap[T],
-      true,
+  await removeEntities(entityType, [id]);
+}
+
+/**
+ * Tombstone many rows of one type in a single transaction.
+ *
+ * Deleting per id meant one IndexedDB transaction and one live-query invalidation
+ * each, so clearing history re-projected and re-rendered the whole app once per row.
+ */
+export async function removeEntities<T extends EntityType>(
+  entityType: T,
+  ids: string[],
+) {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return;
+  let removed = 0;
+  await db.transaction("rw", writeTables([entityType]), async () => {
+    const rows = await Promise.all(
+      unique.map((id) => getStoredRow(entityType, id)),
     );
+    const live = rows.filter((row) => row && !row.deleted);
+    if (live.length === 0) return;
+    const clock = await startVersionRun(live.length);
+    for (const row of live) {
+      await putInCurrentTransaction(
+        entityType,
+        payloadFromStored(entityType, row!) as EntityPayloadMap[T],
+        true,
+        clock,
+      );
+    }
+    removed = live.length;
   });
-  notifyWrite();
+  if (removed > 0) notifyWrite();
 }
 
 export async function setLastPaymentMethod(id: string | null) {
@@ -614,14 +715,21 @@ export async function mergeRemotePage<T extends EntityType>(
   cursor: number,
 ) {
   await db.transaction("rw", allTypedTables(), async () => {
+    let merged = 0;
     for (const remote of remoteRows) {
       await observeRemoteVersion(remote.version);
       const local = await getStoredRow(entityType, remote.entityId);
       if (!local || compareVersions(remote.version, local.version) >= 0) {
         await tableForType(entityType).put(remote as never);
+        merged += 1;
         const pending = await db.outbox.get(remote.key);
         if (pending) await db.outbox.delete(remote.key);
       }
+    }
+    // Rows just arrived that the legacy repairs inspect — re-arm them so data written
+    // by an older client is still normalized, without scanning on every sync.
+    if (merged > 0 && BACKFILLED_TYPES.has(entityType)) {
+      await db.deviceMeta.update("device", { backfillVersion: 0 });
     }
     const meta = await db.syncMeta.get(WORKSPACE_ID);
     const pulled = {
@@ -690,10 +798,25 @@ export async function enqueueFullUpload(
 }
 
 /**
+ * Interval between retention sweeps. The sweep must scan every table — IndexedDB
+ * cannot index a boolean, so `deleted` is not queryable — and it only ever collects
+ * rows that crossed a multi-day threshold. Running it per sync cycle (i.e. after every
+ * local write) bought nothing, so it is throttled instead.
+ */
+const TOMBSTONE_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let lastTombstoneSweepAt = 0;
+
+/** True when a retention sweep is due; call before `purgeExpiredTombstones`. */
+export function tombstoneSweepDue(now = Date.now()) {
+  return now - lastTombstoneSweepAt >= TOMBSTONE_SWEEP_INTERVAL_MS;
+}
+
+/**
  * Hard-delete local tombstones past the private retention window.
  * Skips rows that still have an unacked outbox operation.
  */
 export async function purgeExpiredTombstones(now = Date.now()) {
+  lastTombstoneSweepAt = now;
   const cutoff = now - TOMBSTONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let purged = 0;
   await db.transaction("rw", allTypedTables(), async () => {

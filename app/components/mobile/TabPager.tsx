@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { memo, useRef, useState, type ReactNode } from "react";
 import { useAppActions } from "@/store/app-store";
 import { useTabPagerSwipe } from "@/hooks/useTabPagerSwipe";
 import { HomeScreen } from "@/components/mobile/screens/HomeScreen";
@@ -10,7 +10,7 @@ import { LendingScreen } from "@/components/mobile/screens/LendingScreen";
 import { MOBILE_TABS, mobileTabIndex, type MobileTabKey } from "@/components/mobile/tabs";
 import type { ViewKey } from "@/lib/types";
 
-function TabScreen({ tab }: { tab: MobileTabKey }) {
+function TabScreenImpl({ tab }: { tab: MobileTabKey }) {
   switch (tab) {
     case "home":
       return <HomeScreen />;
@@ -22,6 +22,10 @@ function TabScreen({ tab }: { tab: MobileTabKey }) {
       return <LendingScreen />;
   }
 }
+
+/** Memoised so a pager re-render (swipe settle, view change) alone cannot re-render
+ * a screen; screens still update through their own store subscriptions. */
+const TabScreen = memo(TabScreenImpl);
 
 function Panel({
   active,
@@ -55,6 +59,25 @@ export function TabPager({
   const index = mobileTabIndex(activeView);
   const containerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+  // Mirrors iOS's `visitedTabs`: a tab the user has never approached costs nothing, so
+  // first paint and every later hydrate skip its selectors and row trees entirely.
+  // Immediate neighbours count as approached — a swipe reveals them under the finger
+  // before `setView` commits, so they must already be painted.
+  const [visited, setVisited] = useState<Set<MobileTabKey>>(() => new Set());
+  const reachable = new Set(
+    [index - 1, index, index + 1]
+      .map((position) => MOBILE_TABS[position]?.key)
+      .filter((key): key is MobileTabKey => Boolean(key)),
+  );
+  const unseen = [...reachable].filter((key) => !visited.has(key));
+  if (unseen.length > 0) {
+    setVisited((previous) => {
+      const next = new Set(previous);
+      for (const key of unseen) next.add(key);
+      return next;
+    });
+  }
+  const mounted = new Set([...visited, ...reachable]);
 
   useTabPagerSwipe({
     containerRef,
@@ -76,7 +99,7 @@ export function TabPager({
       >
         {MOBILE_TABS.map((tab, tabIndex) => (
           <Panel key={tab.key} active={tabIndex === index}>
-            <TabScreen tab={tab.key} />
+            {mounted.has(tab.key) ? <TabScreen tab={tab.key} /> : null}
           </Panel>
         ))}
       </div>

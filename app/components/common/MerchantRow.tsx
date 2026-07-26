@@ -1,10 +1,11 @@
+import { memo } from "react";
 import type { Currency } from "@/lib/types";
 import type { MerchantStat } from "@/features/stats/selectors";
 import { money } from "@/lib/format";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 
 /** Ranked merchant row with a mini spend bar (stats screen). */
-export function MerchantRow({
+function MerchantRowImpl({
   merchant,
   currency,
   onClick,
@@ -52,3 +53,5 @@ export function MerchantRow({
     </button>
   );
 }
+
+export const MerchantRow = memo(MerchantRowImpl);

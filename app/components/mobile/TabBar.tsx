@@ -72,6 +72,11 @@ export function TabBar() {
   }, []);
 
   const indicator = indicatorForProgress(pills, progress);
+  // The indicator is driven by `transform` rather than `left`/`width`: those are
+  // layout properties, and re-laying out inside a `backdrop-filter` element forced a
+  // blurred repaint on every frame of a swipe. Grid columns are equal width, so
+  // `scaleX` is 1 in practice and cannot distort the pill.
+  const baseWidth = pills.length > 0 ? Math.max(...pills.map((pill) => pill.width)) : 0;
 
   return (
     <nav
@@ -87,16 +92,18 @@ export function TabBar() {
         ref={trackRef}
         className="liquid-glass pointer-events-auto relative mx-auto grid max-w-md grid-cols-4 items-center gap-0.5 rounded-full px-1.5 py-1.5"
       >
-        {indicator ? (
+        {indicator && baseWidth > 0 ? (
           <span
             aria-hidden
             className={cn(
-              "pointer-events-none absolute top-1/2 h-10 -translate-y-1/2 rounded-full bg-green/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] motion-reduce:transition-none",
-              !interactive && "transition-[left,width] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+              "pointer-events-none absolute top-1/2 left-0 h-10 origin-left rounded-full bg-green/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] will-change-transform motion-reduce:transition-none",
+              !interactive && "transition-transform ease-[cubic-bezier(0.2,0.8,0.2,1)]",
             )}
             style={{
-              left: indicator.left,
-              width: indicator.width,
+              width: baseWidth,
+              transform: `translate3d(${indicator.left}px,-50%,0) scaleX(${
+                indicator.width / baseWidth
+              })`,
               transitionDuration: interactive ? "0ms" : `${TAB_SETTLE_MS}ms`,
             }}
           />

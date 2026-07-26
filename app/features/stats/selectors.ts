@@ -105,6 +105,14 @@ function buildBars(
   };
 }
 
+/** Cached: chart labels are rebuilt on every range change and every hydrate. */
+const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const monthDayFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+const monthFormat = new Intl.DateTimeFormat(undefined, { month: "short" });
+
 export function dayBars(
   range: StatsRange,
   transactions: Transaction[],
@@ -130,11 +138,8 @@ export function dayBars(
     const key = localDateKey(cursor);
     entries.push({
       key,
-      label:
-        range === "1W"
-          ? cursor.toLocaleDateString(undefined, { weekday: "short" })
-          : String(cursor.getDate()),
-      captionLabel: cursor.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      label: range === "1W" ? weekdayFormat.format(cursor) : String(cursor.getDate()),
+      captionLabel: monthDayFormat.format(cursor),
       amount: amounts.get(key) ?? 0,
     });
   }
@@ -151,17 +156,20 @@ export function monthBars(
   if (isDayStatsRange(range)) return { visible: false, title: "By month", caption: "", bars: [] };
 
   const count = RANGE_MONTHS[range];
+  // Single grouping pass. Filtering the whole list once per month made this
+  // O(months × transactions) with a `new Date()` per transaction per month.
+  const amounts = new Map<string, number>();
+  for (const transaction of transactions) {
+    const date = new Date(transaction.occurredAt ?? 0);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    amounts.set(key, (amounts.get(key) ?? 0) + transaction.amount);
+  }
+
   const entries = Array.from({ length: count }, (_, index) => {
     const date = monthStart(now, index - count + 1);
     const key = `${date.getFullYear()}-${date.getMonth()}`;
-    const amount = transactions
-      .filter((t) => {
-        const d = new Date(t.occurredAt ?? 0);
-        return `${d.getFullYear()}-${d.getMonth()}` === key;
-      })
-      .reduce((sum, t) => sum + t.amount, 0);
-    const label = date.toLocaleDateString(undefined, { month: "short" });
-    return { key, label, captionLabel: label, amount };
+    const label = monthFormat.format(date);
+    return { key, label, captionLabel: label, amount: amounts.get(key) ?? 0 };
   });
 
   return buildBars("By month", entries, selectedMonth, count > 6);
