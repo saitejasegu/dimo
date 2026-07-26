@@ -256,6 +256,17 @@ struct EmailUISourceSummary: Identifiable, Hashable, Sendable {
   var subject: String
 }
 
+struct EmailUISourceEmailsPresentation: Identifiable, Hashable, Sendable {
+  var suggestion: EmailUISuggestion
+  var emails: [EmailUIEmailDetail]
+
+  var id: String { suggestion.id }
+
+  var canSeparate: Bool {
+    suggestion.actionMessageIDs.count > 1 && !suggestion.status.isReviewed
+  }
+}
+
 struct EmailUILatePurchaseMatch: Hashable, Sendable {
   var reviewedSourceMessageID: String
   var transactionID: String
@@ -398,7 +409,7 @@ final class EmailFeatureStore {
   var purchaseReview: EmailUIPurchaseReviewDraft?
   var refundReview: EmailUIRefundReview?
   var emailDetail: EmailUIEmailDetail?
-  var sourcePickerSuggestion: EmailUISuggestion?
+  var sourceEmailsPresentation: EmailUISourceEmailsPresentation?
   var isRefreshing = false
   var isReanalyzing = false
   var requiresCellularDownloadConfirmation = false
@@ -512,17 +523,24 @@ final class EmailFeatureStore {
   func presentSources(for suggestion: EmailUISuggestion) {
     if suggestion.actionMessageIDs.count == 1 {
       presentEmail(id: suggestion.id)
-    } else {
-      sourcePickerSuggestion = suggestion
+      return
+    }
+
+    run {
+      var emails: [EmailUIEmailDetail] = []
+      emails.reserveCapacity(suggestion.actionMessageIDs.count)
+      for messageID in suggestion.actionMessageIDs {
+        emails.append(try await self.actions.loadEmailDetail(messageID))
+      }
+      self.sourceEmailsPresentation = EmailUISourceEmailsPresentation(
+        suggestion: suggestion,
+        emails: emails
+      )
     }
   }
 
-  func presentSourceEmail(id: String) {
-    sourcePickerSuggestion = nil
-    Task {
-      await Task.yield()
-      presentEmail(id: id)
-    }
+  func dismissSourceEmails() {
+    sourceEmailsPresentation = nil
   }
 
   func dismissEmailDetail() {

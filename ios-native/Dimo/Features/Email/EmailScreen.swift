@@ -74,28 +74,19 @@ struct EmailScreen: View {
     .sheet(item: $store.emailDetail) { detail in
       EmailDetailSheet(detail: detail, onClose: store.dismissEmailDetail)
     }
-    .confirmationDialog(
-      "Source emails",
-      isPresented: Binding(
-        get: { store.sourcePickerSuggestion != nil },
-        set: { if !$0 { store.sourcePickerSuggestion = nil } }
-      ),
-      presenting: store.sourcePickerSuggestion
-    ) { suggestion in
-      ForEach(suggestion.sources) { source in
-        Button(source.subject.isEmpty ? source.sender : source.subject) {
-          store.presentSourceEmail(id: source.id)
-        }
-      }
-      if suggestion.actionMessageIDs.count > 1, !suggestion.status.isReviewed {
-        Button("Show separately") {
-          store.sourcePickerSuggestion = nil
-          store.separateSuggestion(suggestion)
-        }
-      }
-      Button("Cancel", role: .cancel) { store.sourcePickerSuggestion = nil }
-    } message: { suggestion in
-      Text("\(suggestion.sources.count) emails were grouped into this suggestion.")
+    .sheet(item: $store.sourceEmailsPresentation) { presentation in
+      SourceEmailsSheet(
+        emails: presentation.emails,
+        navigationTitle: presentation.emails.count == 1 ? "Source email" : "Source emails",
+        onClose: store.dismissSourceEmails,
+        onShowSeparately: presentation.canSeparate
+          ? {
+            let suggestion = presentation.suggestion
+            store.dismissSourceEmails()
+            store.separateSuggestion(suggestion)
+          }
+          : nil
+      )
     }
     .sheet(item: $store.refundReview) { initialReview in
       RefundReviewSheet(
