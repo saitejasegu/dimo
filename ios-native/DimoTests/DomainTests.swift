@@ -1279,7 +1279,10 @@ final class EmailStructuredOutputValidatorTests: XCTestCase {
     XCTAssertEqual(result.amount, Decimal(string: "123.45"))
     XCTAssertEqual(result.currency, .INR)
     XCTAssertEqual(result.merchant, "Acme Store")
-    XCTAssertEqual(result.analyzer, .gemma)
+    // No analyzer passed, so this pins the default. Gemma is no longer a provider —
+    // both call sites pass .openRouter, and .gemma only survives to decode and label
+    // rows analyzed before the switch.
+    XCTAssertEqual(result.analyzer, .openRouter)
   }
 
   func testReplacesUnevidencedOptionalValuesWithDeterministicEvidence() throws {
