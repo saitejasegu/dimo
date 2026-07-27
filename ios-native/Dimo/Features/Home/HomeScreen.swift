@@ -14,6 +14,8 @@ struct HomeScreen: View {
   @State private var selecting = false
   @State private var selectedIds: Set<String> = []
   @State private var confirmDelete = false
+  /// Scroll anchor used to return to the top when the filter changes.
+  private static let listTopAnchor = "home-list-top"
 
   var body: some View {
     ZStack(alignment: .bottom) {
@@ -27,19 +29,27 @@ struct HomeScreen: View {
         .padding(.top, 12)
         .padding(.bottom, 14)
 
-        ScrollView {
-          VStack(alignment: .leading, spacing: 0) {
-            upcomingSection
-            transactionsSection
+        ScrollViewReader { proxy in
+          ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+              Color.clear.frame(height: 0).id(Self.listTopAnchor)
+              upcomingSection
+              transactionsSection
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 16)
+            // 110 clears the floating add button; 120 clears the selection bar.
+            .padding(.bottom, selecting ? 120 : 110)
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .padding(.horizontal, 22)
-          .padding(.top, 16)
-          // 110 clears the floating add button; 120 clears the selection bar.
-          .padding(.bottom, selecting ? 120 : 110)
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .onScrollPhaseChange { _, phase in
-          store.setUIScrolling(phase != .idle)
+          .onScrollPhaseChange { _, phase in
+            store.setUIScrolling(phase != .idle)
+          }
+          // Scroll back to the top for a new result set. Previously the list carried
+          // an `.id(filterEpoch)`, which tore down and rebuilt every row instead.
+          .onChange(of: activeFilter) { _, _ in
+            proxy.scrollTo(Self.listTopAnchor, anchor: .top)
+          }
         }
       }
       .background(Theme.canvas.ignoresSafeArea())
@@ -368,8 +378,6 @@ struct HomeScreen: View {
           }
       }
     }
-    // Remount on filter change so scroll resets to the top of the new result set.
-    .id(filterEpoch)
   }
 
   private var filterTags: [FilterTag] {
@@ -443,12 +451,6 @@ struct HomeScreen: View {
     .padding(.vertical, 6)
     .background(Theme.greenSoft)
     .clipShape(Capsule())
-  }
-
-  private var filterEpoch: String {
-    let start = activeFilter.startDate.map { DateHelpers.localDateKey($0) } ?? ""
-    let end = activeFilter.endDate.map { DateHelpers.localDateKey($0) } ?? ""
-    return "\(activeFilter.categories.joined(separator: ","))|\(activeFilter.paymentMethod)|\(activeFilter.query)|\(start)|\(end)"
   }
 
   private func transactionRow(_ tx: Transaction) -> some View {

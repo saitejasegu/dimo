@@ -62,12 +62,26 @@ protocol TypedEntityRecord: Codable, FetchableRecord, PersistableRecord {
   var key: String { get set }
   var workspaceId: String { get set }
   var entityId: String { get set }
-  var version: Data { get set }
+  var versionTimestamp: Int { get set }
+  var versionCounter: Int { get set }
+  var versionDeviceId: String { get set }
   var deleted: Bool { get set }
   var serverRevision: Int { get set }
   func toStoredEntity() throws -> StoredEntity
   static func from(_ entity: StoredEntity) throws -> Self
   static var entityType: EntityType { get }
+}
+
+extension TypedEntityRecord {
+  /// Rebuilt from typed columns. Previously each row carried a JSON blob, so every
+  /// observation fire ran one `JSONDecoder` per row just to learn its version.
+  var logicalVersion: LogicalVersion {
+    LogicalVersion(
+      timestamp: versionTimestamp,
+      counter: versionCounter,
+      deviceId: versionDeviceId
+    )
+  }
 }
 
 struct CategoryRecord: TypedEntityRecord {
@@ -76,7 +90,9 @@ struct CategoryRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var name: String
@@ -92,7 +108,7 @@ struct CategoryRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .category,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .category(CategoryEntity(
         id: entityId,
         name: name,
@@ -115,7 +131,9 @@ struct CategoryRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       name: e.name,
@@ -134,7 +152,9 @@ struct PaymentMethodRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var name: String
@@ -148,7 +168,7 @@ struct PaymentMethodRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .paymentMethod,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .paymentMethod(PaymentMethodEntity(
         id: entityId,
         name: name,
@@ -169,7 +189,9 @@ struct PaymentMethodRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       name: e.name,
@@ -186,7 +208,9 @@ struct TransactionRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var name: String
@@ -205,7 +229,7 @@ struct TransactionRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .transaction,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .transaction(TransactionEntity(
         id: entityId,
         name: name,
@@ -231,7 +255,9 @@ struct TransactionRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       name: e.name,
@@ -253,7 +279,9 @@ struct RecurringRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var name: String
@@ -271,7 +299,7 @@ struct RecurringRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .recurring,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .recurring(RecurringEntity(
         id: entityId,
         name: name,
@@ -296,7 +324,9 @@ struct RecurringRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       name: e.name,
@@ -317,7 +347,9 @@ struct LendRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var contactName: String
@@ -337,7 +369,7 @@ struct LendRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .lend,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .lend(LendEntity(
         id: entityId,
         contactName: contactName,
@@ -360,7 +392,9 @@ struct LendRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       contactName: e.contactName,
@@ -379,7 +413,9 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var accountId: String
@@ -419,7 +455,7 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .emailMessage,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .emailMessage(EmailMessageEntity(
         id: entityId,
         accountId: accountId,
@@ -466,7 +502,9 @@ struct SyncedEmailMessageRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       accountId: e.accountId,
@@ -509,7 +547,9 @@ struct PreferencesRecord: TypedEntityRecord {
   var key: String
   var workspaceId: String
   var entityId: String
-  var version: Data
+  var versionTimestamp: Int
+  var versionCounter: Int
+  var versionDeviceId: String
   var deleted: Bool
   var serverRevision: Int
   var profileName: String
@@ -533,7 +573,7 @@ struct PreferencesRecord: TypedEntityRecord {
       workspaceId: workspaceId,
       entityType: .preferences,
       entityId: entityId,
-      version: try VersionCodec.decode(version),
+      version: logicalVersion,
       payload: .preferences(PreferencesEntity(
         id: "preferences",
         profileName: profileName,
@@ -560,7 +600,9 @@ struct PreferencesRecord: TypedEntityRecord {
       key: entity.key,
       workspaceId: entity.workspaceId,
       entityId: entity.entityId,
-      version: try VersionCodec.encode(entity.version),
+      versionTimestamp: entity.version.timestamp,
+      versionCounter: entity.version.counter,
+      versionDeviceId: entity.version.deviceId,
       deleted: entity.deleted,
       serverRevision: entity.serverRevision,
       profileName: e.profileName,
@@ -825,6 +867,9 @@ struct DeviceMetaRecord: Codable, FetchableRecord, PersistableRecord {
   var clockCounter: Int
   var bootstrapVersion: Int
   var lastPaymentMethodId: String?
+  /// Legacy-row repair generation already applied locally. Zero on databases created
+  /// before the repairs were gated, which correctly forces one more pass.
+  var backfillVersion: Int
 
   func toDeviceMeta() -> DeviceMeta {
     DeviceMeta(
@@ -833,7 +878,8 @@ struct DeviceMetaRecord: Codable, FetchableRecord, PersistableRecord {
       clockTimestamp: clockTimestamp,
       clockCounter: clockCounter,
       bootstrapVersion: bootstrapVersion,
-      lastPaymentMethodId: lastPaymentMethodId
+      lastPaymentMethodId: lastPaymentMethodId,
+      backfillVersion: backfillVersion
     )
   }
 
@@ -844,7 +890,8 @@ struct DeviceMetaRecord: Codable, FetchableRecord, PersistableRecord {
       clockTimestamp: meta.clockTimestamp,
       clockCounter: meta.clockCounter,
       bootstrapVersion: meta.bootstrapVersion,
-      lastPaymentMethodId: meta.lastPaymentMethodId
+      lastPaymentMethodId: meta.lastPaymentMethodId,
+      backfillVersion: meta.backfillVersion
     )
   }
 }

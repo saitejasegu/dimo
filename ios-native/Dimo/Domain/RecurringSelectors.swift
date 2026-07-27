@@ -44,15 +44,20 @@ enum RecurringSelectors {
     return due
   }
 
+  /// Ids of already-materialized occurrences. Building this is O(transactions), so
+  /// callers that need both upcoming views should build it once and share it.
+  static func recordedOccurrenceIDs(_ transactions: [Transaction]) -> Set<String> {
+    Set(transactions.map(\.id))
+  }
+
   private static func withNextDue(
     _ recs: [Recurring],
-    transactions: [Transaction],
+    recordedIDs: Set<String>,
     now: Date,
     calendar: Calendar,
     includePaused: Bool = false
   ) -> [(Recurring, Date)] {
-    let recordedIDs = Set(transactions.map(\.id))
-    return (includePaused ? recs : activeRecurring(recs))
+    (includePaused ? recs : activeRecurring(recs))
       .compactMap { rec -> (Recurring, Date)? in
         guard let anchor = rec.anchorDate, let frequency = rec.frequency else { return nil }
         let due = nextDueUnrecorded(
@@ -75,12 +80,27 @@ enum RecurringSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    let dueThisMonth = withNextDue(recs, transactions: transactions, now: now, calendar: calendar)
+    upcomingBills(
+      recs,
+      recordedIDs: recordedOccurrenceIDs(transactions),
+      limit: limit,
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  static func upcomingBills(
+    _ recs: [Recurring],
+    recordedIDs: Set<String>,
+    limit: Int? = nil,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Recurring] {
+    let nowParts = calendar.dateComponents([.year, .month], from: now)
+    let dueThisMonth = withNextDue(recs, recordedIDs: recordedIDs, now: now, calendar: calendar)
       .filter { pair in
-        let due = pair.1
-        let sameYear = calendar.component(.year, from: due) == calendar.component(.year, from: now)
-        let sameMonth = calendar.component(.month, from: due) == calendar.component(.month, from: now)
-        return sameYear && sameMonth
+        let dueParts = calendar.dateComponents([.year, .month], from: pair.1)
+        return dueParts.year == nowParts.year && dueParts.month == nowParts.month
       }
       .map(\.0)
 
@@ -95,7 +115,27 @@ enum RecurringSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [Recurring] {
-    withNextDue(recs, transactions: transactions, now: now, calendar: calendar, includePaused: true).map(\.0)
+    allUpcomingBills(
+      recs,
+      recordedIDs: recordedOccurrenceIDs(transactions),
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  static func allUpcomingBills(
+    _ recs: [Recurring],
+    recordedIDs: Set<String>,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> [Recurring] {
+    withNextDue(
+      recs,
+      recordedIDs: recordedIDs,
+      now: now,
+      calendar: calendar,
+      includePaused: true
+    ).map(\.0)
   }
 
   static func recurringSubtitle(_ rec: Recurring) -> String {

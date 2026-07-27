@@ -2083,6 +2083,245 @@ final class EmailPurchaseGroupingMigrationTests: XCTestCase {
   }
 }
 
+final class PrecomputedTransactionFieldTests: XCTestCase {
+  private func tx(
+    id: String,
+    name: String,
+    category: String,
+    occurredAt: Int,
+    searchText: String = "",
+    dayKey: String = ""
+  ) -> Transaction {
+    Transaction(
+      id: id, name: name, category: category, time: "10:00 AM", day: "Today",
+      amount: 1, occurredAt: occurredAt, searchText: searchText, dayKey: dayKey
+    )
+  }
+
+  /// Hydration precomputes `searchText`/`dayKey`, but rows built anywhere else leave
+  /// them empty. Filtering must produce identical results either way.
+  func testFilteringMatchesWithAndWithoutPrecomputedFields() {
+    let calendar = Calendar.current
+    let occurredAt = Int(
+      calendar.date(from: DateComponents(year: 2026, month: 7, day: 11, hour: 12))!
+        .timeIntervalSince1970 * 1000
+    )
+    let bare = tx(id: "1", name: "Ramen Bar", category: "Dining", occurredAt: occurredAt)
+    let hydrated = tx(
+      id: "1",
+      name: "Ramen Bar",
+      category: "Dining",
+      occurredAt: occurredAt,
+      searchText: "ramen bar dining",
+      dayKey: "2026-07-11"
+    )
+
+    for query in ["ramen", "DINING", "nope"] {
+      let filter = TransactionFilter(query: query)
+      XCTAssertEqual(
+        TransactionSelectors.filterTransactions([bare], filter: filter).map(\.id),
+        TransactionSelectors.filterTransactions([hydrated], filter: filter).map(\.id),
+        "query \(query) must match identically"
+      )
+    }
+
+    let inRange = TransactionFilter(
+      startDate: calendar.date(from: DateComponents(year: 2026, month: 7, day: 11))!,
+      endDate: calendar.date(from: DateComponents(year: 2026, month: 7, day: 11))!
+    )
+    XCTAssertEqual(TransactionSelectors.filterTransactions([bare], filter: inRange).count, 1)
+    XCTAssertEqual(TransactionSelectors.filterTransactions([hydrated], filter: inRange).count, 1)
+  }
+}
+
+final class StatsTrendBarTests: XCTestCase {
+  /// `monthBars` groups in one pass now; bars must still land in the right month and
+  /// ignore transactions outside the displayed window.
+  func testMonthBarsBucketAmountsByCalendarMonth() {
+    let calendar = Calendar.current
+    let now = calendar.date(from: DateComponents(year: 2026, month: 7, day: 15))!
+    func at(year: Int, month: Int, day: Int) -> Int {
+      Int(
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+          .timeIntervalSince1970 * 1000
+      )
+    }
+    func tx(_ id: String, _ amount: Double, _ occurredAt: Int) -> Transaction {
+      Transaction(
+        id: id, name: id, category: "Dining", time: "", day: "",
+        amount: amount, occurredAt: occurredAt
+      )
+    }
+
+    let bars = StatsSelectors.monthBars(
+      range: .threeMonths,
+      transactions: [
+        tx("may", 100, at(year: 2026, month: 5, day: 2)),
+        tx("jun-a", 20, at(year: 2026, month: 6, day: 1)),
+        tx("jun-b", 30, at(year: 2026, month: 6, day: 28)),
+        tx("jul", 7, at(year: 2026, month: 7, day: 15)),
+        tx("older", 999, at(year: 2025, month: 1, day: 1)),
+      ],
+      selectedMonth: nil,
+      now: now,
+      calendar: calendar
+    )
+
+    XCTAssertEqual(bars.bars.count, 3)
+    XCTAssertEqual(bars.bars.map(\.amount), [100, 50, 7])
+    // Out-of-window rows must not leak into any visible bar.
+    XCTAssertFalse(bars.bars.contains { $0.amount == 999 })
+  }
+}
+
+final class TypedLogicalVersionMigrationTests: XCTestCase {
+  /// v12 replaces the JSON `version` BLOB with typed columns. Existing rows must keep
+  /// their exact logical version, otherwise last-write-wins would resolve differently
+  /// after an upgrade and a stale local row could beat the cloud.
+  func testV12PreservesLogicalVersionsFromTheLegacyBlob() throws {
+    let queue = try DatabaseQueue()
+    try AppDatabase.migrator.migrate(queue, upTo: "v11-openrouter-mode-privacy-memory")
+
+    let version = LogicalVersion(timestamp: 1_720_000_000_123, counter: 7, deviceId: "device-x")
+    let blob = try JSONEncoder().encode(version)
+    try queue.write { db in
+      XCTAssertTrue(try db.columns(in: "transactions").map(\.name).contains("version"))
+      try db.execute(
+        sql: """
+          INSERT INTO transactions
+            (key, workspaceId, entityId, version, deleted, serverRevision,
+             name, amountMinor, occurredAt, categoryId, paymentMethodId, currency)
+          VALUES (?, ?, ?, ?, 0, 3, 'Ramen', 24000, 1720000000000, 'cat', 'pm', 'INR')
+          """,
+        arguments: ["global:transaction:tx-1", "global", "tx-1", blob]
+      )
+    }
+
+    try AppDatabase.migrator.migrate(queue)
+
+    try queue.read { db in
+      let columns = try db.columns(in: "transactions").map(\.name)
+      XCTAssertFalse(columns.contains("version"))
+      XCTAssertTrue(columns.contains("versionTimestamp"))
+
+      let stored = try TypedEntityStore.fetchOne(
+        db: db,
+        type: .transaction,
+        key: "global:transaction:tx-1"
+      )
+      XCTAssertEqual(stored?.version, version)
+      XCTAssertEqual(stored?.serverRevision, 3)
+      guard case .transaction(let payload)? = stored?.payload else {
+        return XCTFail("expected a transaction payload")
+      }
+      XCTAssertEqual(payload.name, "Ramen")
+      XCTAssertEqual(payload.amountMinor, 24000)
+    }
+  }
+}
+
+final class BulkEntityWriteTests: XCTestCase {
+  private func makeRepository() throws -> (Repository, DatabasePool) {
+    let userId = "bulk-\(UUID().uuidString)"
+    let pool = try AppDatabase.activate(userId: userId)
+    let repository = Repository(db: pool)
+    try repository.initializeLocalDatabase()
+    return (repository, pool)
+  }
+
+  private func transaction(_ id: String) -> (EntityType, EntityPayload) {
+    (
+      .transaction,
+      .transaction(TransactionEntity(
+        id: id,
+        name: id,
+        amountMinor: 1000,
+        occurredAt: 1_720_000_000_000,
+        categoryId: "category-food",
+        paymentMethodId: SeedData.cashPaymentMethod.id,
+        currency: "INR"
+      ))
+    )
+  }
+
+  func testBatchSaveIssuesDistinctIncreasingVersions() throws {
+    let (repository, _) = try makeRepository()
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+
+    try repository.saveEntities(["a", "b", "c", "d"].map { transaction("tx-\($0)") })
+
+    let stored = try repository.activeEntities(type: .transaction)
+      .sorted { $0.version < $1.version }
+    XCTAssertEqual(stored.count, 4)
+    XCTAssertEqual(Set(stored.map(\.version)).count, 4, "versions must be unique")
+    // A later write must still sort above every version in the reserved range.
+    try repository.saveEntities([transaction("tx-later")])
+    let later = try repository.activeEntities(type: .transaction)
+      .first { $0.entityId == "tx-later" }
+    XCTAssertNotNil(later)
+    XCTAssertTrue(later!.version > stored.last!.version)
+  }
+
+  func testRemoveEntitiesTombstonesEveryIdWithOneNotification() throws {
+    let (repository, _) = try makeRepository()
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+
+    let ids = ["tx-a", "tx-b", "tx-c"]
+    try repository.saveEntities(ids.map { transaction($0) })
+
+    var notifications = 0
+    let token = repository.onLocalWrite { notifications += 1 }
+    defer { repository.removeLocalWriteListener(token) }
+
+    // Duplicates and unknown ids must not produce extra work or extra versions.
+    let removed = try repository.removeEntities(
+      entityType: .transaction,
+      ids: ids + ["tx-a", "tx-missing"]
+    )
+
+    XCTAssertEqual(removed, ids.count)
+    XCTAssertEqual(notifications, 1)
+    XCTAssertTrue(try repository.activeEntities(type: .transaction).isEmpty)
+  }
+
+  func testPurgeExpiredTombstonesKeepsFreshAndPendingRows() throws {
+    let (repository, pool) = try makeRepository()
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+
+    let now = Int(Date().timeIntervalSince1970 * 1000)
+    let expiredAt = now - (tombstoneRetentionDays + 5) * 24 * 60 * 60 * 1000
+    try repository.saveEntities([
+      transaction("tx-expired"), transaction("tx-fresh"), transaction("tx-unacked"),
+    ])
+    try repository.removeEntities(
+      entityType: .transaction,
+      ids: ["tx-expired", "tx-fresh", "tx-unacked"]
+    )
+
+    let expiredKey = entityKey(type: .transaction, id: "tx-expired")
+    let unackedKey = entityKey(type: .transaction, id: "tx-unacked")
+    // Only `tx-unacked` keeps a queued operation; the others are already pushed.
+    try repository.acknowledgeOperations(
+      try repository.pendingOutbox(limit: 50)
+        .filter { $0.key != unackedKey }
+        .map(\.operationId)
+    )
+    // Age two tombstones past the retention window; one still has a pending push.
+    try pool.write { db in
+      try db.execute(
+        sql: "UPDATE transactions SET versionTimestamp = ? WHERE key IN (?, ?)",
+        arguments: [expiredAt, expiredKey, unackedKey]
+      )
+    }
+
+    XCTAssertEqual(try repository.purgeExpiredTombstones(now: now), 1)
+    let remaining = try repository.allEntities().map(\.entityId)
+    XCTAssertFalse(remaining.contains("tx-expired"))
+    XCTAssertTrue(remaining.contains("tx-fresh"), "in-window tombstone must survive")
+    XCTAssertTrue(remaining.contains("tx-unacked"), "unpushed tombstone must survive")
+  }
+}
+
 final class EmailLinkedTransactionRetentionTests: XCTestCase {
   func testAcceptedSuggestionKeepsEmailForReferenceUntilTransactionDeleted() throws {
     let userId = "email-link-\(UUID().uuidString)"

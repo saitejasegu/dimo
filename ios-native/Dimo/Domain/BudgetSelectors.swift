@@ -42,11 +42,27 @@ struct TopCategory: Equatable, Identifiable, Sendable {
 }
 
 enum BudgetSelectors {
-  private static func isCurrentMonth(_ timestamp: Int?, now: Date, calendar: Calendar) -> Bool {
+  /// Epoch-millisecond bounds of the local calendar month containing `now`, computed
+  /// once per selector call. Membership then costs two integer comparisons instead of
+  /// four `Calendar.component` lookups per transaction.
+  private static func currentMonthBounds(
+    now: Date,
+    calendar: Calendar
+  ) -> (start: Int, end: Int) {
+    let parts = calendar.dateComponents([.year, .month], from: now)
+    guard let start = calendar.date(from: parts),
+          let end = calendar.date(byAdding: .month, value: 1, to: start) else {
+      return (Int.min, Int.max)
+    }
+    return (
+      Int(start.timeIntervalSince1970 * 1000),
+      Int(end.timeIntervalSince1970 * 1000)
+    )
+  }
+
+  private static func isInMonth(_ timestamp: Int?, bounds: (start: Int, end: Int)) -> Bool {
     guard let timestamp else { return false }
-    let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
-    return calendar.component(.year, from: date) == calendar.component(.year, from: now)
-      && calendar.component(.month, from: date) == calendar.component(.month, from: now)
+    return timestamp >= bounds.start && timestamp < bounds.end
   }
 
   static func categoryBudgets(
@@ -55,8 +71,9 @@ enum BudgetSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [CategoryBudget] {
+    let bounds = currentMonthBounds(now: now, calendar: calendar)
     var spentByCategory: [String: Double] = [:]
-    for transaction in transactions where isCurrentMonth(transaction.occurredAt, now: now, calendar: calendar) {
+    for transaction in transactions where isInMonth(transaction.occurredAt, bounds: bounds) {
       spentByCategory[transaction.category, default: 0] += transaction.amount
     }
     return limits.keys.map { category in
@@ -82,9 +99,10 @@ enum BudgetSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> BudgetTotals {
+    let bounds = currentMonthBounds(now: now, calendar: calendar)
     var totalSpent = 0.0
     var transactionCount = 0
-    for transaction in transactions where isCurrentMonth(transaction.occurredAt, now: now, calendar: calendar) {
+    for transaction in transactions where isInMonth(transaction.occurredAt, bounds: bounds) {
       totalSpent += transaction.amount
       transactionCount += 1
     }
@@ -164,7 +182,8 @@ enum BudgetSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> [TopCategory] {
-    let current = transactions.filter { isCurrentMonth($0.occurredAt, now: now, calendar: calendar) }
+    let bounds = currentMonthBounds(now: now, calendar: calendar)
+    let current = transactions.filter { isInMonth($0.occurredAt, bounds: bounds) }
     var byCategory: [String: Double] = [:]
     var total = 0.0
     for t in current {

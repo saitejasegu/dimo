@@ -40,13 +40,26 @@ enum Formatting {
     money(amount, symbol: CurrencyMeta.symbol(currencyCode))
   }
 
+  /// Cached per `maximumFractionDigits` — this used to allocate a `NumberFormatter`
+  /// on every call, from view bodies.
+  private static var decimalFormatters: [Int: NumberFormatter] = [:]
+
   static func decimal(_ value: Double, maximumFractionDigits: Int) -> String {
-    let formatter = NumberFormatter()
-    formatter.locale = Locale(identifier: "en_IN")
-    formatter.numberStyle = .decimal
-    formatter.minimumFractionDigits = 0
-    formatter.maximumFractionDigits = maximumFractionDigits
-    return formatter.string(from: NSNumber(value: value)) ?? String(value)
+    let number = NSNumber(value: value)
+    moneyFormatterLock.lock(); defer { moneyFormatterLock.unlock() }
+    let formatter: NumberFormatter
+    if let existing = decimalFormatters[maximumFractionDigits] {
+      formatter = existing
+    } else {
+      let created = NumberFormatter()
+      created.locale = Locale(identifier: "en_IN")
+      created.numberStyle = .decimal
+      created.minimumFractionDigits = 0
+      created.maximumFractionDigits = maximumFractionDigits
+      decimalFormatters[maximumFractionDigits] = created
+      formatter = created
+    }
+    return formatter.string(from: number) ?? String(value)
   }
 
   private static func money(_ amount: Double, symbol: String) -> String {

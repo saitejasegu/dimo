@@ -62,6 +62,14 @@ final class EntitiesStore {
   private var cachedCategoriesExpanded = false
   @ObservationIgnored
   private var cachedMerchantsExpanded = false
+  /// Stats are the most expensive projection and are useless off the Stats tab, so
+  /// they are computed only while it is on screen and cached against their inputs.
+  @ObservationIgnored
+  private var statsVisible = false
+  @ObservationIgnored
+  private var statsInputs: StatsInputs?
+  @ObservationIgnored
+  private var statsTask: Task<Void, Never>?
   @ObservationIgnored
   private var categoryEmojiById: [String: String] = [:]
   @ObservationIgnored
@@ -84,8 +92,6 @@ final class EntitiesStore {
   private var homeListHasMore = false
   @ObservationIgnored
   private var homeListFilteredCount = 0
-  @ObservationIgnored
-  private var deriveTask: Task<Void, Never>?
 
   var lastEntitySnapshot: EntitySnapshot? { lastSnapshot }
 
@@ -173,7 +179,75 @@ final class EntitiesStore {
     if changed {
       revision &+= 1
       invalidateListCaches()
+      // New entity data invalidates the stats projection; recompute only if showing.
+      refreshStatsIfNeeded(
+        StatsInputs(
+          revision: revision,
+          range: snapshot.statsRange,
+          selectedMonth: selectedMonth,
+          categoriesExpanded: categoriesExpanded,
+          merchantsExpanded: merchantsExpanded
+        )
+      )
     }
+  }
+
+  /// Called by the Stats screen as it appears and disappears. Appearing recomputes
+  /// immediately if the cached projection is stale.
+  func setStatsVisible(_ visible: Bool, inputs: StatsInputs) {
+    statsVisible = visible
+    if visible {
+      refreshStatsIfNeeded(inputs)
+    } else {
+      statsTask?.cancel()
+      statsTask = nil
+    }
+  }
+
+  /// Recomputes the stats projection when its inputs changed and the tab is showing.
+  func refreshStatsIfNeeded(_ inputs: StatsInputs) {
+    guard statsVisible, inputs != statsInputs else { return }
+    statsInputs = inputs
+    let rows = transactions
+    statsTask?.cancel()
+    statsTask = Task { [weak self] in
+      let stats = await EntityHydrator.deriveStats(
+        transactions: rows,
+        statsRange: inputs.range,
+        selectedMonth: inputs.selectedMonth,
+        categoriesExpanded: inputs.categoriesExpanded,
+        merchantsExpanded: inputs.merchantsExpanded
+      )
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        guard let self else { return }
+        self.applyStats(stats)
+      }
+    }
+  }
+
+  @discardableResult
+  func applyStats(_ stats: StatsSnapshot) -> Bool {
+    var changed = false
+    if statsScope != stats.scope {
+      statsScope = stats.scope
+      changed = true
+    }
+    if statsTrendBars != stats.trendBars {
+      statsTrendBars = stats.trendBars
+      changed = true
+    }
+    if statsCategories.categories != stats.categories
+      || statsCategories.total != stats.categoriesTotal {
+      statsCategories = (stats.categories, stats.categoriesTotal)
+      changed = true
+    }
+    if statsMerchants.merchants != stats.merchants
+      || statsMerchants.total != stats.merchantsTotal {
+      statsMerchants = (stats.merchants, stats.merchantsTotal)
+      changed = true
+    }
+    return changed
   }
 
   @discardableResult
@@ -207,24 +281,6 @@ final class EntitiesStore {
       upcomingAll = derived.upcomingAll
       changed = true
     }
-    if statsScope != derived.statsScope {
-      statsScope = derived.statsScope
-      changed = true
-    }
-    if statsTrendBars != derived.statsTrendBars {
-      statsTrendBars = derived.statsTrendBars
-      changed = true
-    }
-    let nextCats = (derived.statsCategories, derived.statsCategoriesTotal)
-    if statsCategories.categories != nextCats.0 || statsCategories.total != nextCats.1 {
-      statsCategories = nextCats
-      changed = true
-    }
-    let nextMerchants = (derived.statsMerchants, derived.statsMerchantsTotal)
-    if statsMerchants.merchants != nextMerchants.0 || statsMerchants.total != nextMerchants.1 {
-      statsMerchants = nextMerchants
-      changed = true
-    }
     return changed
   }
 
@@ -232,8 +288,12 @@ final class EntitiesStore {
     rates = table
   }
 
-  /// Refresh selector caches when nav filter / stats chrome changes without a
-  /// full entity hydrate. Work runs off the main actor.
+  /// Reacts to nav filter / stats chrome changes without a full entity hydrate.
+  ///
+  /// Budget, lending and upcoming projections depend only on entity data, so a filter
+  /// or range change no longer re-derives them; the filtered and Home list caches are
+  /// keyed by filter and recompute lazily on read, and stats recompute only while the
+  /// Stats tab is visible.
   func refreshProjections(
     filter: TransactionFilter,
     statsRange: StatsRange,
@@ -241,47 +301,21 @@ final class EntitiesStore {
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
   ) {
-    let filterChanged = filter != cachedFilter
-    let statsChanged =
-      statsRange != cachedStatsRange
-      || selectedMonth != cachedSelectedMonth
-      || categoriesExpanded != cachedCategoriesExpanded
-      || merchantsExpanded != cachedMerchantsExpanded
-    guard filterChanged || statsChanged else { return }
-
     cachedFilter = filter
     cachedStatsRange = statsRange
     cachedSelectedMonth = selectedMonth
     cachedCategoriesExpanded = categoriesExpanded
     cachedMerchantsExpanded = merchantsExpanded
 
-    let txs = transactions
-    let rec = recurring
-    let lendRows = lends
-    let limitsSnapshot = limits
-    let cats = categories
-    deriveTask?.cancel()
-    deriveTask = Task { [weak self] in
-      let derived = await EntityHydrator.derive(
-        transactions: txs,
-        recurring: rec,
-        lends: lendRows,
-        limits: limitsSnapshot,
-        categories: cats,
-        statsRange: statsRange,
+    refreshStatsIfNeeded(
+      StatsInputs(
+        revision: revision,
+        range: statsRange,
         selectedMonth: selectedMonth,
         categoriesExpanded: categoriesExpanded,
         merchantsExpanded: merchantsExpanded
       )
-      guard !Task.isCancelled else { return }
-      await MainActor.run {
-        guard let self else { return }
-        if self.applyDerived(derived) {
-          self.revision &+= 1
-          self.invalidateListCaches()
-        }
-      }
-    }
+    )
   }
 
   func filteredTransactions(matching filter: TransactionFilter) -> [Transaction] {

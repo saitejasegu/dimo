@@ -31,6 +31,9 @@ func compareVersions(_ a: LogicalVersion, _ b: LogicalVersion) -> Int {
 let workspaceID = "global"
 let defaultCategoryEmoji = "🙂"
 let bootstrapVersion = 4
+/// Bump when a new legacy-row repair is added so every device runs it once. The
+/// repairs scan whole tables, which is why they no longer run on every sync.
+let backfillVersion = 1
 /// Private local tombstone retention (days). Keep aligned with Convex
 /// TOMBSTONE_RETENTION_DAYS default — not user-visible or synced.
 let tombstoneRetentionDays = 90
@@ -324,6 +327,7 @@ struct DeviceMeta: Hashable, Sendable {
   var clockCounter: Int
   var bootstrapVersion: Int
   var lastPaymentMethodId: String?
+  var backfillVersion: Int = 0
 }
 
 // MARK: - UI models (ports of app/lib/types.ts)
@@ -362,6 +366,28 @@ struct Transaction: Hashable, Sendable, Identifiable {
   var sourceCurrency: String?
   /// Original amount in `sourceCurrency` major units, shown alongside `amount`.
   var sourceAmount: Double?
+  /// `"name category"`, lowercased once during hydration. Search previously lowercased
+  /// both fields for every row on every keystroke. Empty on rows built outside the
+  /// hydrator — read it through `searchKey`, which falls back correctly.
+  var searchText: String = ""
+  /// Local `YYYY-MM-DD` of `occurredAt`, computed once during hydration so date
+  /// filtering does not build a formatted key per row per keystroke. Empty on rows
+  /// built outside the hydrator — read it through `localDayKey(calendar:occurredAt:)`.
+  var dayKey: String = ""
+
+  /// Precomputed lowercased search text, or a correct value derived on demand.
+  var searchKey: String {
+    searchText.isEmpty ? "\(name) \(category)".lowercased() : searchText
+  }
+
+  /// Precomputed local day key, or a correct value derived on demand.
+  func localDayKey(calendar: Calendar = .current, occurredAt: Int) -> String {
+    if !dayKey.isEmpty { return dayKey }
+    return DateHelpers.localDateKey(
+      Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000),
+      calendar: calendar
+    )
+  }
 }
 
 struct Recurring: Hashable, Sendable, Identifiable {

@@ -6,6 +6,16 @@ struct StatsScreen: View {
   @Bindable var nav: NavStore
   @State private var txSheet: StatsTxSelection?
 
+  private var statsInputs: StatsInputs {
+    StatsInputs(
+      revision: entities.revision,
+      range: nav.statsRange,
+      selectedMonth: nav.selectedMonth,
+      categoriesExpanded: nav.categoriesExpanded,
+      merchantsExpanded: nav.merchantsExpanded
+    )
+  }
+
   var body: some View {
     let scope = entities.statsScope
     VStack(spacing: 0) {
@@ -33,6 +43,10 @@ struct StatsScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
+    // Stats projections are the heaviest derived work in the app, so they are computed
+    // only while this screen is on screen rather than on every hydrate.
+    .onAppear { entities.setStatsVisible(true, inputs: statsInputs) }
+    .onDisappear { entities.setStatsVisible(false, inputs: statsInputs) }
     .onChange(of: nav.statsRange) { _, _ in
       store.selectedMonth = nil
     }

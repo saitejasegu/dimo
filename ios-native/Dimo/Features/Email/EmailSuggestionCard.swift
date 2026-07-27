@@ -249,21 +249,42 @@ struct EmailSuggestionCard: View {
 }
 
 enum EmailUIFormatting {
-  static func currencySymbol(_ currency: Currency) -> String {
+  /// Formatters are cached per currency and reused. Allocating a `NumberFormatter`
+  /// inside a card body meant one allocation per visible card per render pass, which
+  /// showed up directly as scroll hitches on the Email tab.
+  private static let formatterLock = NSLock()
+  private static var currencyFormatters: [String: NumberFormatter] = [:]
+
+  private static let decimalFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.maximumFractionDigits = 2
+    formatter.minimumFractionDigits = 0
+    return formatter
+  }()
+
+  /// Caller must hold `formatterLock`.
+  private static func currencyFormatter(_ code: String) -> NumberFormatter {
+    if let existing = currencyFormatters[code] { return existing }
     let formatter = NumberFormatter()
     formatter.numberStyle = .currency
-    formatter.currencyCode = currency.rawValue
-    return formatter.currencySymbol ?? currency.rawValue
+    formatter.currencyCode = code
+    formatter.maximumFractionDigits = 2
+    formatter.minimumFractionDigits = 0
+    currencyFormatters[code] = formatter
+    return formatter
+  }
+
+  static func currencySymbol(_ currency: Currency) -> String {
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    return currencyFormatter(currency.rawValue).currencySymbol ?? currency.rawValue
   }
 
   static func amount(_ amount: Decimal, currency: Currency?) -> String {
-    let formatter = NumberFormatter()
-    formatter.numberStyle = currency == nil ? .decimal : .currency
-    formatter.currencyCode = currency?.rawValue
-    formatter.maximumFractionDigits = 2
-    formatter.minimumFractionDigits = 0
-    return formatter.string(from: NSDecimalNumber(decimal: amount))
-      ?? NSDecimalNumber(decimal: amount).stringValue
+    let number = NSDecimalNumber(decimal: amount)
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    let formatter = currency.map { currencyFormatter($0.rawValue) } ?? decimalFormatter
+    return formatter.string(from: number) ?? number.stringValue
   }
 
   static func date(_ date: Date) -> String {
