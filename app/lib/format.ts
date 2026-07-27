@@ -9,17 +9,28 @@ function symbolFor(currency: string): string {
 }
 
 /**
+ * Built once per process: `money` runs per row, per chart bar and per category, and
+ * constructing an `Intl.NumberFormat` costs far more than formatting with one.
+ * Mirrors the two cached formatters in `ios-native/Dimo/Domain/Formatting.swift`.
+ */
+const integerMoneyFormat = new Intl.NumberFormat("en-IN", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+const fractionalMoneyFormat = new Intl.NumberFormat("en-IN", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
  * Format a whole-number amount with the given currency symbol.
  * Currency is INR by default to match the design's locale-grouped output.
  */
 export function money(amount: number, currency: string = "INR"): string {
   const symbol = symbolFor(currency);
   const hasFraction = Math.abs(amount % 1) > 0.0001;
-  const formatted = Math.abs(amount).toLocaleString("en-IN", {
-    minimumFractionDigits: hasFraction ? 2 : 0,
-    maximumFractionDigits: 2,
-  });
-  return (amount < 0 ? "−" : "") + symbol + formatted;
+  const format = hasFraction ? fractionalMoneyFormat : integerMoneyFormat;
+  return (amount < 0 ? "−" : "") + symbol + format.format(Math.abs(amount));
 }
 
 /** Money prefixed with a minus sign, used for outgoing transaction amounts. */

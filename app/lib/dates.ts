@@ -38,6 +38,30 @@ export function localDateTimeTimestamp(
   return Math.min(ts, now.getTime());
 }
 
+/**
+ * Constructing an `Intl.DateTimeFormat` costs far more than formatting with one, and
+ * hydration formats two labels per transaction. These are built once per process.
+ */
+const daySameYearFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+});
+const dayOtherYearFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+const timeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+const shortMonthDayFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+});
+
 export function formatTransactionDay(timestamp: number, now = new Date()) {
   const date = new Date(timestamp);
   const today = localDateKey(now);
@@ -45,19 +69,12 @@ export function formatTransactionDay(timestamp: number, now = new Date()) {
   if (key === today) return "Today";
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   if (key === localDateKey(yesterday)) return "Yesterday";
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  });
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return (sameYear ? daySameYearFormat : dayOtherYearFormat).format(date);
 }
 
 export function formatTransactionTime(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return timeFormat.format(new Date(timestamp));
 }
 
 function daysInMonth(year: number, monthIndex: number) {
@@ -160,7 +177,7 @@ export function recurringDueLabel(recurring: Pick<RecurringEntity, "anchorDate" 
   const due = nextOccurrence(recurring, now);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const days = Math.round((due.getTime() - today.getTime()) / DAY_MS);
-  const date = due.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = shortMonthDayFormat.format(due);
   const relative = days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
   return `Due ${date} · ${relative}`;
 }

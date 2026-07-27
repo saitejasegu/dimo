@@ -15,14 +15,14 @@ import {
 import {
   ALL_ENTITY_TYPES,
   acknowledgeOperations,
-  backfillMissingPaymentMethodIds,
-  backfillRecurringCurrencies,
   buildPushOperation,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   mergeRemotePage,
   onLocalWrite,
   purgeExpiredTombstones,
+  runPendingBackfills,
+  tombstoneSweepDue,
 } from "@/data/repository";
 
 type PullPage = {
@@ -230,8 +230,7 @@ export class SyncCoordinator {
       try {
         await this.ensureProfile();
         if (replace) {
-          await backfillRecurringCurrencies();
-          await backfillMissingPaymentMethodIds();
+          await runPendingBackfills();
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
           await db.syncMeta.update(WORKSPACE_ID, {
             lastPulledRevision: 0,
@@ -242,15 +241,14 @@ export class SyncCoordinator {
           await this.pullAll();
         } else {
           await this.pullAll();
-          await backfillRecurringCurrencies();
-          await backfillMissingPaymentMethodIds();
+          await runPendingBackfills();
           await enqueueUnsyncedDefaults();
           await this.pushAll();
           await this.pullAll();
         }
         this.retryAttempt = 0;
         if (this.retryTimer) clearTimeout(this.retryTimer);
-        await purgeExpiredTombstones();
+        if (tombstoneSweepDue()) await purgeExpiredTombstones();
         const blocked = await db.outbox.where("status").equals("blocked").first();
         await db.syncMeta.update(WORKSPACE_ID, {
           syncing: false,

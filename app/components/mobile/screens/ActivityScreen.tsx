@@ -1,11 +1,14 @@
 "use client";
 
+import { useCallback, useMemo } from "react";
 import { spent } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useActivity } from "@/features/transactions/hooks";
 import { useActivitySelection } from "@/features/transactions/useActivitySelection";
+import { usePagedTransactions } from "@/features/transactions/usePagedTransactions";
 import { ActivitySelectionBar } from "@/components/common/ActivitySelectionBar";
 import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
+import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { TransactionRow } from "@/components/common/TransactionRow";
@@ -19,11 +22,27 @@ export function ActivityScreen() {
     filter,
     paymentFilter,
     paymentOptions,
-    groups,
     filtered,
   } = useActivity();
-  const emojiByName = new Map(categories.map((c) => [c.name, c.emoji]));
-  const selection = useActivitySelection(filtered.map((tx) => tx.id));
+  const emojiByName = useMemo(
+    () => new Map(categories.map((c) => [c.name, c.emoji])),
+    [categories],
+  );
+  const visibleIds = useMemo(() => filtered.map((tx) => tx.id), [filtered]);
+  const selection = useActivitySelection(visibleIds);
+  const { groups, hasMore, loadMore } = usePagedTransactions(filtered, {
+    query,
+    filter,
+    paymentFilter,
+  });
+  const { selecting, toggle } = selection;
+  const onRowClick = useCallback(
+    (id: string) => {
+      if (selecting) toggle(id);
+      else actions.openDetail(id);
+    },
+    [selecting, toggle, actions],
+  );
 
   return (
     <MobileScreen
@@ -109,19 +128,26 @@ export function ActivityScreen() {
                   key={tx.id}
                   transaction={tx}
                   currency={currency}
-                  selecting={selection.selecting}
+                  selecting={selecting}
                   selected={selection.selected.has(tx.id)}
-                  onClick={() =>
-                    selection.selecting
-                      ? selection.toggle(tx.id)
-                      : actions.openDetail(tx.id)
-                  }
+                  onClick={onRowClick}
                 />
               ))}
             </div>
           </div>
         ))
       )}
+      {hasMore ? (
+        <Button
+          variant="secondary"
+          fullWidth
+          size="sm"
+          className="mb-2"
+          onClick={loadMore}
+        >
+          Load more
+        </Button>
+      ) : null}
     </MobileScreen>
   );
 }

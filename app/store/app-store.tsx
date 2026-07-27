@@ -7,6 +7,8 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
+  useRef,
+  useState,
   type Dispatch,
   type ReactNode,
 } from "react";
@@ -21,7 +23,6 @@ import {
   WORKSPACE_ID,
   payloadFromStored,
   type CategoryEntity,
-  type LendEntity,
   type PaymentMethodEntity,
   type PreferencesEntity,
   type RecurringEntity,
@@ -31,15 +32,15 @@ import {
   allStoredRows,
   getStoredRow,
   initializeLocalDatabase,
+  removeEntities,
   removeEntity,
   saveEntity,
   saveEntities,
   setLastPaymentMethod,
 } from "@/data/repository";
-import { formatTransactionDay, formatTransactionTime, localDateKey, localDateTimeTimestamp, nextOccurrence, occurrenceTimestamp, occurrencesThrough, recurringDueLabel, recurringTransactionDates } from "@/lib/dates";
+import { localDateKey, localDateTimeTimestamp, occurrenceTimestamp, occurrencesThrough, recurringTransactionDates } from "@/lib/dates";
 import {
   paymentMethodIdForLabel,
-  paymentMethodLabel,
   resolvePaymentMethodId,
   type CategoryName,
   type Currency,
@@ -50,7 +51,6 @@ import {
   type OverlayKey,
   type PaymentMethod,
   type PaymentMethodInput,
-  type PaymentMethodOption,
   type RecurringEditInput,
   type StatsRange,
   type ThemePreference,
@@ -60,6 +60,8 @@ import {
 } from "@/lib/types";
 import type { Action } from "@/store/actions";
 import { reducer } from "@/store/reducer";
+import { projectEntities, type ProjectionSnapshot } from "@/store/projection";
+import { useCoalesced } from "@/hooks/useCoalesced";
 import { type AppState, createInitialState } from "@/store/state";
 import { requestFullSync, startSync, stopSync } from "@/sync/coordinator";
 import {
@@ -74,9 +76,7 @@ import {
   loadCachedRates,
   rateBetween,
   recurringEntryFields,
-  toMajorUnits,
   toMinorUnits,
-  transactionAmountInDefault,
   type RateTable,
 } from "@/features/currency/rates";
 import type { EnterableCurrency } from "@/lib/types";
@@ -242,7 +242,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const unique = [...new Set(ids)];
       if (unique.length === 0) return;
       persist(
-        Promise.all(unique.map((id) => removeEntity("transaction", id))),
+        removeEntities("transaction", unique),
         () => {
           dispatch({ type: "CLOSE_DETAIL" });
           dispatch({
@@ -261,10 +261,10 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const recurringIds = state.recurring.map((item) => item.id);
       if (transactionIds.length === 0 && recurringIds.length === 0) return;
       persist(
-        Promise.all([
-          ...transactionIds.map((id) => removeEntity("transaction", id)),
-          ...recurringIds.map((id) => removeEntity("recurring", id)),
-        ]),
+        (async () => {
+          await removeEntities("transaction", transactionIds);
+          await removeEntities("recurring", recurringIds);
+        })(),
         () => {
           dispatch({ type: "CLOSE_DETAIL" });
           dispatch({ type: "CLOSE_OVERLAY" });
@@ -476,11 +476,14 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         anchorDate: draft.anchorDate,
         paused: false,
       };
+      // One transaction for the bill and every backfilled occurrence (up to 1200):
+      // saving them one at a time meant a write and a full re-projection per row.
       const backfill = occurrencesThrough({
         anchorDate: entity.anchorDate,
         frequency: entity.frequency,
-      }).map((date) => {
-        const tx: TransactionEntity = {
+      }).map((date) => ({
+        entityType: "transaction" as const,
+        payload: {
           id: crypto.randomUUID(),
           name: entity.name,
           amountMinor: entity.amountMinor,
@@ -488,19 +491,21 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           categoryId: entity.categoryId,
           paymentMethodId: entity.paymentMethodId,
           currency: state.currency,
-        };
-        return saveEntity("transaction", tx);
-      });
-      persist(Promise.all([saveEntity("recurring", entity), ...backfill]), () => {
-        dispatch({ type: "CLOSE_OVERLAY" });
-        dispatch({
-          type: "SHOW_TOAST",
-          message:
-            backfill.length > 0
-              ? `${entity.name} added · ${backfill.length} transaction${backfill.length === 1 ? "" : "s"}`
-              : `${entity.name} added`,
-        });
-      });
+        } satisfies TransactionEntity,
+      }));
+      persist(
+        saveEntities([{ entityType: "recurring", payload: entity }, ...backfill]),
+        () => {
+          dispatch({ type: "CLOSE_OVERLAY" });
+          dispatch({
+            type: "SHOW_TOAST",
+            message:
+              backfill.length > 0
+                ? `${entity.name} added · ${backfill.length} transaction${backfill.length === 1 ? "" : "s"}`
+                : `${entity.name} added`,
+          });
+        },
+      );
     },
     deleteRecurring: () => {
       const state = getState();
@@ -603,16 +608,19 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const category = state.categories.find((c) => c.id === id);
       if (!category) return;
 
-      const tasks: Promise<unknown>[] = [
-        removeEntity("category", id),
-        ...state.transactions
-          .filter((t) => t.categoryId === id)
-          .map((t) => removeEntity("transaction", t.id)),
-        ...state.recurring
-          .filter((r) => r.categoryId === id)
-          .map((r) => removeEntity("recurring", r.id)),
-      ];
-      persist(Promise.all(tasks), () => {
+      persist(
+        (async () => {
+          await removeEntities(
+            "transaction",
+            state.transactions.filter((t) => t.categoryId === id).map((t) => t.id),
+          );
+          await removeEntities(
+            "recurring",
+            state.recurring.filter((r) => r.categoryId === id).map((r) => r.id),
+          );
+          await removeEntity("category", id);
+        })(),
+        () => {
         dispatch({ type: "CLOSE_OVERLAY" });
         dispatch({ type: "SHOW_TOAST", message: `${category.name} deleted` });
       });
@@ -642,8 +650,15 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
   };
 }
 
-interface AppStoreValue { state: AppState; actions: AppActions; sync: SyncState; ready: boolean; }
-const AppStoreContext = createContext<AppStoreValue | null>(null);
+/**
+ * State, actions and sync are separate contexts so a toast, a draft keystroke or a
+ * sync-status tick only re-renders the consumers that actually read that slice.
+ * `actions` is built once and reads live state through a ref, so action identity is
+ * stable for the lifetime of the provider and `React.memo` on rows holds.
+ */
+const AppStateContext = createContext<AppState | null>(null);
+const AppActionsContext = createContext<AppActions | null>(null);
+const SyncStateContext = createContext<SyncState | null>(null);
 
 export function AppStoreProvider({
   children,
@@ -654,8 +669,32 @@ export function AppStoreProvider({
 }) {
   activateUserDatabase(user.id);
   const convex = useConvex();
-  const [state, dispatch] = useReducer(reducer, user.name, createInitialState);
-  const entities = useLiveQuery(() => allStoredRows(), [], undefined);
+  // Actions must read current state without being rebuilt on every change, or every
+  // consumer re-renders whenever anything moves. `latest` is a plain holder written by
+  // the reducer as it computes each next state, so `getState()` is never stale and no
+  // ref is touched during render.
+  const [latest] = useState(() => {
+    let current = createInitialState(user.name);
+    return {
+      get: () => current,
+      track: (next: AppState) => {
+        current = next;
+        return next;
+      },
+      initial: current,
+    };
+  });
+  const trackedReducer = useMemo(
+    () => (previous: AppState, action: Action) =>
+      latest.track(reducer(previous, action)),
+    [latest],
+  );
+  const [state, dispatch] = useReducer(trackedReducer, latest.initial);
+  // Previous projection, so unchanged entity types are reused rather than remapped.
+  const snapshotRef = useRef<ProjectionSnapshot | null>(null);
+  // Coalesced so a multi-page sync projects once instead of once per page.
+  const liveEntities = useLiveQuery(() => allStoredRows(), [], undefined);
+  const entities = useCoalesced(liveEntities);
   const device = useLiveQuery(() => db.deviceMeta.get("device"), [], undefined);
   const meta = useLiveQuery(() => db.syncMeta.get(WORKSPACE_ID), [], undefined);
   const pending = useLiveQuery(() => db.outbox.where("status").equals("pending").count(), [], 0) ?? 0;
@@ -738,56 +777,31 @@ export function AppStoreProvider({
 
   useEffect(() => {
     if (!entities?.length) return;
-    const active = entities.filter(({ row }) => !row.deleted);
-    const categories = active
-      .filter((r) => r.entityType === "category")
-      .map((r) => {
-        const payload = payloadFromStored("category", r.row as never) as CategoryEntity & {
-          emoji?: string;
-        };
-        return {
-          ...payload,
-          emoji: payload.emoji || DEFAULT_CATEGORY_EMOJI,
-        } satisfies CategoryEntity;
-      })
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    const prefsRow = active.find((r) => r.entityType === "preferences")?.row;
-    const storedPreference = prefsRow
-      ? (payloadFromStored("preferences", prefsRow as never) as Partial<PreferencesEntity>)
-      : undefined;
-    const preference: PreferencesEntity = { ...DEFAULT_PREFERENCES, ...storedPreference };
-    const methodEntities = active
-      .filter((r) => r.entityType === "paymentMethod")
-      .map((r) => payloadFromStored("paymentMethod", r.row as never) as PaymentMethodEntity);
-    const paymentMethods: PaymentMethodOption[] = methodEntities.map((m) => ({ ...m, isDefault: m.id === preference.defaultPaymentMethodId }));
-    const categoryMap = new Map(categories.map((c) => [c.id, c])); const methodMap = new Map(paymentMethods.map((m) => [m.id, m]));
-    const defaultMethodEntity =
-      paymentMethods.find((method) => method.isDefault && !method.archived) ??
-      paymentMethods.find((method) => !method.archived) ??
-      paymentMethods[0];
-    const defaultMethodLabel = defaultMethodEntity
-      ? paymentMethodLabel(defaultMethodEntity)
-      : "Cash";
-    const transactions = active.filter((r) => r.entityType === "transaction").map((r) => payloadFromStored("transaction", r.row as never) as TransactionEntity).sort((a, b) => b.occurredAt - a.occurredAt).map((t) => { const category = categoryMap.get(t.categoryId); const method = t.paymentMethodId ? methodMap.get(t.paymentMethodId) : undefined; const currency = (t.currency ?? preference.currency) as EnterableCurrency; const source = t.sourceCurrency ? { sourceCurrency: t.sourceCurrency as EnterableCurrency, sourceAmount: toMajorUnits(t.sourceAmountMinor ?? 0, t.sourceCurrency) } : {}; return { id: t.id, name: t.name, amount: transactionAmountInDefault({ amount: toMajorUnits(t.amountMinor, currency), amountMinor: t.amountMinor, currency: t.currency }, preference.currency, state.rates), amountMinor: t.amountMinor, occurredAt: t.occurredAt, categoryId: t.categoryId, paymentMethodId: t.paymentMethodId || resolvePaymentMethodId(null, paymentMethods), category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, paymentMethod: method ? paymentMethodLabel(method) : defaultMethodLabel, time: formatTransactionTime(t.occurredAt), day: formatTransactionDay(t.occurredAt), green: category?.tint === "green", currency, ...source }; });
-    const recurring = active.filter((r) => r.entityType === "recurring").map((r) => payloadFromStored("recurring", r.row as never) as RecurringEntity).sort((a, b) => nextOccurrence(a).getTime() - nextOccurrence(b).getTime()).map((item) => { const category = categoryMap.get(item.categoryId); const dueDate = nextOccurrence(item); const days = Math.round((dueDate.getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000); const currency = item.currency as EnterableCurrency | undefined; return { id: item.id, name: item.name, amount: toMajorUnits(item.amountMinor, currency ?? preference.currency), amountMinor: item.amountMinor, categoryId: item.categoryId, paymentMethodId: item.paymentMethodId, category: category?.name ?? "Unknown category", emoji: category?.emoji ?? DEFAULT_CATEGORY_EMOJI, due: recurringDueLabel(item), paused: item.paused, urgent: days <= 2, green: category?.tint === "green", anchorDate: item.anchorDate, frequency: item.frequency, ...(currency ? { currency } : {}) }; });
-    const lends = active
-      .filter((r) => r.entityType === "lend")
-      .map((r) => payloadFromStored("lend", r.row as never) as LendEntity)
-      .sort((a, b) => b.occurredAt - a.occurredAt)
-      .map((item) => ({
-        id: item.id,
-        contactName: item.contactName,
-        contactId: item.contactId?.trim() || item.contactName,
-        amount: item.amountMinor / 100,
-        amountMinor: item.amountMinor,
-        occurredAt: item.occurredAt,
-        comment: item.comment,
-        kind: item.kind === "repaid" ? "repaid" as const : "lent" as const,
-        time: formatTransactionTime(item.occurredAt),
-        day: formatTransactionDay(item.occurredAt),
-      }));
-    dispatch({ type: "HYDRATE_DATA", data: { transactions, recurring, lends, categories, limits: Object.fromEntries(categories.map((c) => [c.name, c.monthlyBudgetMinor === null ? null : c.monthlyBudgetMinor / 100])), paymentMethods, preferences: { ...preference, defaultView: preference.defaultView }, lastPaymentMethod: device?.lastPaymentMethodId && methodMap.get(device.lastPaymentMethodId) ? paymentMethodLabel(methodMap.get(device.lastPaymentMethodId)!) : null } });
+    const previous = snapshotRef.current;
+    const snapshot = projectEntities(entities, {
+      rates: state.rates,
+      lastPaymentMethodId: device?.lastPaymentMethodId,
+      previous,
+    });
+    // Nothing observable changed (e.g. an email-only write, or a re-emit of the same
+    // rows) — skip the dispatch so no screen re-renders.
+    if (!snapshot) return;
+    snapshotRef.current = snapshot;
+    dispatch({
+      type: "HYDRATE_DATA",
+      data: {
+        transactions: snapshot.transactions,
+        recurring: snapshot.recurring,
+        lends: snapshot.lends,
+        categories: snapshot.categories,
+        limits: snapshot.limits,
+        paymentMethods: snapshot.paymentMethods,
+        preferences: snapshot.preferences,
+        lastPaymentMethod: snapshot.lastPaymentMethod,
+      },
+    });
   }, [entities, device, state.rates]);
+
 
   useEffect(() => { if (!state.toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [state.toast, state.toastNonce]);
   useLayoutEffect(() => {
@@ -812,7 +826,7 @@ export function AppStoreProvider({
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [state.theme]);
-  const actions = useMemo(() => createActions(dispatch, () => state), [state]);
+  const actions = useMemo(() => createActions(dispatch, latest.get), [latest]);
   const sync: SyncState = useMemo(() => ({
     workspaceId: WORKSPACE_ID,
     lastPulledRevision: meta?.lastPulledRevision ?? 0,
@@ -824,20 +838,34 @@ export function AppStoreProvider({
     blocked,
     configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL),
   }), [meta, pending, blocked]);
-  const value = useMemo(() => ({
-    state: {
-      ...state,
-      profile: { name: user.name, email: user.email, photoUrl: user.photoUrl },
-      defaultView: "home",
-    },
-    actions,
-    sync,
-    ready: state.dataReady,
-  }), [state, actions, sync, user]);
-  return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;
+  const publicState = useMemo<AppState>(() => ({
+    ...state,
+    profile: { name: user.name, email: user.email, photoUrl: user.photoUrl },
+    defaultView: "home",
+  }), [state, user.name, user.email, user.photoUrl]);
+  return (
+    <AppStateContext.Provider value={publicState}>
+      <AppActionsContext.Provider value={actions}>
+        <SyncStateContext.Provider value={sync}>{children}</SyncStateContext.Provider>
+      </AppActionsContext.Provider>
+    </AppStateContext.Provider>
+  );
 }
 
-function useStore() { const store = useContext(AppStoreContext); if (!store) throw new Error("useStore must be used within an AppStoreProvider"); return store; }
-export function useAppState() { return useStore().state; }
-export function useAppActions() { return useStore().actions; }
-export function useSyncState() { return useStore().sync; }
+export function useAppState() {
+  const state = useContext(AppStateContext);
+  if (!state) throw new Error("useAppState must be used within an AppStoreProvider");
+  return state;
+}
+
+export function useAppActions() {
+  const actions = useContext(AppActionsContext);
+  if (!actions) throw new Error("useAppActions must be used within an AppStoreProvider");
+  return actions;
+}
+
+export function useSyncState() {
+  const sync = useContext(SyncStateContext);
+  if (!sync) throw new Error("useSyncState must be used within an AppStoreProvider");
+  return sync;
+}

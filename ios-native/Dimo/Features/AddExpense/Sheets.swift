@@ -4,6 +4,7 @@ struct AddExpenseSheet: View {
   @Bindable var store: AppStore
   var onManagePaymentMethods: () -> Void
   @State private var merchantSuggestions: [MerchantSuggestion] = []
+  @State private var merchantSuggestionTask: Task<Void, Never>?
   @State private var selectedMerchantSuggestion: String?
   @FocusState private var merchantFieldFocused: Bool
 
@@ -110,14 +111,20 @@ struct AddExpenseSheet: View {
   private func updateMerchantSuggestions(for query: String) {
     if let selectedMerchantSuggestion,
        selectedMerchantSuggestion.caseInsensitiveCompare(query) == .orderedSame {
+      merchantSuggestionTask?.cancel()
       merchantSuggestions = []
       return
     }
     selectedMerchantSuggestion = nil
-    merchantSuggestions = TransactionSelectors.merchantSuggestions(
-      store.transactions,
-      query: query
-    )
+    let rows = store.transactions
+    merchantSuggestionTask?.cancel()
+    merchantSuggestionTask = Task {
+      guard let result = await MerchantSuggestionLoader.suggestions(
+        query: query,
+        transactions: rows
+      ) else { return }
+      merchantSuggestions = result
+    }
   }
 }
 
@@ -156,6 +163,7 @@ struct ExpenseEditorSheet: View {
   @State private var historicalTransactionsPrompt = false
   @State private var confirmDelete = false
   @State private var merchantSuggestions: [MerchantSuggestion] = []
+  @State private var merchantSuggestionTask: Task<Void, Never>?
   @State private var selectedMerchantSuggestion: String?
   @State private var fieldRowWidth: CGFloat = 0
   @State private var sourceEmails: [EmailUIEmailDetail] = []
@@ -759,11 +767,20 @@ struct ExpenseEditorSheet: View {
   private func updateMerchantSuggestions(for query: String) {
     if let selectedMerchantSuggestion,
        selectedMerchantSuggestion.caseInsensitiveCompare(query) == .orderedSame {
+      merchantSuggestionTask?.cancel()
       merchantSuggestions = []
       return
     }
     selectedMerchantSuggestion = nil
-    merchantSuggestions = TransactionSelectors.merchantSuggestions(store.transactions, query: query)
+    let rows = store.transactions
+    merchantSuggestionTask?.cancel()
+    merchantSuggestionTask = Task {
+      guard let result = await MerchantSuggestionLoader.suggestions(
+        query: query,
+        transactions: rows
+      ) else { return }
+      merchantSuggestions = result
+    }
   }
 
   private func pressAmountKey(_ key: String) {
@@ -1048,6 +1065,7 @@ struct AddRecurringSheet: View {
   @State private var historicalTransactionsPrompt = false
   @State private var confirmDeleteRecurring = false
   @State private var merchantSuggestions: [MerchantSuggestion] = []
+  @State private var merchantSuggestionTask: Task<Void, Never>?
   @State private var selectedMerchantSuggestion: String?
   @FocusState private var nameFieldFocused: Bool
 
@@ -1260,14 +1278,20 @@ struct AddRecurringSheet: View {
   private func updateMerchantSuggestions(for query: String) {
     if let selectedMerchantSuggestion,
        selectedMerchantSuggestion.caseInsensitiveCompare(query) == .orderedSame {
+      merchantSuggestionTask?.cancel()
       merchantSuggestions = []
       return
     }
     selectedMerchantSuggestion = nil
-    merchantSuggestions = TransactionSelectors.merchantSuggestions(
-      store.transactions,
-      query: query
-    )
+    let rows = store.transactions
+    merchantSuggestionTask?.cancel()
+    merchantSuggestionTask = Task {
+      guard let result = await MerchantSuggestionLoader.suggestions(
+        query: query,
+        transactions: rows
+      ) else { return }
+      merchantSuggestions = result
+    }
   }
 
   private func recurringLabel(_ title: String) -> some View {
@@ -1729,5 +1753,27 @@ struct TxDetailSheet: View {
     if amount.contains("."), fractionalCount >= 2 { return }
     if amount.filter(\.isNumber).count >= 7 { return }
     amount = amount == "0" ? key : amount + key
+  }
+}
+
+/// Debounced, off-main-actor merchant autocomplete.
+///
+/// `merchantSuggestions` scans every transaction and lowercases two strings per row.
+/// Run inline on each keystroke it made typing in the merchant field stutter once an
+/// account had a few thousand transactions.
+enum MerchantSuggestionLoader {
+  static let debounceNanoseconds: UInt64 = 150_000_000
+
+  /// Returns nil when superseded by a newer keystroke, so callers leave state alone.
+  static func suggestions(
+    query: String,
+    transactions: [Transaction]
+  ) async -> [MerchantSuggestion]? {
+    try? await Task.sleep(nanoseconds: debounceNanoseconds)
+    if Task.isCancelled { return nil }
+    let result = await Task.detached(priority: .userInitiated) {
+      TransactionSelectors.merchantSuggestions(transactions, query: query)
+    }.value
+    return Task.isCancelled ? nil : result
   }
 }

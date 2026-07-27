@@ -2,11 +2,13 @@ import Foundation
 import GRDB
 
 final class Repository: @unchecked Sendable {
-  private let db: DatabaseQueue
+  /// Any writer, so the app can use a WAL `DatabasePool` while tests keep using an
+  /// in-memory `DatabaseQueue`.
+  private let db: any DatabaseWriter
   private let lock = NSLock()
   private var listeners: [UUID: () -> Void] = [:]
 
-  init(db: DatabaseQueue) {
+  init(db: any DatabaseWriter) {
     self.db = db
   }
 
@@ -105,12 +107,34 @@ final class Repository: @unchecked Sendable {
   }
 
   func saveEntities(_ entities: [(EntityType, EntityPayload)]) throws {
+    guard !entities.isEmpty else { return }
     try db.write { db in
+      let clock = try reserveVersions(db, count: entities.count)
       for (type, payload) in entities {
-        try putInTransaction(db, entityType: type, payload: payload)
+        try putInTransaction(db, entityType: type, payload: payload, clock: clock)
       }
     }
     notifyWrite()
+  }
+
+  /// Runs the legacy-row repairs at most once per generation.
+  ///
+  /// Both repairs scan the transaction and recurring tables end to end, so running
+  /// them per sync cycle meant two full scans after every local write. The generation
+  /// is reset by `mergeRemotePage` whenever a pull delivers rows that could themselves
+  /// be legacy, so data from an older client is still normalized.
+  @discardableResult
+  func runPendingBackfills() throws -> Int {
+    let applied = (try? deviceMeta()?.backfillVersion) ?? 0
+    guard (applied ?? 0) < backfillVersion else { return 0 }
+    var repaired = try backfillRecurringCurrencies()
+    repaired += try backfillMissingPaymentMethodIds()
+    try db.write { db in
+      guard var device = try DeviceMetaRecord.fetchOne(db, key: "device") else { return }
+      device.backfillVersion = backfillVersion
+      try device.update(db)
+    }
+    return repaired
   }
 
   /// Gives legacy recurring and transaction rows an explicit denomination and
@@ -230,16 +254,40 @@ final class Repository: @unchecked Sendable {
   }
 
   func removeEntity(entityType: EntityType, id: String) throws {
-    let key = entityKey(type: entityType, id: id)
+    try removeEntities(entityType: entityType, ids: [id])
+  }
+
+  /// Tombstones many rows of one type in a single database transaction with a single
+  /// write notification. Deleting per id meant one transaction and one observation
+  /// fire — hence one full reprojection — per row.
+  @discardableResult
+  func removeEntities(entityType: EntityType, ids: [String]) throws -> Int {
+    guard !ids.isEmpty else { return 0 }
+    var removedCount = 0
+    let unique = Set(ids)
     try db.write { db in
-      guard let current = try EntityRecord.fetchOne(db, key: key), !current.deleted else { return }
-      let stored = try current.toStoredEntity()
-      try putInTransaction(db, entityType: entityType, payload: stored.payload, deleted: true)
-      if entityType == .transaction {
-        try dismissEmailsLinkedToDeletedTransaction(db, transactionId: id)
+      let clock = try reserveVersions(db, count: unique.count)
+      for id in unique {
+        let key = entityKey(type: entityType, id: id)
+        guard let current = try EntityRecord.fetchOne(db, key: key), !current.deleted else {
+          continue
+        }
+        let stored = try current.toStoredEntity()
+        try putInTransaction(
+          db,
+          entityType: entityType,
+          payload: stored.payload,
+          deleted: true,
+          clock: clock
+        )
+        if entityType == .transaction {
+          try dismissEmailsLinkedToDeletedTransaction(db, transactionId: id)
+        }
+        removedCount += 1
       }
     }
-    notifyWrite()
+    if removedCount > 0 { notifyWrite() }
+    return removedCount
   }
 
   /// Tombstones every active entity of a type in one database transaction and
@@ -249,9 +297,16 @@ final class Repository: @unchecked Sendable {
     var removedCount = 0
     try db.write { db in
       let records = try TypedEntityStore.fetchAll(db: db, type: entityType, workspaceId: workspaceID)
-      for stored in records {
-        guard !stored.deleted else { continue }
-        try putInTransaction(db, entityType: entityType, payload: stored.payload, deleted: true)
+      let live = records.filter { !$0.deleted }
+      let clock = try reserveVersions(db, count: live.count)
+      for stored in live {
+        try putInTransaction(
+          db,
+          entityType: entityType,
+          payload: stored.payload,
+          deleted: true,
+          clock: clock
+        )
         if entityType == .transaction {
           try dismissEmailsLinkedToDeletedTransaction(db, transactionId: stored.entityId)
         }
@@ -273,6 +328,7 @@ final class Repository: @unchecked Sendable {
 
   func mergeRemotePage(_ remoteEntities: [StoredEntity], entityType: EntityType, cursor: Int) throws {
     try db.write { db in
+      var merged = 0
       for remote in remoteEntities {
         try observeRemoteVersion(db, remote.version)
         let local = try EntityRecord.fetchOne(db, key: remote.key)
@@ -285,6 +341,7 @@ final class Repository: @unchecked Sendable {
         }
         if shouldApply {
           try EntityRecord.from(remote).save(db)
+          merged += 1
           if let pending = try OutboxRecord.fetchOne(db, key: remote.key) {
             try pending.delete(db)
           }
@@ -293,6 +350,14 @@ final class Repository: @unchecked Sendable {
           } else if remote.entityType == .transaction, remote.deleted {
             try dismissEmailsLinkedToDeletedTransaction(db, transactionId: remote.entityId)
           }
+        }
+      }
+      // Rows just arrived that the legacy repairs inspect — re-arm them so payloads
+      // written by an older client are still normalized, without scanning every sync.
+      if merged > 0, entityType == .transaction || entityType == .recurring {
+        if var device = try DeviceMetaRecord.fetchOne(db, key: "device") {
+          device.backfillVersion = 0
+          try device.update(db)
         }
       }
       if var meta = try SyncMetaRecord.fetchOne(db, key: workspaceID)?.toSyncMeta() {
@@ -372,18 +437,28 @@ final class Repository: @unchecked Sendable {
 
   /// Hard-delete local tombstones past the private retention window.
   /// Skips rows that still have an unacked outbox operation.
+  ///
+  /// Expressed as SQL now that the logical version lives in typed columns: this used to
+  /// fetch and decode every entity in the database on every sync just to find the few
+  /// expired tombstones.
   @discardableResult
   func purgeExpiredTombstones(now: Int = Int(Date().timeIntervalSince1970 * 1000)) throws -> Int {
     let cutoff = now - tombstoneRetentionDays * 24 * 60 * 60 * 1000
     let purged = try db.write { db -> Int in
-      let records = try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
       var count = 0
-      for entity in records {
-        guard entity.deleted else { continue }
-        guard entity.version.timestamp < cutoff else { continue }
-        if try OutboxRecord.fetchOne(db, key: entity.key) != nil { continue }
-        _ = try EntityRecord.deleteOne(db, key: entity.key)
-        count += 1
+      for type in EntityType.allCases {
+        let table = TypedEntityStore.tableName(for: type)
+        try db.execute(
+          sql: """
+            DELETE FROM \(table)
+            WHERE workspaceId = ?
+              AND deleted = 1
+              AND versionTimestamp < ?
+              AND key NOT IN (SELECT key FROM outbox)
+            """,
+          arguments: [workspaceID, cutoff]
+        )
+        count += db.changesCount
       }
       return count
     }
@@ -560,9 +635,10 @@ final class Repository: @unchecked Sendable {
     _ db: Database,
     entityType: EntityType,
     payload: EntityPayload,
-    deleted: Bool = false
+    deleted: Bool = false,
+    clock: VersionRun? = nil
   ) throws {
-    let version = try nextVersion(db)
+    let version = try clock?.next() ?? nextVersion(db)
     let clean = PayloadSanitizer.sanitize(entityType: entityType, payload: payload)
     let id = clean.id
     let key = entityKey(type: entityType, id: id)
@@ -605,21 +681,55 @@ final class Repository: @unchecked Sendable {
       clockTimestamp: 0,
       clockCounter: 0,
       bootstrapVersion: 0,
-      lastPaymentMethodId: nil
+      lastPaymentMethodId: nil,
+      backfillVersion: 0
     )
     try created.insert(db)
     return created
   }
 
   private func nextVersion(_ db: Database) throws -> LogicalVersion {
+    try reserveVersions(db, count: 1).next()
+  }
+
+  /// Hands out consecutive logical versions from a single deviceMeta read/write pair.
+  ///
+  /// Bumping the clock per row meant two extra row operations for every entity in a
+  /// batch, so a 1 000-row CSV import spent ~4 000 operations purely on the clock.
+  /// Reserving the range keeps versions strictly increasing, which is all that
+  /// last-write-wins requires.
+  private final class VersionRun {
+    private let timestamp: Int
+    private let firstCounter: Int
+    private let deviceId: String
+    private var issued = 0
+
+    init(timestamp: Int, firstCounter: Int, deviceId: String) {
+      self.timestamp = timestamp
+      self.firstCounter = firstCounter
+      self.deviceId = deviceId
+    }
+
+    func next() -> LogicalVersion {
+      let counter = firstCounter + issued
+      issued += 1
+      return LogicalVersion(timestamp: timestamp, counter: counter, deviceId: deviceId)
+    }
+  }
+
+  private func reserveVersions(_ db: Database, count: Int) throws -> VersionRun {
     var device = try ensureDevice(db)
     let now = Int(Date().timeIntervalSince1970 * 1000)
     let timestamp = max(now, device.clockTimestamp)
-    let counter = timestamp == device.clockTimestamp ? device.clockCounter + 1 : 0
+    let firstCounter = timestamp == device.clockTimestamp ? device.clockCounter + 1 : 0
     device.clockTimestamp = timestamp
-    device.clockCounter = counter
+    device.clockCounter = firstCounter + max(0, count - 1)
     try device.update(db)
-    return LogicalVersion(timestamp: timestamp, counter: counter, deviceId: device.deviceId)
+    return VersionRun(
+      timestamp: timestamp,
+      firstCounter: firstCounter,
+      deviceId: device.deviceId
+    )
   }
 
   private func observeRemoteVersion(_ db: Database, _ version: LogicalVersion) throws {

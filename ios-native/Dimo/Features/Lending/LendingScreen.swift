@@ -224,10 +224,16 @@ struct LendingScreen: View {
     )
   }
 
+  /// Fixed-format and locale-independent, so it is built once rather than per share.
+  private static let shareDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "dd-MMM-yyyy"
+    return formatter
+  }()
+
   private func shareText(for summary: LendContactSummary) -> String {
-    let dateFormatter = DateFormatter()
-    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-    dateFormatter.dateFormat = "dd-MMM-yyyy"
+    let dateFormatter = Self.shareDateFormatter
 
     let transactionLines: [String] = LendSelectors
       .unsettledTransactions(for: summary.contactId, in: entities.lends)

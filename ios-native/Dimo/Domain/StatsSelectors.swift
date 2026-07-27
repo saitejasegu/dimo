@@ -82,6 +82,47 @@ struct MerchantStat: Equatable, Identifiable, Sendable {
 }
 
 enum StatsSelectors {
+  /// Cached: `DateFormatter` allocation dominates label building, and bars are rebuilt
+  /// on every range change and every hydrate. Locked because the hydrator queue and
+  /// the UI can both format at once.
+  private static let formatterLock = NSLock()
+
+  private static let monthLabelFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMM")
+    return formatter
+  }()
+
+  private static let weekdayLabelFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("EEE")
+    return formatter
+  }()
+
+  private static let monthDayLabelFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMMd")
+    return formatter
+  }()
+
+  private static func monthLabel(for date: Date) -> String {
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    return monthLabelFormatter.string(from: date)
+  }
+
+  private static func weekdayLabel(for date: Date) -> String {
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    return weekdayLabelFormatter.string(from: date)
+  }
+
+  private static func monthDayLabel(for date: Date) -> String {
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    return monthDayLabelFormatter.string(from: date)
+  }
+
   private static func monthStart(_ date: Date, offset: Int = 0, calendar: Calendar = .current) -> Date {
     let comps = calendar.dateComponents([.year, .month], from: date)
     guard let base = calendar.date(from: comps) else { return date }
@@ -202,14 +243,12 @@ enum StatsSelectors {
     }
     var entries: [(key: String, label: String, captionLabel: String, amount: Double)] = []
     var cursor = start
-    let formatter = DateFormatter()
-    formatter.locale = .current
     while cursor.timeIntervalSince1970 <= end.timeIntervalSince1970 {
       let key = DateHelpers.localDateKey(cursor, calendar: calendar)
-      formatter.setLocalizedDateFormatFromTemplate(range == .oneWeek ? "EEE" : "d")
-      let label = range == .oneWeek ? formatter.string(from: cursor) : "\(calendar.component(.day, from: cursor))"
-      formatter.setLocalizedDateFormatFromTemplate("MMMd")
-      entries.append((key, label, formatter.string(from: cursor), amounts[key] ?? 0))
+      let label = range == .oneWeek
+        ? Self.weekdayLabel(for: cursor)
+        : "\(calendar.component(.day, from: cursor))"
+      entries.append((key, label, Self.monthDayLabel(for: cursor), amounts[key] ?? 0))
       cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? end.addingTimeInterval(86_400)
     }
     return buildBars(title: "By day", entries: entries, selectedKey: selectedDay, wide: entries.count > 7)
@@ -226,21 +265,26 @@ enum StatsSelectors {
       return MonthBars(visible: false, title: "By month", caption: "", bars: [])
     }
     let count = StatsConstants.rangeMonths[range] ?? 1
-    let formatter = DateFormatter()
-    formatter.locale = .current
-    formatter.setLocalizedDateFormatFromTemplate("MMM")
+    // Single grouping pass. Filtering the whole list once per month made this
+    // O(months × transactions) with two Calendar component lookups per transaction per
+    // month — hundreds of thousands of Calendar calls on a two-year range.
+    var amounts: [String: Double] = [:]
+    for transaction in transactions {
+      let date = Date(timeIntervalSince1970: TimeInterval(transaction.occurredAt ?? 0) / 1000)
+      let parts = calendar.dateComponents([.year, .month], from: date)
+      amounts[monthKey(parts), default: 0] += transaction.amount
+    }
     let entries = (0..<count).map { index -> (key: String, label: String, captionLabel: String, amount: Double) in
       let date = monthStart(now, offset: index - count + 1, calendar: calendar)
-      let key = "\(calendar.component(.year, from: date))-\(calendar.component(.month, from: date) - 1)"
-      let amount = transactions.filter { t in
-        let d = Date(timeIntervalSince1970: TimeInterval(t.occurredAt ?? 0) / 1000)
-        let k = "\(calendar.component(.year, from: d))-\(calendar.component(.month, from: d) - 1)"
-        return k == key
-      }.reduce(0.0) { $0 + $1.amount }
-      let label = formatter.string(from: date)
-      return (key, label, label, amount)
+      let key = monthKey(calendar.dateComponents([.year, .month], from: date))
+      let label = Self.monthLabel(for: date)
+      return (key, label, label, amounts[key] ?? 0)
     }
     return buildBars(title: "By month", entries: entries, selectedKey: selectedMonth, wide: count > 6)
+  }
+
+  private static func monthKey(_ parts: DateComponents) -> String {
+    "\(parts.year ?? 0)-\((parts.month ?? 1) - 1)"
   }
 
   static func trendBars(

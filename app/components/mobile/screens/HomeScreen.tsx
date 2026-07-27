@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { money, spent } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { useActivity } from "@/features/transactions/hooks";
+import { usePagedTransactions } from "@/features/transactions/usePagedTransactions";
 import { recurringAmountInDefault } from "@/features/currency/rates";
-import {
-  groupByDay,
-  HOME_TRANSACTION_PAGE_SIZE,
-  paginateTransactionsByDay,
-} from "@/features/transactions/selectors";
 import { Avatar } from "@/components/ui/Avatar";
 import { HeroCard } from "@/components/ui/Card";
 import { TransactionRow } from "@/components/common/TransactionRow";
@@ -27,7 +23,6 @@ import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
-  const [pagination, setPagination] = useState({ key: "", limit: HOME_TRANSACTION_PAGE_SIZE });
   const { profile, currency, rates, query, categories } = useAppState();
   const actions = useAppActions();
   const {
@@ -37,12 +32,15 @@ export function HomeScreen() {
     transactionCount,
   } = useOverview();
   const { options, filter, paymentFilter, paymentOptions, filtered } = useActivity();
-  const paginationKey = JSON.stringify([query, filter, paymentFilter]);
-  const visibleLimit =
-    pagination.key === paginationKey ? pagination.limit : HOME_TRANSACTION_PAGE_SIZE;
-  const { items: visible, hasMore } = paginateTransactionsByDay(filtered, visibleLimit);
-  const groups = groupByDay(visible);
-  const emojiByName = new Map(categories.map((category) => [category.name, category.emoji]));
+  const { groups, hasMore, loadMore } = usePagedTransactions(filtered, {
+    query,
+    filter,
+    paymentFilter,
+  });
+  const emojiByName = useMemo(
+    () => new Map(categories.map((category) => [category.name, category.emoji])),
+    [categories],
+  );
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
   const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
   const canShowAll = allUpcoming.length > upcoming.length;
@@ -118,7 +116,8 @@ export function HomeScreen() {
                   key={rec.id}
                   recurring={rec}
                   currency={currency}
-                  onClick={() => actions.openEditRecurring(rec.id)}
+                  rates={rates}
+                  onClick={actions.openEditRecurring}
                 />
               ))
             )}
@@ -132,7 +131,7 @@ export function HomeScreen() {
       </div>
       {groups.length === 0 ? <div className="px-5 py-12 text-center text-sm text-faint">No transactions match.</div> : groups.map((group) => <div key={group.label} className="mb-[18px]">
         <div className="mb-2 flex items-baseline justify-between"><span className="text-xs font-medium uppercase tracking-[0.08em] text-muted">{group.label}</span><span className="text-xs text-faint">{spent(group.total, currency)}</span></div>
-        <div className="flex flex-col gap-2">{group.items.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} currency={currency} onClick={() => actions.openDetail(transaction.id)} />)}</div>
+        <div className="flex flex-col gap-2">{group.items.map((transaction) => <TransactionRow key={transaction.id} transaction={transaction} currency={currency} onClick={actions.openDetail} />)}</div>
       </div>)}
       {hasMore ? (
         <Button
@@ -140,12 +139,7 @@ export function HomeScreen() {
           fullWidth
           size="sm"
           className="mb-2"
-          onClick={() =>
-            setPagination({
-              key: paginationKey,
-              limit: visibleLimit + HOME_TRANSACTION_PAGE_SIZE,
-            })
-          }
+          onClick={loadMore}
         >
           Load more
         </Button>

@@ -13,31 +13,44 @@ struct EntityTypeFingerprints: Equatable, Sendable {
     category: 0, paymentMethod: 0, transaction: 0, recurring: 0, lend: 0, preferences: 0
   )
 
+  /// One pass with six hashers, rather than six passes over the whole batch.
   static func compute(_ entities: [StoredEntity]) -> EntityTypeFingerprints {
-    func hashType(_ type: EntityType) -> Int {
-      var hasher = Hasher()
-      var count = 0
-      for entity in entities where entity.entityType == type {
-        count += 1
-        hasher.combine(entity.entityId)
-        hasher.combine(entity.version.timestamp)
-        hasher.combine(entity.version.counter)
-        hasher.combine(entity.deleted)
-        if type == .preferences || type == .category {
-          hasher.combine(entity.payload)
-        }
+    var hashers: [EntityType: Hasher] = [:]
+    var counts: [EntityType: Int] = [:]
+    for type in [EntityType.category, .paymentMethod, .transaction, .recurring, .lend, .preferences] {
+      hashers[type] = Hasher()
+      counts[type] = 0
+    }
+
+    for entity in entities {
+      let type = entity.entityType
+      guard var hasher = hashers[type] else { continue }
+      counts[type, default: 0] += 1
+      hasher.combine(entity.entityId)
+      hasher.combine(entity.version.timestamp)
+      hasher.combine(entity.version.counter)
+      hasher.combine(entity.deleted)
+      // Category and preference *content* feeds other types' projections, so their
+      // payloads participate in the hash; the rest change their logical version.
+      if type == .preferences || type == .category {
+        hasher.combine(entity.payload)
       }
-      hasher.combine(count)
+      hashers[type] = hasher
+    }
+
+    func finalize(_ type: EntityType) -> Int {
+      guard var hasher = hashers[type] else { return 0 }
+      hasher.combine(counts[type] ?? 0)
       return hasher.finalize()
     }
 
     return EntityTypeFingerprints(
-      category: hashType(.category),
-      paymentMethod: hashType(.paymentMethod),
-      transaction: hashType(.transaction),
-      recurring: hashType(.recurring),
-      lend: hashType(.lend),
-      preferences: hashType(.preferences)
+      category: finalize(.category),
+      paymentMethod: finalize(.paymentMethod),
+      transaction: finalize(.transaction),
+      recurring: finalize(.recurring),
+      lend: finalize(.lend),
+      preferences: finalize(.preferences)
     )
   }
 
@@ -65,7 +78,8 @@ struct EntitySnapshot: Equatable, Sendable {
   var profileEmail: String
 }
 
-/// Screen projections computed off the main actor alongside entity hydrate.
+/// Projections needed by Home, Budgets and Lending. Computed on every hydrate because
+/// the tab bar can show any of them without warning.
 struct DerivedSnapshot: Equatable, Sendable {
   var monthBudgetTotals: BudgetTotals
   var categoryBudgets: [CategoryBudget]
@@ -74,12 +88,43 @@ struct DerivedSnapshot: Equatable, Sendable {
   var lendTotalOutstanding: Double
   var upcomingThisMonth: [Recurring]
   var upcomingAll: [Recurring]
-  var statsScope: StatsScope
-  var statsTrendBars: MonthBars
-  var statsCategories: [StatCategory]
-  var statsCategoriesTotal: Int
-  var statsMerchants: [MerchantStat]
-  var statsMerchantsTotal: Int
+}
+
+/// Stats-tab projections. The most expensive part of hydrate (range scoping, per-month
+/// grouping, merchant aggregation) and useless until the Stats tab is on screen, so it
+/// is computed on demand and cached against its inputs.
+struct StatsSnapshot: Equatable, Sendable {
+  var scope: StatsScope
+  var trendBars: MonthBars
+  var categories: [StatCategory]
+  var categoriesTotal: Int
+  var merchants: [MerchantStat]
+  var merchantsTotal: Int
+
+  static let empty = StatsSnapshot(
+    scope: StatsScope(
+      rangeMonths: 12,
+      scopeTotal: 0,
+      scopePast: 0,
+      spentLabel: "",
+      averageLabel: "",
+      transactions: []
+    ),
+    trendBars: MonthBars(visible: false, title: "", caption: "", bars: []),
+    categories: [],
+    categoriesTotal: 0,
+    merchants: [],
+    merchantsTotal: 0
+  )
+}
+
+/// Identifies a stats projection so an unchanged one is never recomputed.
+struct StatsInputs: Equatable, Sendable {
+  var revision: UInt64
+  var range: StatsRange
+  var selectedMonth: String?
+  var categoriesExpanded: Bool
+  var merchantsExpanded: Bool
 }
 
 /// Builds display models away from the main thread. Owns its own DateFormatters
@@ -135,11 +180,7 @@ enum EntityHydrator {
     recurring: [Recurring],
     lends: [Lend],
     limits: CategoryLimits,
-    categories: [CategoryEntity],
-    statsRange: StatsRange,
-    selectedMonth: String?,
-    categoriesExpanded: Bool,
-    merchantsExpanded: Bool
+    categories: [CategoryEntity]
   ) async -> DerivedSnapshot {
     await withCheckedContinuation { continuation in
       queue.async {
@@ -149,7 +190,27 @@ enum EntityHydrator {
             recurring: recurring,
             lends: lends,
             limits: limits,
-            categories: categories,
+            categories: categories
+          )
+        )
+      }
+    }
+  }
+
+  /// Stats projections, off the main actor. Only called while the Stats tab is on
+  /// screen or its controls change.
+  static func deriveStats(
+    transactions: [Transaction],
+    statsRange: StatsRange,
+    selectedMonth: String?,
+    categoriesExpanded: Bool,
+    merchantsExpanded: Bool
+  ) async -> StatsSnapshot {
+    await withCheckedContinuation { continuation in
+      queue.async {
+        continuation.resume(
+          returning: buildStats(
+            transactions: transactions,
             statsRange: statsRange,
             selectedMonth: selectedMonth,
             categoriesExpanded: categoriesExpanded,
@@ -160,30 +221,15 @@ enum EntityHydrator {
     }
   }
 
-  static func buildDerived(
+  static func buildStats(
     transactions: [Transaction],
-    recurring: [Recurring],
-    lends: [Lend],
-    limits: CategoryLimits,
-    categories: [CategoryEntity],
     statsRange: StatsRange,
     selectedMonth: String?,
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
-  ) -> DerivedSnapshot {
-    let monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: limits)
-    let categoryBudgets = BudgetSelectors.categoryBudgets(transactions, limits: limits)
-    let suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
-      transactions,
-      categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
-    )
-    let lendSummaries = LendSelectors.contactSummaries(lends)
-    let lendTotalOutstanding = LendSelectors.totalLent(lends)
-    let upcomingThisMonth = RecurringSelectors.upcomingBills(recurring, transactions: transactions)
-    let upcomingAll = RecurringSelectors.allUpcomingBills(recurring, transactions: transactions)
-
+  ) -> StatsSnapshot {
     let scope = StatsSelectors.statsScope(range: statsRange, transactions: transactions)
-    let statsTrendBars = StatsSelectors.trendBars(
+    let trendBars = StatsSelectors.trendBars(
       range: statsRange,
       transactions: scope.transactions,
       selectedKey: selectedMonth
@@ -196,6 +242,37 @@ enum EntityHydrator {
       scope: scope,
       limit: merchantsExpanded ? Int.max : 5
     )
+    return StatsSnapshot(
+      scope: scope,
+      trendBars: trendBars,
+      categories: cats.categories,
+      categoriesTotal: cats.total,
+      merchants: merchants.merchants,
+      merchantsTotal: merchants.total
+    )
+  }
+
+  static func buildDerived(
+    transactions: [Transaction],
+    recurring: [Recurring],
+    lends: [Lend],
+    limits: CategoryLimits,
+    categories: [CategoryEntity]
+  ) -> DerivedSnapshot {
+    let monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: limits)
+    let categoryBudgets = BudgetSelectors.categoryBudgets(transactions, limits: limits)
+    let suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
+      transactions,
+      categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
+    )
+    let lendSummaries = LendSelectors.contactSummaries(lends)
+    let lendTotalOutstanding = LendSelectors.totalLent(lends)
+    // Built once and shared: this is a full pass over every transaction id, and both
+    // upcoming views need the same set.
+    let recordedIDs = RecurringSelectors.recordedOccurrenceIDs(transactions)
+    let upcomingThisMonth = RecurringSelectors.upcomingBills(recurring, recordedIDs: recordedIDs)
+    let upcomingAll = RecurringSelectors.allUpcomingBills(recurring, recordedIDs: recordedIDs)
+
     return DerivedSnapshot(
       monthBudgetTotals: monthBudgetTotals,
       categoryBudgets: categoryBudgets,
@@ -203,13 +280,7 @@ enum EntityHydrator {
       lendSummaries: lendSummaries,
       lendTotalOutstanding: lendTotalOutstanding,
       upcomingThisMonth: upcomingThisMonth,
-      upcomingAll: upcomingAll,
-      statsScope: scope,
-      statsTrendBars: statsTrendBars,
-      statsCategories: cats.categories,
-      statsCategoriesTotal: cats.total,
-      statsMerchants: merchants.merchants,
-      statsMerchantsTotal: merchants.total
+      upcomingAll: upcomingAll
     )
   }
 
@@ -323,10 +394,11 @@ enum EntityHydrator {
             tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
           }
           let amountCurrency = tx.currency ?? prefs.currency.rawValue
+          let categoryName = cat?.name ?? "Unknown"
           return Transaction(
             id: tx.id,
             name: tx.name,
-            category: cat?.name ?? "Unknown",
+            category: categoryName,
             time: formatters.time(tx.occurredAt),
             day: formatters.day(tx.occurredAt),
             amount: ExchangeRates.transactionAmountInDefault(
@@ -344,7 +416,9 @@ enum EntityHydrator {
             paymentMethodId: tx.paymentMethodId,
             currency: amountCurrency,
             sourceCurrency: tx.sourceCurrency,
-            sourceAmount: sourceAmount
+            sourceAmount: sourceAmount,
+            searchText: "\(tx.name) \(categoryName)".lowercased(),
+            dayKey: formatters.dayKey(tx.occurredAt)
           )
         }
     } else {
@@ -445,9 +519,20 @@ enum EntityHydrator {
       return formatter
     }()
 
+    /// Reuses one `Calendar`; `Calendar.current` allocates a fresh value per access,
+    /// which is measurable when it runs once per transaction.
+    let calendar = Calendar.current
+
     func time(_ timestamp: Int) -> String {
       let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
       return timeFormatter.string(from: date)
+    }
+
+    func dayKey(_ timestamp: Int) -> String {
+      DateHelpers.localDateKey(
+        Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
+        calendar: calendar
+      )
     }
 
     func day(_ timestamp: Int, now: Date = Date(), calendar: Calendar = .current) -> String {

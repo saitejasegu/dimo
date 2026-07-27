@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -118,7 +119,8 @@ function MonthGrid({
   weekStartsOn: 0 | 1;
   onPick: (date: Date) => void;
 }) {
-  const cells = buildCells(month, weekStartsOn);
+  // 42 `Date` allocations per render, and the picker scrolls through many months.
+  const cells = useMemo(() => buildCells(month, weekStartsOn), [month, weekStartsOn]);
 
   return (
     <div

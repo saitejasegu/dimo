@@ -1,16 +1,17 @@
 "use client";
 
+import { memo } from "react";
 import type { Currency, Transaction } from "@/lib/types";
 import { spent } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { useAppState } from "@/store/app-store";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 import { Badge } from "@/components/ui/Badge";
 
 interface TransactionRowProps {
   transaction: Transaction;
   currency: Currency;
-  onClick: () => void;
+  /** Receives the transaction id so callers can pass one stable callback. */
+  onClick: (id: string) => void;
   /** "card" = bordered mobile row; "list" = flat hoverable web row. */
   layout?: "card" | "list";
   showDay?: boolean;
@@ -21,7 +22,7 @@ interface TransactionRowProps {
   selecting?: boolean;
 }
 
-export function TransactionRow({
+function TransactionRowImpl({
   transaction,
   currency,
   onClick,
@@ -32,17 +33,15 @@ export function TransactionRow({
   selected = false,
   selecting = false,
 }: TransactionRowProps) {
-  const { categories } = useAppState();
-  const emoji =
-    transaction.emoji ??
-    categories.find((c) => c.id === transaction.categoryId)?.emoji ??
-    categories.find((c) => c.name === transaction.category)?.emoji;
+  // Hydration already resolves the category emoji onto the projection, so the row
+  // needs no store subscription and never scans the category list.
+  const emoji = transaction.emoji;
   const sub = `${transaction.category} · ${transaction.time}`;
 
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onClick(transaction.id)}
       aria-pressed={selecting ? selected : undefined}
       className={cn(
         "flex w-full items-center gap-3 text-left transition-colors",
@@ -107,3 +106,5 @@ export function TransactionRow({
     </button>
   );
 }
+
+export const TransactionRow = memo(TransactionRowImpl);

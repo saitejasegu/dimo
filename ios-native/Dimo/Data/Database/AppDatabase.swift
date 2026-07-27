@@ -3,10 +3,10 @@ import GRDB
 
 enum AppDatabase {
   private static let lock = NSLock()
-  private static var queue: DatabaseQueue?
+  private static var queue: DatabasePool?
   private static var activeUserId: String?
 
-  static var shared: DatabaseQueue {
+  static var shared: DatabasePool {
     lock.lock(); defer { lock.unlock() }
     if let queue { return queue }
     let q = try! openUnconfigured()
@@ -15,7 +15,7 @@ enum AppDatabase {
   }
 
   @discardableResult
-  static func activate(userId: String) throws -> DatabaseQueue {
+  static func activate(userId: String) throws -> DatabasePool {
     lock.lock(); defer { lock.unlock() }
     if activeUserId == userId, let queue { return queue }
     try queue?.close()
@@ -49,27 +49,33 @@ enum AppDatabase {
     try FileManager.default.removeItem(at: url)
   }
 
-  private static func openUnconfigured() throws -> DatabaseQueue {
+  private static func openUnconfigured() throws -> DatabasePool {
     try open(fileName: "dimo-unconfigured.sqlite")
   }
 
-  private static func open(userId: String) throws -> DatabaseQueue {
+  private static func open(userId: String) throws -> DatabasePool {
     let safe = userId
       .replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: ":", with: "_")
     return try open(fileName: "dimo-\(safe).sqlite")
   }
 
-  private static func open(fileName: String) throws -> DatabaseQueue {
+  /// A `DatabasePool` rather than a `DatabaseQueue`: pool reads run in WAL mode
+  /// concurrently with writes, so a sync merge or a retention sweep can no longer
+  /// stall a UI read. `synchronous = NORMAL` is the standard WAL setting — a commit
+  /// no longer waits on an fsync, and WAL still recovers cleanly from process kills
+  /// (only an OS crash can lose the most recent commits).
+  private static func open(fileName: String) throws -> DatabasePool {
     let dir = try applicationSupportDirectory()
     let url = dir.appendingPathComponent(fileName)
     var config = Configuration()
     config.prepareDatabase { db in
       try db.execute(sql: "PRAGMA foreign_keys = ON")
+      try db.execute(sql: "PRAGMA synchronous = NORMAL")
     }
-    let dbQueue = try DatabaseQueue(path: url.path, configuration: config)
-    try migrator.migrate(dbQueue)
-    return dbQueue
+    let pool = try DatabasePool(path: url.path, configuration: config)
+    try migrator.migrate(pool)
+    return pool
   }
 
   private static func applicationSupportDirectory() throws -> URL {
@@ -493,6 +499,55 @@ enum AppDatabase {
               lastBYOKNonZDRConsentVersion = nonZDRConsentVersion
           """
       )
+    }
+    // Logical versions move from a JSON BLOB to typed columns. The blob forced one
+    // JSONDecoder run per row on every fetch, and entity fetches are the hot path
+    // behind every UI projection.
+    migrator.registerMigration("v12-typed-logical-version") { db in
+      let typedTables = [
+        "categories", "paymentMethods", "transactions", "recurring", "lends",
+        "syncedEmailMessages", "preferences",
+      ]
+      let decoder = JSONDecoder()
+      for table in typedTables {
+        try db.alter(table: table) { t in
+          t.add(column: "versionTimestamp", .integer).notNull().defaults(to: 0)
+          t.add(column: "versionCounter", .integer).notNull().defaults(to: 0)
+          t.add(column: "versionDeviceId", .text).notNull().defaults(to: "")
+        }
+        let rows = try Row.fetchAll(db, sql: "SELECT key, version FROM \(table)")
+        for row in rows {
+          let key: String = row["key"]
+          guard let data: Data = row["version"],
+                let version = try? decoder.decode(LogicalVersion.self, from: data)
+          else { continue }
+          try db.execute(
+            sql: """
+              UPDATE \(table)
+              SET versionTimestamp = ?, versionCounter = ?, versionDeviceId = ?
+              WHERE key = ?
+              """,
+            arguments: [version.timestamp, version.counter, version.deviceId, key]
+          )
+        }
+        try db.alter(table: table) { t in
+          t.drop(column: "version")
+        }
+      }
+      // Sorting and range reads on the Home/Stats paths; `deleted` narrows the scan to
+      // live rows, which is what every projection wants.
+      try db.create(
+        index: "transactions_workspace_occurredAt",
+        on: "transactions",
+        columns: ["workspaceId", "deleted", "occurredAt"]
+      )
+    }
+    // Legacy-row repairs used to run on every sync cycle, each a full table scan.
+    // This records which repair generation a device has already applied.
+    migrator.registerMigration("v13-backfill-generation") { db in
+      try db.alter(table: "deviceMeta") { t in
+        t.add(column: "backfillVersion", .integer).notNull().defaults(to: 0)
+      }
     }
     return migrator
   }

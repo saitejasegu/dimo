@@ -217,21 +217,16 @@ final class AppStore {
       syncObservation = repo.observeSyncMeta { [weak self] meta in
         Task { @MainActor in
           self?.syncStatus.syncMeta = meta
-          if let counts = try? self?.repository?.outboxCounts() {
-            self?.syncStatus.pendingCount = counts.pending
-            self?.syncStatus.blockedCount = counts.blocked
-          }
+          await self?.refreshOutboxCounts(repository: repo)
         }
       }
       writeListener = repo.onLocalWrite { [weak self] in
         Task { @MainActor in
-          if let counts = try? self?.repository?.outboxCounts() {
-            self?.syncStatus.pendingCount = counts.pending
-            self?.syncStatus.blockedCount = counts.blocked
-          }
+          await self?.refreshOutboxCounts(repository: repo)
         }
       }
-      let batch = try repo.allEntities()
+      // Two synchronous SQLite reads per write would otherwise land on the main actor.
+      let batch = try await Task.detached { try repo.allEntities() }.value
       await hydrateNow(batch)
       expenseReminder = ExpenseReminderStore.load(userId: userId)
       ExpenseReminderRouter.store = self
@@ -382,8 +377,9 @@ final class AppStore {
       let previousDate = entities.rates?.date
       entities.setRates(table)
       // FX changes require remapping transaction amounts in the default currency.
-      if previousDate != table.date {
-        scheduleHydrate((try? repository?.allEntities()) ?? [])
+      if previousDate != table.date, let repository {
+        let batch = try? await Task.detached { try repository.allEntities() }.value
+        scheduleHydrate(batch ?? [])
       }
     } catch {
       // Offline / auth — keep the UserDefaults cache already seeded into `rates`.
@@ -492,8 +488,10 @@ final class AppStore {
       paymentMethodId: paymentMethodId,
       currency: currency.rawValue
     )
-    try? repository?.saveEntity(entityType: .transaction, payload: .transaction(entity))
-    try? repository?.setLastPaymentMethod(paymentMethodId)
+    write { repository in
+      try repository.saveEntity(entityType: .transaction, payload: .transaction(entity))
+      try repository.setLastPaymentMethod(paymentMethodId)
+    }
     filter = TransactionFilter()
     closeOverlay()
     setView(.home)
@@ -533,8 +531,10 @@ final class AppStore {
         sourceAmountMinor: converted.sourceAmountMinor,
         exchangeRate: converted.exchangeRate
       )
-      try? repository?.saveEntity(entityType: .transaction, payload: .transaction(transaction))
-      try? repository?.setLastPaymentMethod(resolvedMethodId)
+      write { repository in
+        try repository.saveEntity(entityType: .transaction, payload: .transaction(transaction))
+        try repository.setLastPaymentMethod(resolvedMethodId)
+      }
       closeOverlay()
       setView(.home)
       showToast("Expense saved")
@@ -576,8 +576,10 @@ final class AppStore {
       )
       return (.transaction, .transaction(transaction))
     })
-    try? repository?.saveEntities(batch)
-    try? repository?.setLastPaymentMethod(resolvedMethodId)
+    write { repository in
+      try repository.saveEntities(batch)
+      try repository.setLastPaymentMethod(resolvedMethodId)
+    }
     closeOverlay()
     setView(.home)
     showToast(
@@ -621,7 +623,7 @@ final class AppStore {
       comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
       kind: existing?.kind ?? lendDraft.kind
     )
-    try? repository?.saveEntity(entityType: .lend, payload: .lend(entity))
+    write { try $0.saveEntity(entityType: .lend, payload: .lend(entity)) }
     closeOverlay()
     let noun = kind == .repaid ? "Repayment" : "Lend"
     showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
@@ -649,7 +651,7 @@ final class AppStore {
   }
 
   func deleteLend(_ id: String) {
-    try? repository?.removeEntity(entityType: .lend, id: id)
+    write { try $0.removeEntity(entityType: .lend, id: id) }
     closeOverlay()
     showToast("Lend deleted")
   }
@@ -674,23 +676,23 @@ final class AppStore {
   }
 
   func deleteTransaction(_ id: String) {
-    try? repository?.removeEntity(entityType: .transaction, id: id)
+    write { try $0.removeEntity(entityType: .transaction, id: id) }
     closeDetail()
     showToast("Transaction deleted")
   }
 
   func deleteRecurring(_ id: String) {
-    try? repository?.removeEntity(entityType: .recurring, id: id)
+    write { try $0.removeEntity(entityType: .recurring, id: id) }
     closeOverlay()
     showToast("Recurring transaction deleted")
   }
 
   func deleteCategoryAndTransactions(_ categoryId: String) {
     let transactionIds = transactions.filter { $0.categoryId == categoryId }.map(\.id)
-    for id in transactionIds {
-      try? repository?.removeEntity(entityType: .transaction, id: id)
+    write { repository in
+      try repository.removeEntities(entityType: .transaction, ids: transactionIds)
+      try repository.removeEntity(entityType: .category, id: categoryId)
     }
-    try? repository?.removeEntity(entityType: .category, id: categoryId)
     closeOverlay()
     showToast(
       transactionIds.isEmpty
@@ -730,7 +732,7 @@ final class AppStore {
       sourceAmountMinor: converted.sourceAmountMinor,
       exchangeRate: converted.exchangeRate
     )
-    try? repository?.saveEntity(entityType: .transaction, payload: .transaction(entity))
+    write { try $0.saveEntity(entityType: .transaction, payload: .transaction(entity)) }
     closeDetail()
     showToast("Transaction updated")
   }
@@ -793,7 +795,7 @@ final class AppStore {
         return (.transaction, .transaction(transaction))
       })
     }
-    try? repository?.saveEntities(batch)
+    write { try $0.saveEntities(batch) }
     closeOverlay()
     showToast(recurringDraft.editingId == nil ? "Recurring added" : "Recurring updated")
   }
@@ -815,13 +817,19 @@ final class AppStore {
   }
 
   func toggleRecurring(_ id: String) {
-    guard let existing = try? repository?.activeEntities(type: .recurring)
-      .first(where: { $0.entityId == id }),
-      case .recurring(var payload) = existing.payload else { return }
-    if payload.currency == nil { payload.currency = currency.rawValue }
-    payload.paused.toggle()
-    try? repository?.saveEntity(entityType: .recurring, payload: .recurring(payload))
-    showToast(payload.paused ? "Paused" : "Resumed")
+    // The projection already knows the current state, so the toast can be optimistic
+    // while the read-modify-write runs off the main actor.
+    guard let current = recurring.first(where: { $0.id == id }) else { return }
+    let fallbackCurrency = currency.rawValue
+    write { repository in
+      guard let existing = try repository.activeEntities(type: .recurring)
+        .first(where: { $0.entityId == id }),
+        case .recurring(var payload) = existing.payload else { return }
+      if payload.currency == nil { payload.currency = fallbackCurrency }
+      payload.paused.toggle()
+      try repository.saveEntity(entityType: .recurring, payload: .recurring(payload))
+    }
+    showToast(current.paused ? "Resumed" : "Paused")
   }
 
   func saveCategory() {
@@ -839,7 +847,7 @@ final class AppStore {
       sortOrder: existing?.sortOrder ?? categories.count,
       system: existing?.system ?? false
     )
-    try? repository?.saveEntity(entityType: .category, payload: .category(entity))
+    write { try $0.saveEntity(entityType: .category, payload: .category(entity)) }
     closeOverlay()
     showToast(categoryDraft.editingId == nil ? "Category created" : "Category updated")
   }
@@ -864,14 +872,14 @@ final class AppStore {
       cat.monthlyBudgetMinor = Int((suggestion.suggestedLimit * 100).rounded())
       batch.append((.category, .category(cat)))
     }
-    try? repository?.saveEntities(batch)
+    write { try $0.saveEntities(batch) }
     showToast("Budgets updated")
   }
 
   func updatePreferences(mutate: (inout PreferencesEntity) -> Void) {
     var prefs = currentPreferences()
     mutate(&prefs)
-    try? repository?.saveEntity(entityType: .preferences, payload: .preferences(prefs))
+    write { try $0.saveEntity(entityType: .preferences, payload: .preferences(prefs)) }
   }
 
   func pressAmountKey(_ key: String) {
@@ -891,8 +899,12 @@ final class AppStore {
     return TransactionCSV.format(sources)
   }
 
-  func importCSV(_ text: String) throws {
-    let rows = try TransactionCSV.parse(text)
+  /// Parsing and the batch write both run off the main actor; only id assignment and
+  /// category de-duplication (which read main-actor state) stay here.
+  func importCSV(_ text: String) async throws {
+    let rows = try await Task.detached(priority: .userInitiated) {
+      try TransactionCSV.parse(text)
+    }.value
     let defaultPM = TransactionCSV.defaultPaymentMethodIdForImport(paymentMethods)
     var categoryByName = Dictionary(uniqueKeysWithValues: categories.map { ($0.name.lowercased(), $0) })
     var batch: [(EntityType, EntityPayload)] = []
@@ -926,7 +938,7 @@ final class AppStore {
       )
       batch.append((.transaction, .transaction(tx)))
     }
-    try repository?.saveEntities(batch)
+    write { try $0.saveEntities(batch) }
     showToast("Imported \(rows.count) transactions")
   }
 
@@ -948,9 +960,7 @@ final class AppStore {
 
   func deleteTransactions(_ ids: [String]) {
     guard !ids.isEmpty else { return }
-    for id in ids {
-      try? repository?.removeEntity(entityType: .transaction, id: id)
-    }
+    write { try $0.removeEntities(entityType: .transaction, ids: ids) }
     showToast(ids.count == 1 ? "Transaction deleted" : "\(ids.count) transactions deleted")
   }
 
@@ -981,7 +991,7 @@ final class AppStore {
       detail: type == .Cash ? "" : detail.trimmingCharacters(in: .whitespacesAndNewlines),
       archived: paymentMethods.first(where: { $0.id == methodId })?.archived ?? false
     )
-    try? repository?.saveEntity(entityType: .paymentMethod, payload: .paymentMethod(entity))
+    write { try $0.saveEntity(entityType: .paymentMethod, payload: .paymentMethod(entity)) }
     showToast(id == nil ? "Payment method added" : "Payment method updated")
     return nil
   }
@@ -1017,7 +1027,7 @@ final class AppStore {
         batch.append((.preferences, .preferences(prefs)))
       }
     }
-    try? repository?.saveEntities(batch)
+    write { try $0.saveEntities(batch) }
     showToast(archived ? "Payment method archived" : "Payment method restored")
   }
 
@@ -1065,11 +1075,7 @@ final class AppStore {
       recurring: snapshot.recurring,
       lends: snapshot.lends,
       limits: snapshot.limits,
-      categories: snapshot.categories,
-      statsRange: snapshot.statsRange,
-      selectedMonth: nav.selectedMonth,
-      categoriesExpanded: nav.categoriesExpanded,
-      merchantsExpanded: nav.merchantsExpanded
+      categories: snapshot.categories
     )
     entities.apply(
       snapshot: snapshot,
@@ -1102,6 +1108,43 @@ final class AppStore {
   /// Soft-pauses on-device email analysis while the user is actively scrolling.
   func setUIScrolling(_ scrolling: Bool) {
     emailController?.setUIScrolling(scrolling)
+  }
+
+  /// Serial queue for store mutations. A detached task per write would let two rapid
+  /// edits of the same entity reach SQLite out of submission order, and the loser
+  /// would take the higher logical version. FIFO keeps last-write-wins matching what
+  /// the user actually did last.
+  private static let writeQueue = DispatchQueue(
+    label: "app.dimo.store-writes",
+    qos: .userInitiated
+  )
+
+  /// Runs a repository mutation off the main actor.
+  ///
+  /// SQLite commits block the calling thread. Performed inline from a `@MainActor`
+  /// mutation they cost a frame on every save; the caller updates the UI
+  /// optimistically and the durable result arrives through the entity observation.
+  private func write(
+    _ operation: @escaping @Sendable (Repository) throws -> Void
+  ) {
+    guard let repository else { return }
+    Self.writeQueue.async { [weak self] in
+      do {
+        try operation(repository)
+      } catch {
+        Task { @MainActor in self?.showToast(error.localizedDescription) }
+      }
+    }
+  }
+
+  /// Counts the outbox off the main actor — this runs after every local write and on
+  /// every syncMeta change, so it must not put SQLite reads on the UI thread.
+  private func refreshOutboxCounts(repository repo: Repository) async {
+    guard let counts = try? await Task.detached(priority: .utility, operation: {
+      try repo.outboxCounts()
+    }).value else { return }
+    syncStatus.pendingCount = counts.pending
+    syncStatus.blockedCount = counts.blocked
   }
 
   private func scheduleProjectionRefresh() {

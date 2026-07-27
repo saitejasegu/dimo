@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn } from "@/lib/cn";
 import { ProgressBar, type ProgressTone } from "@/components/ui/ProgressBar";
 
@@ -12,7 +13,7 @@ interface CategoryBarProps {
 }
 
 /** Label + caption header above a progress bar (overview, stats, budgets). */
-export function CategoryBar({
+function CategoryBarImpl({
   label,
   caption,
   value,
@@ -48,3 +49,5 @@ export function CategoryBar({
     <div className={className}>{content}</div>
   );
 }
+
+export const CategoryBar = memo(CategoryBarImpl);

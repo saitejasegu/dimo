@@ -343,10 +343,21 @@ struct SettingsScreen: View {
 
   private func importFile(_ url: URL) {
     guard url.startAccessingSecurityScopedResource() else { return }
-    defer { url.stopAccessingSecurityScopedResource() }
     do {
       let text = try String(contentsOf: url, encoding: .utf8)
-      try store.importCSV(text)
+      url.stopAccessingSecurityScopedResource()
+      // Parsing and writing happen off the main actor, so this awaits rather than
+      // blocking the frame that dismissed the file picker.
+      Task { await importParsed(text) }
+    } catch {
+      url.stopAccessingSecurityScopedResource()
+      store.showToast(error.localizedDescription)
+    }
+  }
+
+  private func importParsed(_ text: String) async {
+    do {
+      try await store.importCSV(text)
     } catch {
       store.showToast(error.localizedDescription)
     }
@@ -563,12 +574,19 @@ struct AccountScreen: View {
     .settingsCard()
   }
 
-  private var lastSyncLabel: String {
-    guard let at = store.syncMeta?.lastSyncedAt else { return "Not synced yet" }
+  /// Built once; this label is recomputed on every sync-status change.
+  private static let lastSyncFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateStyle = .medium
     formatter.timeStyle = .short
-    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(at) / 1000))
+    return formatter
+  }()
+
+  private var lastSyncLabel: String {
+    guard let at = store.syncMeta?.lastSyncedAt else { return "Not synced yet" }
+    return Self.lastSyncFormatter.string(
+      from: Date(timeIntervalSince1970: TimeInterval(at) / 1000)
+    )
   }
 
   private func readOnlyField(_ title: String, value: String) -> some View {

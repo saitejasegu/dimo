@@ -1,29 +1,34 @@
 "use client";
 
+import { memo } from "react";
 import type { Currency, Recurring } from "@/lib/types";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { useAppState } from "@/store/app-store";
-import { convertMinor, toMajorUnits, toMinorUnits } from "@/features/currency/rates";
+import {
+  convertMinor,
+  toMajorUnits,
+  toMinorUnits,
+  type RateTable,
+} from "@/features/currency/rates";
 import { CategoryTint } from "@/components/ui/CategoryTint";
 
 /** Compact upcoming-bill row used on the home/overview screens. */
-export function UpcomingRow({
+function UpcomingRowImpl({
   recurring,
   currency,
+  rates,
   onClick,
   size = "mobile",
 }: {
   recurring: Recurring;
   currency: Currency;
-  onClick: () => void;
+  rates: RateTable | null;
+  /** Receives the recurring id so callers can pass one stable callback. */
+  onClick: (id: string) => void;
   size?: "mobile" | "web";
 }) {
-  const { categories, rates } = useAppState();
-  const emoji =
-    recurring.emoji ??
-    categories.find((c) => c.id === recurring.categoryId)?.emoji ??
-    categories.find((c) => c.name === recurring.category)?.emoji;
+  // Hydration resolves the emoji onto the projection, so no store subscription here.
+  const emoji = recurring.emoji;
   const web = size === "web";
   // Foreign bills show their own-currency amount plus today's default-currency value.
   const foreign = Boolean(recurring.currency && recurring.currency !== currency);
@@ -38,7 +43,7 @@ export function UpcomingRow({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => onClick(recurring.id)}
       className={cn(
         "flex w-full items-center gap-3 text-left transition-colors",
         !web &&
@@ -101,3 +106,5 @@ export function UpcomingRow({
     </button>
   );
 }
+
+export const UpcomingRow = memo(UpcomingRowImpl);

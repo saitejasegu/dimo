@@ -108,7 +108,8 @@ export function OverviewScreen() {
                     key={rec.id}
                     recurring={rec}
                     currency={currency}
-                    onClick={() => actions.openEditRecurring(rec.id)}
+                    rates={rates}
+                    onClick={actions.openEditRecurring}
                     size="web"
                   />
                 ))
