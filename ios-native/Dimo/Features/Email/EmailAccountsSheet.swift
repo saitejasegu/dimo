@@ -35,7 +35,7 @@ struct EmailSettingsSection: View {
       }
       Button("Cancel", role: .cancel) { disconnectCandidate = nil }
     } message: {
-      Text("Dimo will delete this account's device-only Gmail credential and all local email suggestions. Existing Dimo transactions are unchanged. Reviewed suggestions remain in sync and return if you reconnect the same account.")
+      Text("Dimo will delete this account's device-only Gmail credential and all local email suggestions. Existing Dimo transactions are unchanged. Prefer Reconnect Gmail when access expires so pending local suggestions stay on this iPhone. Reviewed suggestions remain in sync and return if you reconnect the same account.")
     }
     .alert(
       "Reanalyse all emails?",
@@ -66,7 +66,13 @@ struct EmailSettingsSection: View {
         set: { if !$0 { store.clearError() } }
       )
     ) {
-      Button("OK") { store.clearError() }
+      if let accountID = store.pendingReconnectAccountID {
+        Button("Reconnect Gmail") {
+          store.clearError()
+          store.reconnectAccount(accountID)
+        }
+      }
+      Button("OK", role: .cancel) { store.clearError() }
     } message: {
       Text(store.lastActionError ?? "Please try again.")
     }
@@ -149,7 +155,7 @@ struct EmailSettingsSection: View {
             .lineLimit(1)
           Text(accountStatus(account))
             .font(DimoFont.body(11))
-            .foregroundStyle(account.syncState == .failed ? Theme.danger : Theme.muted)
+            .foregroundStyle(accountNeedsAttention(account) ? Theme.danger : Theme.muted)
             .fixedSize(horizontal: false, vertical: true)
         }
 
@@ -160,10 +166,10 @@ struct EmailSettingsSection: View {
         } else {
           Text(account.syncState.title)
             .font(DimoFont.body(10, weight: .medium))
-            .foregroundStyle(account.syncState == .failed ? Theme.danger : Theme.muted)
+            .foregroundStyle(accountNeedsAttention(account) ? Theme.danger : Theme.muted)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(account.syncState == .failed ? Theme.dangerSoft : Theme.canvasDeep)
+            .background(accountNeedsAttention(account) ? Theme.dangerSoft : Theme.canvasDeep)
             .clipShape(Capsule())
         }
       }
@@ -178,7 +184,27 @@ struct EmailSettingsSection: View {
       Divider().overlay(Theme.lineSoft)
 
       HStack(spacing: 12) {
-        if account.syncState != .disconnected {
+        if account.syncState == .needsReconnect {
+          Button {
+            store.reconnectAccount(account.id)
+          } label: {
+            Label("Reconnect Gmail", systemImage: "person.badge.key")
+              .font(DimoFont.body(12, weight: .medium))
+              .foregroundStyle(Theme.green)
+          }
+          .buttonStyle(.plain)
+
+          Spacer()
+
+          Button(role: .destructive) {
+            disconnectCandidate = account
+          } label: {
+            Text("Disconnect")
+              .font(DimoFont.body(12, weight: .medium))
+              .foregroundStyle(Theme.danger)
+          }
+          .buttonStyle(.plain)
+        } else if account.syncState != .disconnected {
           Button {
             store.refreshAccount(account.id)
           } label: {
@@ -559,6 +585,10 @@ struct EmailSettingsSection: View {
       return "Last refreshed \(lastSync.formatted(.relative(presentation: .named)))"
     }
     return account.initialScanComplete ? "Ready to refresh" : "Seven-day scan not complete"
+  }
+
+  private func accountNeedsAttention(_ account: EmailUIAccount) -> Bool {
+    account.syncState == .failed || account.syncState == .needsReconnect
   }
 
   private func compactAction(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {

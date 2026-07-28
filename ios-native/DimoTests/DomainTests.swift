@@ -2515,6 +2515,65 @@ final class EmailLinkedTransactionRetentionTests: XCTestCase {
     XCTAssertEqual(try repository.emailMessage(key: accepted.key)?.state, .added)
   }
 
+  func testNeedsReconnectSyncStateMappingAndSoftReconnectKeepsLocalMail() throws {
+    let account = EmailAccountRecordModel(
+      id: "gmail-subject",
+      emailAddress: "person@example.com",
+      backfillPageToken: "page-1"
+    )
+    XCTAssertEqual(
+      emailRepositorySyncState(.needsReconnect, account: account),
+      .needsReconnect
+    )
+    XCTAssertEqual(emailRepositorySyncState(.failed, account: account), .failed)
+    XCTAssertEqual(emailRepositorySyncState(.syncing, account: account), .backfilling)
+    XCTAssertEqual(
+      emailRepositorySyncState(.syncing, account: EmailAccountRecordModel(
+        id: "gmail-subject",
+        emailAddress: "person@example.com"
+      )),
+      .syncing
+    )
+
+    let userId = "email-soft-reconnect-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repository = Repository(db: queue)
+    try repository.initializeLocalDatabase()
+    try repository.saveEmailAccount(EmailAccountRecordModel(
+      id: "gmail-subject",
+      emailAddress: "person@example.com",
+      historyId: "hist-1",
+      backfillCompletedAt: 2_000,
+      syncState: .needsReconnect,
+      lastError: GmailOAuthError.requiresReconnect.localizedDescription
+    ))
+    let pending = PendingEmailMessage(
+      accountId: "gmail-subject",
+      gmailMessageId: "pending-msg",
+      threadId: "thread-pending",
+      senderAddress: "merchant@example.com",
+      subject: "Pending",
+      snippet: "Pending",
+      internalDate: 1_000,
+      normalizedBodyText: "Pending body"
+    )
+    _ = try repository.insertPendingEmailMessages([pending])
+
+    // Soft reconnect only clears auth failure state; it must not delete local mail
+    // or wipe Gmail history cursors.
+    try repository.updateEmailAccount(id: "gmail-subject") { record in
+      record.syncState = .idle
+      record.lastError = nil
+    }
+    let restored = try XCTUnwrap(repository.emailAccount(id: "gmail-subject"))
+    XCTAssertEqual(restored.syncState, .idle)
+    XCTAssertNil(restored.lastError)
+    XCTAssertEqual(restored.historyId, "hist-1")
+    XCTAssertEqual(restored.backfillCompletedAt, 2_000)
+    XCTAssertEqual(try repository.emailMessage(key: pending.key)?.normalizedBodyText, "Pending body")
+  }
+
   func testLinkingToExistingTransactionReviewsEmailWithoutCreatingAnExpense() throws {
     let userId = "email-link-existing-\(UUID().uuidString)"
     let queue = try AppDatabase.activate(userId: userId)

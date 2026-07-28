@@ -7,6 +7,8 @@ enum EmailAccountSyncState: String, Codable, CaseIterable, Hashable, Sendable {
   case rateLimited
   case offline
   case failed
+  /// Refresh token is invalid; local mail is kept until the user reconnects Gmail.
+  case needsReconnect
   /// Stub row kept after disconnect or restored from Convex without OAuth credentials.
   case disconnected
 }

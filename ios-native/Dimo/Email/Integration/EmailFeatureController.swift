@@ -239,6 +239,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     do {
       let incrementalAccounts = try repository.emailAccounts().filter {
         $0.syncState != .disconnected
+          && $0.syncState != .needsReconnect
           && $0.backfillCompletedAt != nil
           && $0.historyId != nil
       }
@@ -295,6 +296,12 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
           throw EmailFeatureControllerError.gmailNotConfigured
         }
         try await self.connectAccount()
+      },
+      reconnectAccount: { [weak self] accountId in
+        guard let self else {
+          throw EmailFeatureControllerError.gmailNotConfigured
+        }
+        try await self.reconnectAccount(accountId)
       },
       disconnectAccount: { [weak self] accountId in
         guard let self else { return }
@@ -484,6 +491,30 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       throw error
     }
     try await refresh(accountId: account.subject)
+  }
+
+  /// Replaces a dead Gmail refresh token in place. Local messages, reviewed
+  /// suggestions, and sync cursors are preserved.
+  private func reconnectAccount(_ accountId: String) async throws {
+    guard let oauthClient else { throw EmailFeatureControllerError.gmailNotConfigured }
+    guard let existing = try repository.emailAccount(id: accountId) else {
+      throw EmailRepositoryError.accountNotFound
+    }
+    let account = try await oauthClient.reauthorize(
+      subject: accountId,
+      emailAddress: existing.emailAddress,
+      dimoUserId: userId
+    )
+    guard !stopped, !Task.isCancelled else {
+      throw CancellationError()
+    }
+    await tokenManager?.invalidate(subject: accountId)
+    try repository.updateEmailAccount(id: accountId) { record in
+      record.emailAddress = account.emailAddress
+      record.syncState = .idle
+      record.lastError = nil
+    }
+    try await refresh(accountId: accountId)
   }
 
   private func disconnectAccount(_ accountId: String) async throws {
@@ -1641,6 +1672,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     case .rateLimited: return .rateLimited
     case .offline: return .offline
     case .failed: return .failed
+    case .needsReconnect: return .needsReconnect
     case .disconnected: return .disconnected
     }
   }
@@ -1652,6 +1684,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     case .rateLimited: return "Paused briefly · retrying automatically"
     case .offline: return "Waiting for a network connection"
     case .failed: return account.lastError
+    case .needsReconnect:
+      return account.lastError
+        ?? "Gmail access expired or was revoked. Reconnect this account to continue."
     case .disconnected: return "Reconnect to sync new mail. Reviewed suggestions are kept."
     case .idle: return nil
     }

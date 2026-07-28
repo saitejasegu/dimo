@@ -83,7 +83,13 @@ struct EmailScreen: View {
         set: { if !$0 { store.clearError() } }
       )
     ) {
-      Button("OK") { store.clearError() }
+      if let accountID = store.pendingReconnectAccountID {
+        Button("Reconnect Gmail") {
+          store.clearError()
+          store.reconnectAccount(accountID)
+        }
+      }
+      Button("OK", role: .cancel) { store.clearError() }
     } message: {
       Text(store.lastActionError ?? "Please try again.")
     }
@@ -217,7 +223,11 @@ struct EmailScreen: View {
         HStack(spacing: 8) {
           ForEach(store.accounts) { account in
             Button {
-              store.refreshAccount(account.id)
+              if account.syncState == .needsReconnect {
+                store.reconnectAccount(account.id)
+              } else {
+                store.refreshAccount(account.id)
+              }
             } label: {
               HStack(spacing: 8) {
                 accountRefreshIcon(account.syncState)
@@ -228,7 +238,7 @@ struct EmailScreen: View {
                     .lineLimit(1)
                   Text(account.statusDetail ?? account.syncState.title)
                     .font(DimoFont.body(10))
-                    .foregroundStyle(account.syncState == .failed ? Theme.danger : Theme.muted)
+                    .foregroundStyle(accountNeedsAttention(account) ? Theme.danger : Theme.muted)
                     .lineLimit(1)
                 }
               }
@@ -240,7 +250,11 @@ struct EmailScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(account.syncState == .syncing)
-            .accessibilityHint("Refresh this Gmail account")
+            .accessibilityHint(
+              account.syncState == .needsReconnect
+                ? "Reconnect this Gmail account"
+                : "Refresh this Gmail account"
+            )
           }
         }
       }
@@ -284,19 +298,26 @@ struct EmailScreen: View {
   }
 
   private func accountRefreshIcon(_ state: EmailUIAccountSyncState) -> some View {
-    Group {
+    let needsAttention = state == .failed || state == .needsReconnect
+    return Group {
       if state == .syncing {
         ProgressView().controlSize(.mini).tint(Theme.green)
       } else {
-        Image(systemName: state == .failed ? "exclamationmark.arrow.circlepath" : "arrow.clockwise")
+        Image(systemName: state == .needsReconnect
+          ? "person.badge.key"
+          : (needsAttention ? "exclamationmark.arrow.circlepath" : "arrow.clockwise"))
           .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(state == .failed ? Theme.danger : Theme.green)
+          .foregroundStyle(needsAttention ? Theme.danger : Theme.green)
       }
     }
     .frame(width: 28, height: 28)
-    .background(state == .failed ? Theme.danger.opacity(0.12) : Theme.greenSoft)
+    .background(needsAttention ? Theme.danger.opacity(0.12) : Theme.greenSoft)
     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     .accessibilityHidden(true)
+  }
+
+  private func accountNeedsAttention(_ account: EmailUIAccount) -> Bool {
+    account.syncState == .failed || account.syncState == .needsReconnect
   }
 
   private var compactAnalyzerDetail: String {

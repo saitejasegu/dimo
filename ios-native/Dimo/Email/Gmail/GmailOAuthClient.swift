@@ -72,9 +72,43 @@ final class GmailOAuthClient: NSObject, @unchecked Sendable {
   }
 
   func connect(dimoUserId: String) async throws -> ConnectedGmailAccount {
+    try await authorize(
+      dimoUserId: dimoUserId,
+      loginHint: nil,
+      expectedSubject: nil
+    )
+  }
+
+  /// Replaces the Keychain refresh token for an existing account without wiping
+  /// local email rows. Verifies Google returns the same subject.
+  func reauthorize(
+    subject: String,
+    emailAddress: String,
+    dimoUserId: String
+  ) async throws -> ConnectedGmailAccount {
+    let existing = try await vault.credential(subject: subject, dimoUserId: dimoUserId)
+    let account = try await authorize(
+      dimoUserId: dimoUserId,
+      loginHint: emailAddress,
+      expectedSubject: subject,
+      connectedAt: existing?.connectedAt
+    )
+    return account
+  }
+
+  private func authorize(
+    dimoUserId: String,
+    loginHint: String?,
+    expectedSubject: String?,
+    connectedAt: Date? = nil
+  ) async throws -> ConnectedGmailAccount {
     let verifier = PKCE.makeVerifier()
     let state = PKCE.makeState()
-    let authorizationURL = try makeAuthorizationURL(verifier: verifier, state: state)
+    let authorizationURL = try makeAuthorizationURL(
+      verifier: verifier,
+      state: state,
+      loginHint: loginHint
+    )
     let callback = try await startWebAuthentication(url: authorizationURL)
     let queryItems = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
     var parameters: [String: String] = [:]
@@ -93,11 +127,14 @@ final class GmailOAuthClient: NSObject, @unchecked Sendable {
       throw GmailOAuthError.missingRefreshToken
     }
     let identity = try await fetchIdentity(accessToken: token.accessToken)
+    if let expectedSubject, identity.subject != expectedSubject {
+      throw GmailOAuthError.accountMismatch
+    }
     let credential = GmailStoredCredential(
       subject: identity.subject,
       emailAddress: identity.emailAddress,
       refreshToken: refreshToken,
-      connectedAt: .now
+      connectedAt: connectedAt ?? .now
     )
     try await vault.upsert(credential, dimoUserId: dimoUserId)
     return credential.account
@@ -120,12 +157,16 @@ final class GmailOAuthClient: NSObject, @unchecked Sendable {
     try? await vault.removeAll(dimoUserId: dimoUserId)
   }
 
-  private func makeAuthorizationURL(verifier: String, state: String) throws -> URL {
+  private func makeAuthorizationURL(
+    verifier: String,
+    state: String,
+    loginHint: String? = nil
+  ) throws -> URL {
     var components = URLComponents(
       url: GmailOAuthConfiguration.authorizationEndpoint,
       resolvingAgainstBaseURL: false
     )!
-    components.queryItems = [
+    var items = [
       URLQueryItem(name: "client_id", value: configuration.clientId),
       URLQueryItem(name: "redirect_uri", value: configuration.redirectURI),
       URLQueryItem(name: "response_type", value: "code"),
@@ -140,6 +181,13 @@ final class GmailOAuthClient: NSObject, @unchecked Sendable {
       URLQueryItem(name: "code_challenge_method", value: "S256"),
       URLQueryItem(name: "state", value: state),
     ]
+    if let loginHint {
+      let trimmed = loginHint.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty {
+        items.append(URLQueryItem(name: "login_hint", value: trimmed))
+      }
+    }
+    components.queryItems = items
     guard let url = components.url else { throw GmailOAuthError.invalidAuthorizationURL }
     return url
   }
@@ -365,6 +413,7 @@ enum GmailOAuthError: LocalizedError, Sendable {
   case missingRefreshToken
   case invalidResponse
   case requiresReconnect
+  case accountMismatch
   case authorization(String)
   case server(String)
 
@@ -376,9 +425,13 @@ enum GmailOAuthError: LocalizedError, Sendable {
     case .cancelled: return "Gmail sign-in was cancelled."
     case .stateMismatch: return "Gmail sign-in failed its security check."
     case .missingCode: return "Gmail did not return an authorization code."
-    case .missingRefreshToken: return "Gmail did not grant offline access. Please connect again."
+    case .missingRefreshToken:
+      return "Gmail did not grant offline access. Reconnect this account and approve access again."
     case .invalidResponse: return "Gmail returned an invalid response."
-    case .requiresReconnect: return "Gmail access expired or was revoked. Please connect again."
+    case .requiresReconnect:
+      return "Gmail access expired or was revoked. Reconnect this account to continue."
+    case .accountMismatch:
+      return "That Google account does not match the connected Gmail inbox. Choose the same account to reconnect."
     case .authorization(let message): return "Gmail authorization failed: \(message)"
     case .server(let message): return "Gmail authorization failed: \(message)"
     }

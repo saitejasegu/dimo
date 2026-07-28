@@ -168,6 +168,7 @@ enum EmailUIAccountSyncState: String, Sendable {
   case rateLimited
   case offline
   case failed
+  case needsReconnect
   case disconnected
 
   var title: String {
@@ -177,6 +178,7 @@ enum EmailUIAccountSyncState: String, Sendable {
     case .rateLimited: return "Waiting"
     case .offline: return "Offline"
     case .failed: return "Needs attention"
+    case .needsReconnect: return "Reconnect"
     case .disconnected: return "Disconnected"
     }
   }
@@ -301,6 +303,7 @@ struct EmailUIRefundReview: Identifiable, Equatable, Sendable {
 
 struct EmailFeatureActions {
   var connectAccount: () async throws -> Void = {}
+  var reconnectAccount: (_ accountID: String) async throws -> Void = { _ in }
   var disconnectAccount: (_ accountID: String) async throws -> Void = { _ in }
   var refresh: (_ accountID: String?) async throws -> Void = { _ in }
   var dismissSuggestion: (_ suggestionID: String) async throws -> Void = { _ in }
@@ -369,6 +372,8 @@ final class EmailFeatureStore {
   var isRefreshing = false
   var isReanalyzing = false
   var lastActionError: String?
+  /// When set, the action-failed alert can offer an in-place Gmail reconnect.
+  var pendingReconnectAccountID: String?
 
   private var actions: EmailFeatureActions
 
@@ -497,6 +502,18 @@ final class EmailFeatureStore {
 
   func connectAccount() {
     run { try await self.actions.connectAccount() }
+  }
+
+  func reconnectAccount(_ accountID: String) {
+    Task { @MainActor in
+      do {
+        try await self.actions.reconnectAccount(accountID)
+        self.pendingReconnectAccountID = nil
+        self.lastActionError = nil
+      } catch {
+        self.presentActionError(error, reconnectAccountID: accountID)
+      }
+    }
   }
 
   func disconnectAccount(_ accountID: String) {
@@ -698,14 +715,30 @@ final class EmailFeatureStore {
 
   func clearError() {
     lastActionError = nil
+    pendingReconnectAccountID = nil
   }
 
-  private func presentActionError(_ error: Error) {
+  private func presentActionError(_ error: Error, reconnectAccountID: String? = nil) {
     // Pull-to-refresh and overlapping work cancel in-flight tasks; that is not
     // a user-facing failure.
     if error is CancellationError { return }
     if let urlError = error as? URLError, urlError.code == .cancelled { return }
     lastActionError = error.localizedDescription
+    if let reconnectAccountID {
+      pendingReconnectAccountID = reconnectAccountID
+      return
+    }
+    if let gmailError = error as? GmailOAuthError {
+      switch gmailError {
+      case .requiresReconnect, .missingRefreshToken, .accountMismatch:
+        pendingReconnectAccountID = accounts.first(where: { $0.syncState == .needsReconnect })?.id
+          ?? accounts.first?.id
+      default:
+        pendingReconnectAccountID = nil
+      }
+    } else {
+      pendingReconnectAccountID = nil
+    }
   }
 
   private func run(

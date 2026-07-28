@@ -126,7 +126,7 @@ final class Repository: @unchecked Sendable {
   @discardableResult
   func runPendingBackfills() throws -> Int {
     let applied = (try? deviceMeta()?.backfillVersion) ?? 0
-    guard (applied ?? 0) < backfillVersion else { return 0 }
+    guard applied < backfillVersion else { return 0 }
     var repaired = try backfillRecurringCurrencies()
     repaired += try backfillMissingPaymentMethodIds()
     try db.write { db in

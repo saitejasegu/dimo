@@ -17,7 +17,8 @@ actor EmailRepositorySyncAdapter: EmailSyncPersistence {
     // in the local-only Gmail schema.
     _ = dimoUserId
     return try repository.emailAccounts()
-      .filter { $0.syncState != .disconnected }
+      // Skip disconnected stubs and accounts waiting for an in-place Gmail reauth.
+      .filter { $0.syncState != .disconnected && $0.syncState != .needsReconnect }
       .map { account in
         EmailAccountSnapshot(
           googleSubject: account.id,
@@ -100,7 +101,7 @@ actor EmailRepositorySyncAdapter: EmailSyncPersistence {
     try repository.updateEmailAccount(id: accountSubject) { account in
       account.syncState = emailRepositorySyncState(state, account: account)
       account.lastError = state == .needsReconnect
-        ? error ?? "Gmail access expired or was revoked. Please connect again."
+        ? error ?? "Gmail access expired or was revoked. Reconnect this account to continue."
         : error
       if state == .idle, error == nil {
         account.lastSuccessfulSyncAt = emailMilliseconds(date)
@@ -117,7 +118,7 @@ actor EmailRepositorySyncAdapter: EmailSyncPersistence {
   }
 }
 
-private func emailRepositorySyncState(
+func emailRepositorySyncState(
   _ state: GmailSyncState,
   account: EmailAccountRecordModel
 ) -> EmailAccountSyncState {
@@ -132,7 +133,9 @@ private func emailRepositorySyncState(
     return .rateLimited
   case .offline:
     return .offline
-  case .needsReconnect, .failed:
+  case .needsReconnect:
+    return .needsReconnect
+  case .failed:
     return .failed
   }
 }

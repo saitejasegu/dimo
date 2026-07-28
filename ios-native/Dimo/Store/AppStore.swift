@@ -576,8 +576,9 @@ final class AppStore {
       )
       return (.transaction, .transaction(transaction))
     })
+    let entitiesToSave = batch
     write { repository in
-      try repository.saveEntities(batch)
+      try repository.saveEntities(entitiesToSave)
       try repository.setLastPaymentMethod(resolvedMethodId)
     }
     closeOverlay()
@@ -795,7 +796,8 @@ final class AppStore {
         return (.transaction, .transaction(transaction))
       })
     }
-    write { try $0.saveEntities(batch) }
+    let entitiesToSave = batch
+    write { try $0.saveEntities(entitiesToSave) }
     closeOverlay()
     showToast(recurringDraft.editingId == nil ? "Recurring added" : "Recurring updated")
   }
@@ -872,14 +874,16 @@ final class AppStore {
       cat.monthlyBudgetMinor = Int((suggestion.suggestedLimit * 100).rounded())
       batch.append((.category, .category(cat)))
     }
-    write { try $0.saveEntities(batch) }
+    let entitiesToSave = batch
+    write { try $0.saveEntities(entitiesToSave) }
     showToast("Budgets updated")
   }
 
   func updatePreferences(mutate: (inout PreferencesEntity) -> Void) {
     var prefs = currentPreferences()
     mutate(&prefs)
-    write { try $0.saveEntity(entityType: .preferences, payload: .preferences(prefs)) }
+    let preferences = prefs
+    write { try $0.saveEntity(entityType: .preferences, payload: .preferences(preferences)) }
   }
 
   func pressAmountKey(_ key: String) {
@@ -938,7 +942,8 @@ final class AppStore {
       )
       batch.append((.transaction, .transaction(tx)))
     }
-    write { try $0.saveEntities(batch) }
+    let entitiesToSave = batch
+    write { try $0.saveEntities(entitiesToSave) }
     showToast("Imported \(rows.count) transactions")
   }
 
@@ -1027,7 +1032,8 @@ final class AppStore {
         batch.append((.preferences, .preferences(prefs)))
       }
     }
-    write { try $0.saveEntities(batch) }
+    let entitiesToSave = batch
+    write { try $0.saveEntities(entitiesToSave) }
     showToast(archived ? "Payment method archived" : "Payment method restored")
   }
 
