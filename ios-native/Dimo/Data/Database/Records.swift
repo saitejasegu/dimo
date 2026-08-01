@@ -682,43 +682,12 @@ enum TypedEntityStore {
   }
 
   static func fetchAll(db: Database, type: EntityType, workspaceId: String) throws -> [StoredEntity] {
-    switch type {
-    case .category:
-      return try CategoryRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .paymentMethod:
-      return try PaymentMethodRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .transaction:
-      return try TransactionRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .recurring:
-      return try RecurringRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .lend:
-      return try LendRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .emailMessage:
-      return try SyncedEmailMessageRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    case .preferences:
-      return try PreferencesRecord
-        .filter(Column("workspaceId") == workspaceId)
-        .fetchAll(db)
-        .map { try $0.toStoredEntity() }
-    }
+    try fetch(db: db, type: type, workspaceId: workspaceId, liveOnly: false)
+  }
+
+  /// Live rows only — used by UI observation/hydrate so tombstones stay out of rematerialization.
+  static func fetchLive(db: Database, type: EntityType, workspaceId: String) throws -> [StoredEntity] {
+    try fetch(db: db, type: type, workspaceId: workspaceId, liveOnly: true)
   }
 
   static func fetchAll(db: Database, workspaceId: String) throws -> [StoredEntity] {
@@ -727,6 +696,76 @@ enum TypedEntityStore {
       rows.append(contentsOf: try fetchAll(db: db, type: type, workspaceId: workspaceId))
     }
     return rows
+  }
+
+  static func fetchLive(db: Database, workspaceId: String) throws -> [StoredEntity] {
+    var rows: [StoredEntity] = []
+    for type in EntityType.allCases where type != .emailMessage {
+      rows.append(contentsOf: try fetchLive(db: db, type: type, workspaceId: workspaceId))
+    }
+    return rows
+  }
+
+  /// Version columns only for a page of keys — avoids full payload decode during merge.
+  static func fetchVersions(
+    db: Database,
+    type: EntityType,
+    keys: [String]
+  ) throws -> [String: LogicalVersion] {
+    guard !keys.isEmpty else { return [:] }
+    let table = tableName(for: type)
+    let placeholders = Array(repeating: "?", count: keys.count).joined(separator: ",")
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        SELECT key, versionTimestamp, versionCounter, versionDeviceId
+        FROM \(table)
+        WHERE key IN (\(placeholders))
+        """,
+      arguments: StatementArguments(keys)
+    )
+    var result: [String: LogicalVersion] = [:]
+    result.reserveCapacity(rows.count)
+    for row in rows {
+      let key: String = row["key"]
+      result[key] = LogicalVersion(
+        timestamp: row["versionTimestamp"],
+        counter: row["versionCounter"],
+        deviceId: row["versionDeviceId"]
+      )
+    }
+    return result
+  }
+
+  private static func fetch(
+    db: Database,
+    type: EntityType,
+    workspaceId: String,
+    liveOnly: Bool
+  ) throws -> [StoredEntity] {
+    func scoped<T: TypedEntityRecord>(_ type: T.Type) -> QueryInterfaceRequest<T> {
+      var request = T.filter(Column("workspaceId") == workspaceId)
+      if liveOnly {
+        request = request.filter(Column("deleted") == false)
+      }
+      return request
+    }
+    switch type {
+    case .category:
+      return try scoped(CategoryRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .paymentMethod:
+      return try scoped(PaymentMethodRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .transaction:
+      return try scoped(TransactionRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .recurring:
+      return try scoped(RecurringRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .lend:
+      return try scoped(LendRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .emailMessage:
+      return try scoped(SyncedEmailMessageRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    case .preferences:
+      return try scoped(PreferencesRecord.self).fetchAll(db).map { try $0.toStoredEntity() }
+    }
   }
 }
 

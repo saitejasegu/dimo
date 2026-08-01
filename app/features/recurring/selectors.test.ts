@@ -46,11 +46,11 @@ describe("upcomingBills", () => {
     );
 
     expect(result.map((item) => item.id)).toEqual([
-      "first",
-      "second",
-      "third",
-      "fourth",
       "fifth",
+      "fourth",
+      "third",
+      "second",
+      "first",
     ]);
   });
 
@@ -66,7 +66,7 @@ describe("upcomingBills", () => {
       2,
       now,
     );
-    expect(result.map((item) => item.id)).toEqual(["first", "second"]);
+    expect(result.map((item) => item.id)).toEqual(["second", "first"]);
   });
 
   it("drops a bill once its due occurrence has been charged this month", () => {
@@ -97,7 +97,7 @@ describe("allUpcomingBills", () => {
       now,
     );
 
-    expect(result.map((item) => item.id)).toEqual(["first", "paused", "second", "next-month"]);
+    expect(result.map((item) => item.id)).toEqual(["next-month", "second", "paused", "first"]);
   });
 
   it("advances a charged bill to its next occurrence", () => {

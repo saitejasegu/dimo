@@ -465,7 +465,7 @@ struct RecurringScreen: View {
       .padding(.bottom, 14)
 
       ScrollView {
-        VStack(spacing: 8) {
+        LazyVStack(spacing: 8) {
           ForEach(store.recurring) { rec in
             recurringRow(rec)
           }
@@ -508,7 +508,7 @@ struct RecurringScreen: View {
           )
             .font(DimoFont.display(15, weight: .semibold))
             .foregroundStyle(rec.paused ? Theme.faint : Theme.ink)
-          if let estimate = recurringEstimate(rec) {
+          if let estimate = rec.convertedEstimateLabel {
             Text(estimate)
               .font(DimoFont.body(11))
               .foregroundStyle(Theme.muted)
@@ -534,22 +534,6 @@ struct RecurringScreen: View {
     if rec.paused { return Theme.faint }
     if rec.urgent == true { return Theme.warn }
     return Theme.muted
-  }
-
-  private func recurringEstimate(_ rec: Recurring) -> String? {
-    let defaultCurrency = store.currency.rawValue
-    guard let sourceCurrency = rec.currency, sourceCurrency != defaultCurrency else { return nil }
-    let sourceMinor = rec.amountMinor ?? ExchangeRates.toMinorUnits(rec.amount, sourceCurrency)
-    guard let convertedMinor = ExchangeRates.convertMinor(
-      sourceMinor,
-      from: sourceCurrency,
-      to: defaultCurrency,
-      rates: store.rates
-    ) else {
-      return "Rate unavailable"
-    }
-    let converted = ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency)
-    return "≈ \(Formatting.money(converted, currencyCode: defaultCurrency)) today"
   }
 }
 

@@ -256,10 +256,9 @@ struct LendingScreen: View {
   }
 
   private var transactionList: some View {
-    let page = LendSelectors.paginateByDay(entities.lends, limit: visibleLimit)
-    let groups = LendSelectors.groupByDay(page.items)
+    let list = entities.lendHistoryList(limit: visibleLimit)
     return Group {
-      ForEach(groups, id: \.label) { group in
+      ForEach(list.groups, id: \.label) { group in
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .firstTextBaseline) {
             Text(group.label.uppercased())
@@ -277,7 +276,7 @@ struct LendingScreen: View {
         }
         .padding(.bottom, 6)
       }
-      if page.hasMore {
+      if list.hasMore {
         ProgressView()
           .tint(Theme.green)
           .frame(maxWidth: .infinity)

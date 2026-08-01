@@ -216,8 +216,13 @@ final class AppStore {
       }
       syncObservation = repo.observeSyncMeta { [weak self] meta in
         Task { @MainActor in
-          self?.syncStatus.syncMeta = meta
-          await self?.refreshOutboxCounts(repository: repo)
+          guard let self else { return }
+          let wasSyncing = self.syncStatus.syncMeta?.syncing
+          self.syncStatus.publishUIMeta(meta)
+          // Outbox counts only when sync starts/stops or on local writes — not every cursor page.
+          if wasSyncing != meta?.syncing {
+            await self.refreshOutboxCounts(repository: repo)
+          }
         }
       }
       writeListener = repo.onLocalWrite { [weak self] in
@@ -226,8 +231,11 @@ final class AppStore {
         }
       }
       // Two synchronous SQLite reads per write would otherwise land on the main actor.
-      let batch = try await Task.detached { try repo.allEntities() }.value
+      let batch = try await Task.detached { try repo.liveUIEntities() }.value
       await hydrateNow(batch)
+      if let device = try? repo.deviceMeta() {
+        entities.lastPaymentMethodId = device.lastPaymentMethodId
+      }
       expenseReminder = ExpenseReminderStore.load(userId: userId)
       ExpenseReminderRouter.store = self
       await refreshExpenseReminderAuthorization()
@@ -332,7 +340,13 @@ final class AppStore {
     Task {
       await refreshExpenseReminderAuthorization()
       await refreshExpenseReminderSchedule()
-      await coordinator?.request()
+      // Skip reconnect sync if we synced within the last minute or a run is in flight.
+      let lastSyncedAt = syncStatus.syncMeta?.lastSyncedAt ?? 0
+      let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+      let recentlySynced = lastSyncedAt > 0 && (nowMs - lastSyncedAt) < 60_000
+      if !recentlySynced, syncStatus.syncMeta?.syncing != true {
+        await coordinator?.request()
+      }
       await refreshExchangeRates()
     }
   }
@@ -378,7 +392,7 @@ final class AppStore {
       entities.setRates(table)
       // FX changes require remapping transaction amounts in the default currency.
       if previousDate != table.date, let repository {
-        let batch = try? await Task.detached { try repository.allEntities() }.value
+        let batch = try? await Task.detached { try repository.liveUIEntities() }.value
         scheduleHydrate(batch ?? [])
       }
     } catch {
@@ -492,6 +506,7 @@ final class AppStore {
       try repository.saveEntity(entityType: .transaction, payload: .transaction(entity))
       try repository.setLastPaymentMethod(paymentMethodId)
     }
+    entities.lastPaymentMethodId = paymentMethodId
     filter = TransactionFilter()
     closeOverlay()
     setView(.home)
@@ -535,6 +550,7 @@ final class AppStore {
         try repository.saveEntity(entityType: .transaction, payload: .transaction(transaction))
         try repository.setLastPaymentMethod(resolvedMethodId)
       }
+      entities.lastPaymentMethodId = resolvedMethodId
       closeOverlay()
       setView(.home)
       showToast("Expense saved")
@@ -581,6 +597,7 @@ final class AppStore {
       try repository.saveEntities(entitiesToSave)
       try repository.setLastPaymentMethod(resolvedMethodId)
     }
+    entities.lastPaymentMethodId = resolvedMethodId
     closeOverlay()
     setView(.home)
     showToast(
@@ -823,9 +840,9 @@ final class AppStore {
     // while the read-modify-write runs off the main actor.
     guard let current = recurring.first(where: { $0.id == id }) else { return }
     let fallbackCurrency = currency.rawValue
+    let key = entityKey(type: .recurring, id: id)
     write { repository in
-      guard let existing = try repository.activeEntities(type: .recurring)
-        .first(where: { $0.entityId == id }),
+      guard let existing = try repository.activeEntity(key: key),
         case .recurring(var payload) = existing.payload else { return }
       if payload.currency == nil { payload.currency = fallbackCurrency }
       payload.paused.toggle()
@@ -1065,6 +1082,7 @@ final class AppStore {
   private func hydrateNow(_ batch: [StoredEntity]) async {
     let previousDefault = entities.defaultStatsRange
     let previousSnapshot = entities.lastEntitySnapshot
+    let previousDerived = entities.lastDerivedSnapshot
     let snapshot = await EntityHydrator.project(
       entities: batch,
       rates: entities.rates,
@@ -1076,12 +1094,17 @@ final class AppStore {
       previous: previousSnapshot
     )
     guard let snapshot else { return }
+    let dirty = DeriveDirtyFlags.from(previous: previousSnapshot, next: snapshot)
     let derived = await EntityHydrator.derive(
       transactions: snapshot.transactions,
       recurring: snapshot.recurring,
       lends: snapshot.lends,
       limits: snapshot.limits,
-      categories: snapshot.categories
+      categories: snapshot.categories,
+      rates: entities.rates,
+      defaultCurrency: snapshot.preferences.currency.rawValue,
+      previous: previousDerived,
+      dirty: dirty
     )
     entities.apply(
       snapshot: snapshot,
@@ -1181,7 +1204,7 @@ final class AppStore {
   }
 
   private func preferredPaymentMethodId() -> String {
-    if let last = try? repository?.deviceMeta()?.lastPaymentMethodId,
+    if let last = entities.lastPaymentMethodId,
        paymentMethods.contains(where: { $0.id == last && !$0.archived }) {
       return last
     }

@@ -348,8 +348,12 @@ enum EmailFeatureStoreError: Error, LocalizedError {
 @Observable
 final class EmailFeatureStore {
   var accounts: [EmailUIAccount]
-  var suggestions: [EmailUISuggestion]
-  var allEmails: [EmailUIMessage]
+  var suggestions: [EmailUISuggestion] {
+    didSet { rebuildSuggestionDerived() }
+  }
+  var allEmails: [EmailUIMessage] {
+    didSet { rebuildEmailDerived() }
+  }
   var selectedProvider: EmailAnalysisProvider?
   var openRouterAccessMode: OpenRouterAccessMode = .bringYourOwnKey
   var openRouterConnectionState: OpenRouterUIConnectionState = .disconnected
@@ -364,7 +368,9 @@ final class EmailFeatureStore {
   var activeCurrency: Currency
   var categories: [CategoryEntity]
   var paymentMethods: [PaymentMethodOption]
-  var selectedFilter: EmailSuggestionFilter = .purchases
+  var selectedFilter: EmailSuggestionFilter = .purchases {
+    didSet { rebuildFilterCaches() }
+  }
   var purchaseReview: EmailUIPurchaseReviewDraft?
   var refundReview: EmailUIRefundReview?
   var emailDetail: EmailUIEmailDetail?
@@ -374,6 +380,13 @@ final class EmailFeatureStore {
   var lastActionError: String?
   /// When set, the action-failed alert can offer an in-place Gmail reconnect.
   var pendingReconnectAccountID: String?
+
+  /// Pending purchase/debit suggestions waiting for review. Used for the Email
+  /// tab badge and Purchases filter count.
+  private(set) var pendingPurchaseCount = 0
+  private(set) var analysisErrorCount = 0
+  private(set) var filteredSuggestions: [EmailUISuggestion] = []
+  private(set) var filteredEmails: [EmailUIMessage] = []
 
   private var actions: EmailFeatureActions
 
@@ -395,23 +408,38 @@ final class EmailFeatureStore {
     self.categories = categories
     self.paymentMethods = paymentMethods
     self.actions = actions
+    rebuildSuggestionDerived()
+    rebuildEmailDerived()
   }
 
   func configure(actions: EmailFeatureActions) {
     self.actions = actions
   }
 
-  /// Pending purchase/debit suggestions waiting for review. Used for the Email
-  /// tab badge and Purchases filter count.
-  var pendingPurchaseCount: Int {
-    suggestions.count { suggestion in
+  var hasFailedAnalyses: Bool {
+    analysisErrorCount > 0
+  }
+
+  private func rebuildSuggestionDerived() {
+    pendingPurchaseCount = suggestions.count { suggestion in
       suggestion.status == .pendingPurchase
         && (suggestion.kind == .purchase || suggestion.kind == .debit)
     }
+    rebuildFilteredSuggestions()
   }
 
-  var filteredSuggestions: [EmailUISuggestion] {
-    suggestions.filter { suggestion in
+  private func rebuildEmailDerived() {
+    analysisErrorCount = allEmails.count { $0.analysisState == .failed }
+    rebuildFilteredEmails()
+  }
+
+  private func rebuildFilterCaches() {
+    rebuildFilteredSuggestions()
+    rebuildFilteredEmails()
+  }
+
+  private func rebuildFilteredSuggestions() {
+    filteredSuggestions = suggestions.filter { suggestion in
       switch selectedFilter {
       case .all:
         return false
@@ -428,25 +456,17 @@ final class EmailFeatureStore {
     }
   }
 
-  var filteredEmails: [EmailUIMessage] {
+  private func rebuildFilteredEmails() {
     switch selectedFilter {
     case .awaitingAnalysis:
-      return allEmails.filter { $0.analysisState == .pending }
+      filteredEmails = allEmails.filter { $0.analysisState == .pending }
     case .errors:
-      return allEmails.filter { $0.analysisState == .failed }
+      filteredEmails = allEmails.filter { $0.analysisState == .failed }
     case .all:
-      return allEmails
+      filteredEmails = allEmails
     case .purchases, .refunds, .reviewed:
-      return []
+      filteredEmails = []
     }
-  }
-
-  var analysisErrorCount: Int {
-    allEmails.count { $0.analysisState == .failed }
-  }
-
-  var hasFailedAnalyses: Bool {
-    analysisErrorCount > 0
   }
 
   var activeAnalyzerTitle: String {

@@ -31,7 +31,7 @@ struct HomeScreen: View {
 
         ScrollViewReader { proxy in
           ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
               Color.clear.frame(height: 0).id(Self.listTopAnchor)
               upcomingSection
               transactionsSection
@@ -63,7 +63,9 @@ struct HomeScreen: View {
         filter: activeFilter,
         categories: entities.categories,
         paymentMethods: entities.paymentMethods.filter { !$0.archived },
-        transactions: entities.transactions,
+        matchCount: { [entities] filter in
+          entities.matchCount(matching: filter)
+        },
         onApply: { filter in
           applyFilter(filter)
           filtersOpen = false
@@ -167,15 +169,9 @@ struct HomeScreen: View {
     if !allUpcoming.isEmpty {
       let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
       let canShowAll = allUpcoming.count > upcoming.count
-      let upcomingTotal = visibleUpcoming.reduce(0) { total, item in
-        total + (item.paused
-          ? 0
-          : ExchangeRates.recurringAmountInDefault(
-              item,
-              defaultCurrency: entities.currency.rawValue,
-              rates: entities.rates
-            ))
-      }
+      let upcomingTotal = upcomingExpanded
+        ? entities.upcomingAllTotal
+        : entities.upcomingThisMonthTotal
       VStack(alignment: .leading, spacing: 0) {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
           Text(upcomingExpanded ? "Upcoming" : "Upcoming this month")
@@ -256,7 +252,7 @@ struct HomeScreen: View {
                       .font(DimoFont.display(15, weight: .semibold))
                       .foregroundStyle(rec.paused ? Theme.muted : Theme.ink)
 
-                    if let estimate = recurringEstimate(rec) {
+                    if let estimate = rec.convertedEstimateLabel {
                       Text(estimate)
                         .font(DimoFont.body(12))
                         .foregroundStyle(Theme.muted)
@@ -280,24 +276,8 @@ struct HomeScreen: View {
     }
   }
 
-  private func recurringEstimate(_ rec: Recurring) -> String? {
-    let defaultCurrency = entities.currency.rawValue
-    guard let sourceCurrency = rec.currency, sourceCurrency != defaultCurrency else { return nil }
-    let sourceMinor = rec.amountMinor ?? ExchangeRates.toMinorUnits(rec.amount, sourceCurrency)
-    guard let convertedMinor = ExchangeRates.convertMinor(
-      sourceMinor,
-      from: sourceCurrency,
-      to: defaultCurrency,
-      rates: entities.rates
-    ) else {
-      return "Rate unavailable"
-    }
-    let converted = ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency)
-    return "≈ \(Formatting.money(converted, currencyCode: defaultCurrency)) today"
-  }
-
   private var transactionsSection: some View {
-    LazyVStack(alignment: .leading, spacing: 0) {
+    VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("Transactions")
           .font(DimoFont.display(16, weight: .semibold))
@@ -340,8 +320,8 @@ struct HomeScreen: View {
           .frame(maxWidth: .infinity)
           .padding(.vertical, 48)
       }
-      // Single outer LazyVStack + plain VStack groups — nested LazyVStacks and
-      // joined item-id keys force remounts and hurt cell reuse while scrolling.
+      // Outer ScrollView already uses LazyVStack — keep groups as plain VStacks
+      // so nested LazyVStacks do not force eager measurement.
       ForEach(list.groups, id: \.label) { group in
         VStack(alignment: .leading, spacing: 8) {
           HStack(alignment: .firstTextBaseline) {
@@ -596,7 +576,7 @@ private extension View {
 private struct FilterSheet: View {
   var categories: [CategoryEntity]
   var paymentMethods: [PaymentMethodOption]
-  var transactions: [Transaction]
+  var matchCount: (TransactionFilter) -> Int
   var onApply: (TransactionFilter) -> Void
   var onClear: () -> Void
 
@@ -611,13 +591,13 @@ private struct FilterSheet: View {
     filter: TransactionFilter,
     categories: [CategoryEntity],
     paymentMethods: [PaymentMethodOption],
-    transactions: [Transaction],
+    matchCount: @escaping (TransactionFilter) -> Int,
     onApply: @escaping (TransactionFilter) -> Void,
     onClear: @escaping () -> Void
   ) {
     self.categories = categories
     self.paymentMethods = paymentMethods
-    self.transactions = transactions
+    self.matchCount = matchCount
     self.onApply = onApply
     self.onClear = onClear
     let calendar = Calendar.current
@@ -632,9 +612,7 @@ private struct FilterSheet: View {
       preview.startDate = filter.startDate.map { calendar.startOfDay(for: $0) } ?? defaultStart
       preview.endDate = filter.endDate.map { calendar.startOfDay(for: $0) } ?? today
     }
-    _debouncedMatchCount = State(
-      initialValue: TransactionSelectors.filterTransactions(transactions, filter: preview).count
-    )
+    _debouncedMatchCount = State(initialValue: matchCount(preview))
   }
 
   private var previewFilter: TransactionFilter {
@@ -652,16 +630,14 @@ private struct FilterSheet: View {
 
   private func scheduleMatchCountRefresh() {
     let filter = previewFilter
-    let rows = transactions
+    let countFn = matchCount
     matchCountTask?.cancel()
     matchCountTask = Task {
       try? await Task.sleep(nanoseconds: 180_000_000)
       guard !Task.isCancelled else { return }
-      let count = await Task.detached(priority: .userInitiated) {
-        TransactionSelectors.filterTransactions(rows, filter: filter).count
-      }.value
+      let count = await MainActor.run { countFn(filter) }
       guard !Task.isCancelled else { return }
-      await MainActor.run { debouncedMatchCount = count }
+      debouncedMatchCount = count
     }
   }
 

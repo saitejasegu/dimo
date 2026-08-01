@@ -8,6 +8,8 @@ struct AddLendSheet: View {
   /// While the contact dropdown is open the rest of the form is hidden so the
   /// search field and list stay visible above the keyboard.
   @State private var contactSearchOpen = false
+  @State private var cachedRecentContacts: [LendContactSuggestion] = []
+  @State private var cachedRepaymentLimit: Double = 0
 
   private var isEditing: Bool { store.lendDraft.editingId != nil }
   private var isRepayment: Bool { store.lendDraft.kind == .repaid }
@@ -132,7 +134,13 @@ struct AddLendSheet: View {
       .animation(.snappy(duration: 0.2), value: contactSearchOpen)
     }
     .presentationBackground(Theme.surface)
-    .onAppear { ContactsLoader.shared.loadIfAuthorized() }
+    .onAppear {
+      ContactsLoader.shared.loadIfAuthorized()
+      refreshLendCaches()
+    }
+    .onChange(of: store.entities.revision) { _, _ in refreshLendCaches() }
+    .onChange(of: store.lendDraft.contactId) { _, _ in refreshRepaymentLimit() }
+    .onChange(of: store.lendDraft.editingId) { _, _ in refreshRepaymentLimit() }
     .overlay(alignment: .topTrailing) {
       if isEditing {
         Button { confirmDelete = true } label: {
@@ -165,12 +173,22 @@ struct AddLendSheet: View {
     store.lendDraft.contactId != nil
       && !store.lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       && (Double(store.lendDraft.amount) ?? 0) > 0
-      && (!isRepayment || (Double(store.lendDraft.amount) ?? 0) <= repaymentLimit + 0.000_001)
+      && (!isRepayment || (Double(store.lendDraft.amount) ?? 0) <= cachedRepaymentLimit + 0.000_001)
   }
 
-  private var repaymentLimit: Double {
-    guard let contactId = store.lendDraft.contactId else { return 0 }
-    return LendSelectors.outstandingAmount(
+  private var repaymentLimit: Double { cachedRepaymentLimit }
+
+  private func refreshLendCaches() {
+    cachedRecentContacts = LendSelectors.recentContacts(store.lends)
+    refreshRepaymentLimit()
+  }
+
+  private func refreshRepaymentLimit() {
+    guard let contactId = store.lendDraft.contactId else {
+      cachedRepaymentLimit = 0
+      return
+    }
+    cachedRepaymentLimit = LendSelectors.outstandingAmount(
       for: contactId,
       in: store.lends,
       excludingLendId: store.lendDraft.editingId
@@ -188,7 +206,7 @@ struct AddLendSheet: View {
   /// contact is chosen.
   @ViewBuilder
   private var contactSuggestions: some View {
-    let suggestions = LendSelectors.recentContacts(store.lends)
+    let suggestions = cachedRecentContacts
     if !suggestions.isEmpty {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 8) {
@@ -256,7 +274,7 @@ struct AddLendSheet: View {
 struct LendContact: Identifiable, Equatable {
   let id: String
   let name: String
-  let thumbnail: Data?
+  var thumbnail: Data?
 }
 
 /// Loads the address book with full Contacts access so contacts can be
@@ -283,7 +301,9 @@ final class ContactsLoader {
   /// Thumbnail for a lend's contact, looked up strictly by identifier; nil
   /// when the contact was removed from the address book.
   func thumbnail(contactId: String?) -> Data? {
-    contact(contactId: contactId)?.thumbnail
+    guard let contactId else { return nil }
+    if let data = contact(contactId: contactId)?.thumbnail { return data }
+    return loadThumbnailIfNeeded(contactId: contactId)
   }
 
   /// Pre-decoded thumbnail for list rows; avoids `UIImage(data:)` per body pass.
@@ -334,9 +354,9 @@ final class ContactsLoader {
 
   private func fetch(from store: CNContactStore) {
     DispatchQueue.global(qos: .userInitiated).async {
+      // Names only on the bulk pass — thumbnails decode on demand.
       let keys: [CNKeyDescriptor] = [
         CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-        CNContactThumbnailImageDataKey as CNKeyDescriptor,
       ]
       let request = CNContactFetchRequest(keysToFetch: keys)
       request.sortOrder = .userDefault
@@ -346,26 +366,35 @@ final class ContactsLoader {
           ?? [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
         guard !name.isEmpty else { return }
         result.append(
-          LendContact(id: contact.identifier, name: name, thumbnail: contact.thumbnailImageData)
+          LendContact(id: contact.identifier, name: name, thumbnail: nil)
         )
       }
       DispatchQueue.main.async {
         let nextById = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
-        // Keep decoded thumbnails when the underlying data is unchanged.
-        var nextImages: [String: UIImage] = [:]
-        for (id, contact) in nextById {
-          if let previous = self.contactsById[id],
-             previous.thumbnail == contact.thumbnail,
-             let cached = self.thumbnailImages[id] {
-            nextImages[id] = cached
-          }
-        }
         self.contactsById = nextById
-        self.thumbnailImages = nextImages
+        self.thumbnailImages = self.thumbnailImages.filter { nextById[$0.key] != nil }
         self.contacts = result
         self.state = .loaded
       }
     }
+  }
+
+  /// Loads a single contact thumbnail when a row first needs it.
+  private func loadThumbnailIfNeeded(contactId: String) -> Data? {
+    if let existing = contactsById[contactId]?.thumbnail { return existing }
+    let store = CNContactStore()
+    let keys: [CNKeyDescriptor] = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
+    guard let contact = try? store.unifiedContact(withIdentifier: contactId, keysToFetch: keys),
+          let data = contact.thumbnailImageData
+    else { return nil }
+    if var row = contactsById[contactId] {
+      row.thumbnail = data
+      contactsById[contactId] = row
+      if let index = contacts.firstIndex(where: { $0.id == contactId }) {
+        contacts[index] = row
+      }
+    }
+    return data
   }
 }
 

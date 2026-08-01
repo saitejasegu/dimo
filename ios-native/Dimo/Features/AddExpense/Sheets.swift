@@ -1365,6 +1365,8 @@ private struct RecurringDateField: View {
 struct NewCategorySheet: View {
   @Bindable var store: AppStore
   @State private var confirmDeleteCategory = false
+  @State private var cachedLookback: CategoryLookbackSpend?
+  @State private var cachedTransactionCount = 0
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -1401,7 +1403,7 @@ struct NewCategorySheet: View {
 
       VStack(alignment: .leading, spacing: 8) {
         categoryLabel("Monthly budget (optional)")
-        if let lookback = categoryLookback, lookback.total > 0 {
+        if let lookback = cachedLookback, lookback.total > 0 {
           Text("\(Formatting.money(lookback.total, currency: store.currency)) spent over the last 6 months")
             .font(DimoFont.body(12))
             .foregroundStyle(Theme.faint)
@@ -1507,34 +1509,38 @@ struct NewCategorySheet: View {
     } message: {
       Text(categoryDeletionMessage)
     }
+    .onAppear { refreshCategoryCaches() }
+    .onChange(of: store.categoryDraft.editingId) { _, _ in refreshCategoryCaches() }
+    .onChange(of: store.entities.revision) { _, _ in refreshCategoryCaches() }
   }
 
   private var canSave: Bool {
     !store.categoryDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  private var categoryLookback: CategoryLookbackSpend? {
-    guard let categoryId = store.categoryDraft.editingId else { return nil }
-    return BudgetSelectors.categoryLookbackSpend(
-      store.transactions,
-      categoryId: categoryId,
-      monthCount: 6
-    )
-  }
-
   private var suggestedBudget: Double? {
-    guard let categoryLookback, categoryLookback.total > 0 else { return nil }
-    return categoryLookback.monthlyAverage.rounded()
+    guard let cachedLookback, cachedLookback.total > 0 else { return nil }
+    return cachedLookback.monthlyAverage.rounded()
   }
 
   private var categoryDeletionMessage: String {
-    let count = categoryTransactionCount
+    let count = cachedTransactionCount
     return "This will also permanently delete \(count) transaction\(count == 1 ? "" : "s") in this category. This action cannot be undone."
   }
 
-  private var categoryTransactionCount: Int {
-    guard let categoryId = store.categoryDraft.editingId else { return 0 }
-    return store.transactions.filter { $0.categoryId == categoryId }.count
+  private func refreshCategoryCaches() {
+    guard let categoryId = store.categoryDraft.editingId else {
+      cachedLookback = nil
+      cachedTransactionCount = 0
+      return
+    }
+    let txs = store.transactions
+    cachedLookback = BudgetSelectors.categoryLookbackSpend(
+      txs,
+      categoryId: categoryId,
+      monthCount: 6
+    )
+    cachedTransactionCount = txs.filter { $0.categoryId == categoryId }.count
   }
 
   private func categoryLabel(_ title: String) -> some View {

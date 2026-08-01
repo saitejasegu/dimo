@@ -55,7 +55,7 @@ function withNextDue(
       if (!rec.anchorDate || !rec.frequency) return [];
       return [{ rec, due: nextDueUnrecorded(rec, recordedIds, now) }];
     })
-    .sort((a, b) => a.due.getTime() - b.due.getTime());
+    .sort((a, b) => b.due.getTime() - a.due.getTime());
 }
 
 /** Active bills whose next unpaid due date falls in the current calendar month. */
@@ -69,10 +69,11 @@ export function upcomingBills(
     .filter(({ due }) => due.getFullYear() === now.getFullYear() && due.getMonth() === now.getMonth())
     .map(({ rec }) => rec);
 
-  return limit == null ? dueThisMonth : dueThisMonth.slice(0, limit);
+  // Descending due date; a limit keeps the next N soonest (suffix of the list).
+  return limit == null ? dueThisMonth : dueThisMonth.slice(-limit);
 }
 
-/** All bills, including paused bills, sorted by next unpaid due date (any month). */
+/** All bills, including paused bills, sorted by next unpaid due date descending (any month). */
 export function allUpcomingBills(
   recs: Recurring[],
   transactions: Transaction[],

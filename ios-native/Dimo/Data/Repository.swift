@@ -7,6 +7,11 @@ final class Repository: @unchecked Sendable {
   private let db: any DatabaseWriter
   private let lock = NSLock()
   private var listeners: [UUID: () -> Void] = [:]
+  /// When true, entity ValueObservations coalesce into one flush on resume.
+  private var entityObservationsSuspended = false
+  private var entityObservationDirty = false
+  private var entityObservationDeliver: (([StoredEntity]) -> Void)?
+  private var entityObservationFetch: (() throws -> [StoredEntity])?
 
   init(db: any DatabaseWriter) {
     self.db = db
@@ -329,13 +334,18 @@ final class Repository: @unchecked Sendable {
   func mergeRemotePage(_ remoteEntities: [StoredEntity], entityType: EntityType, cursor: Int) throws {
     try db.write { db in
       var merged = 0
+      let localVersions = try TypedEntityStore.fetchVersions(
+        db: db,
+        type: entityType,
+        keys: remoteEntities.map(\.key)
+      )
       for remote in remoteEntities {
         try observeRemoteVersion(db, remote.version)
-        let local = try EntityRecord.fetchOne(db, key: remote.key)
         let shouldApply: Bool
-        if let local {
-          let localEntity = try local.toStoredEntity()
-          shouldApply = compareVersions(remote.version, localEntity.version) >= 0
+        if let localVersion = localVersions[remote.key] {
+          let cmp = compareVersions(remote.version, localVersion)
+          // Skip no-op writes when versions are identical.
+          shouldApply = cmp > 0
         } else {
           shouldApply = true
         }
@@ -467,8 +477,23 @@ final class Repository: @unchecked Sendable {
 
   func activeEntities(type: EntityType) throws -> [StoredEntity] {
     try db.read { db in
-      try TypedEntityStore.fetchAll(db: db, type: type, workspaceId: workspaceID)
-        .filter { !$0.deleted }
+      try TypedEntityStore.fetchLive(db: db, type: type, workspaceId: workspaceID)
+    }
+  }
+
+  func activeEntity(key: String) throws -> StoredEntity? {
+    try db.read { db in
+      guard let entity = try TypedEntityStore.fetchOne(db: db, key: key), !entity.deleted else {
+        return nil
+      }
+      return entity
+    }
+  }
+
+  /// Live UI entity set (no tombstones, no emailMessage sync rows).
+  func liveUIEntities() throws -> [StoredEntity] {
+    try db.read { db in
+      try TypedEntityStore.fetchLive(db: db, workspaceId: workspaceID)
     }
   }
 
@@ -560,16 +585,43 @@ final class Repository: @unchecked Sendable {
 
   /// Per-type ValueObservations so a lend write does not re-fetch transactions.
   /// Delivery runs on a background queue; callers should hop to MainActor.
+  /// Observations load live rows only and can be suspended across bulk sync merges.
   func observeEntities(onChange: @escaping ([StoredEntity]) -> Void) -> DatabaseCancellable {
     let deliveryQueue = DispatchQueue(label: "app.dimo.entity-observation", qos: .userInitiated)
     let lock = NSLock()
     var cache: [EntityType: [StoredEntity]] = [:]
     let parts = LockedCancellables()
 
+    let fetchLiveBatch: () throws -> [StoredEntity] = { [workspaceID] in
+      try self.db.read { db in
+        try Self.uiObservedEntityTypes.flatMap { type in
+          try TypedEntityStore.fetchLive(db: db, type: type, workspaceId: workspaceID)
+        }
+      }
+    }
+
+    self.lock.lock()
+    entityObservationDeliver = onChange
+    entityObservationFetch = fetchLiveBatch
+    self.lock.unlock()
+
+    let deliver: ([StoredEntity]) -> Void = { [weak self] batch in
+      guard let self else { return }
+      self.lock.lock()
+      let suspended = self.entityObservationsSuspended
+      if suspended {
+        self.entityObservationDirty = true
+        self.lock.unlock()
+        return
+      }
+      self.lock.unlock()
+      onChange(batch)
+    }
+
     for type in Self.uiObservedEntityTypes {
       let cancellable = ValueObservation
         .tracking { db in
-          try TypedEntityStore.fetchAll(db: db, type: type, workspaceId: workspaceID)
+          try TypedEntityStore.fetchLive(db: db, type: type, workspaceId: workspaceID)
         }
         .start(in: db, scheduling: .async(onQueue: deliveryQueue)) { error in
           print("observeEntities(\(type.rawValue)) error: \(error)")
@@ -582,13 +634,34 @@ final class Repository: @unchecked Sendable {
             : []
           lock.unlock()
           guard ready else { return }
-          onChange(batch)
+          deliver(batch)
         }
       parts.append(cancellable)
     }
 
-    return AnyDatabaseCancellable {
+    return AnyDatabaseCancellable { [weak self] in
       parts.cancelAll()
+      self?.lock.lock()
+      self?.entityObservationDeliver = nil
+      self?.entityObservationFetch = nil
+      self?.lock.unlock()
+    }
+  }
+
+  /// Suspend UI entity observation delivery during bulk sync. On resume, flushes
+  /// one coalesced live snapshot if anything changed while suspended.
+  func setEntityObservationsSuspended(_ suspended: Bool) {
+    lock.lock()
+    entityObservationsSuspended = suspended
+    let shouldFlush = !suspended && entityObservationDirty
+    if shouldFlush { entityObservationDirty = false }
+    let deliver = entityObservationDeliver
+    let fetch = entityObservationFetch
+    lock.unlock()
+    guard shouldFlush, let deliver, let fetch else { return }
+    DispatchQueue.global(qos: .userInitiated).async {
+      let batch = (try? fetch()) ?? []
+      deliver(batch)
     }
   }
 
@@ -1747,13 +1820,14 @@ extension Repository {
   func observeEmailMessageSummaries(
     onChange: @escaping ([EmailMessageSummaryModel]) -> Void
   ) -> DatabaseCancellable {
-    ValueObservation
+    let deliveryQueue = DispatchQueue(label: "app.dimo.email-summary-observation", qos: .utility)
+    return ValueObservation
       .tracking { db in
         try EmailMessageSummaryRecord
           .fetchAll(db, sql: emailMessageSummarySQL)
           .map { try $0.toModel() }
       }
-      .start(in: db, scheduling: .async(onQueue: .main)) { error in
+      .start(in: db, scheduling: .async(onQueue: deliveryQueue)) { error in
         print("observeEmailMessageSummaries error: \(error)")
       } onChange: { messages in
         onChange(messages)
@@ -2106,6 +2180,7 @@ private let emailMessageSummarySQL = """
          analyzedAt, reviewedAt
   FROM emailMessages
   ORDER BY internalDate DESC
+  LIMIT 1000
   """
 
 private func emailNowMilliseconds() -> Int {

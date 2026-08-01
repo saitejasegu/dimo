@@ -23,6 +23,8 @@ final class EntitiesStore {
   var profileEmail = ""
   var profilePhotoUrl: String?
   var dataReady = false
+  /// Cached device last-used payment method (not synced).
+  var lastPaymentMethodId: String?
 
   /// Bumps whenever entity projections change; used as cache key input.
   private(set) var revision: UInt64 = 0
@@ -38,6 +40,8 @@ final class EntitiesStore {
   private(set) var lendTotalOutstanding: Double = 0
   private(set) var upcomingThisMonth: [Recurring] = []
   private(set) var upcomingAll: [Recurring] = []
+  private(set) var upcomingThisMonthTotal: Double = 0
+  private(set) var upcomingAllTotal: Double = 0
   private(set) var statsScope = StatsScope(
     rangeMonths: 12,
     scopeTotal: 0,
@@ -52,6 +56,8 @@ final class EntitiesStore {
 
   @ObservationIgnored
   private var lastSnapshot: EntitySnapshot?
+  @ObservationIgnored
+  private var lastDerived: DerivedSnapshot?
   @ObservationIgnored
   private var cachedFilter = TransactionFilter()
   @ObservationIgnored
@@ -92,8 +98,17 @@ final class EntitiesStore {
   private var homeListHasMore = false
   @ObservationIgnored
   private var homeListFilteredCount = 0
+  @ObservationIgnored
+  private var lendListLimit = 0
+  @ObservationIgnored
+  private var lendListRevision: UInt64 = 0
+  @ObservationIgnored
+  private var lendListGroups: [LendDayGroup] = []
+  @ObservationIgnored
+  private var lendListHasMore = false
 
   var lastEntitySnapshot: EntitySnapshot? { lastSnapshot }
+  var lastDerivedSnapshot: DerivedSnapshot? { lastDerived }
 
   func apply(
     snapshot: EntitySnapshot,
@@ -103,35 +118,50 @@ final class EntitiesStore {
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
   ) {
+    let previous = lastSnapshot
     lastSnapshot = snapshot
+    lastDerived = derived
     var changed = false
 
-    if categories != snapshot.categories {
+    let prevFp = previous?.fingerprints
+    let nextFp = snapshot.fingerprints
+    let ratesDateChanged = previous?.ratesDate != snapshot.ratesDate
+
+    if prevFp?.category != nextFp.category {
       categories = snapshot.categories
       categoryEmojiById = Dictionary(uniqueKeysWithValues: snapshot.categories.map { ($0.id, $0.emoji) })
       categoryEmojiByName = Dictionary(uniqueKeysWithValues: snapshot.categories.map { ($0.name, $0.emoji) })
+      limits = snapshot.limits
       changed = true
-    }
-    if paymentMethods != snapshot.paymentMethods {
-      paymentMethods = snapshot.paymentMethods
-      changed = true
-    }
-    if limits != snapshot.limits {
+    } else if limits != snapshot.limits {
       limits = snapshot.limits
       changed = true
     }
-    if transactions != snapshot.transactions {
+
+    if prevFp.map({ nextFp.paymentMethodsNeedRebuild(from: $0) }) ?? true {
+      paymentMethods = snapshot.paymentMethods
+      changed = true
+    }
+
+    if prevFp.map({
+      nextFp.transactionsNeedRebuild(from: $0, ratesDateChanged: ratesDateChanged)
+    }) ?? true {
       transactions = snapshot.transactions
       changed = true
     }
-    if recurring != snapshot.recurring {
+
+    if prevFp.map({
+      nextFp.recurringNeedsRebuild(from: $0, ratesDateChanged: ratesDateChanged)
+    }) ?? true {
       recurring = snapshot.recurring
       changed = true
     }
-    if lends != snapshot.lends {
+
+    if prevFp?.lend != nextFp.lend {
       lends = snapshot.lends
       changed = true
     }
+
     if currency != snapshot.preferences.currency {
       currency = snapshot.preferences.currency
       changed = true
@@ -281,6 +311,14 @@ final class EntitiesStore {
       upcomingAll = derived.upcomingAll
       changed = true
     }
+    if upcomingThisMonthTotal != derived.upcomingThisMonthTotal {
+      upcomingThisMonthTotal = derived.upcomingThisMonthTotal
+      changed = true
+    }
+    if upcomingAllTotal != derived.upcomingAllTotal {
+      upcomingAllTotal = derived.upcomingAllTotal
+      changed = true
+    }
     return changed
   }
 
@@ -329,6 +367,10 @@ final class EntitiesStore {
     return result
   }
 
+  func matchCount(matching filter: TransactionFilter) -> Int {
+    filteredTransactions(matching: filter).count
+  }
+
   /// Cached Home list projection: filter → paginate → groupByDay.
   func homeList(
     filter: TransactionFilter,
@@ -351,6 +393,22 @@ final class EntitiesStore {
     return (groups, page.hasMore, filtered.count)
   }
 
+  /// Cached lending history projection keyed by revision + visible limit.
+  func lendHistoryList(
+    limit: Int
+  ) -> (groups: [LendDayGroup], hasMore: Bool) {
+    if limit == lendListLimit, revision == lendListRevision {
+      return (lendListGroups, lendListHasMore)
+    }
+    let page = LendSelectors.paginateByDay(lends, limit: limit)
+    let groups = LendSelectors.groupByDay(page.items)
+    lendListLimit = limit
+    lendListRevision = revision
+    lendListGroups = groups
+    lendListHasMore = page.hasMore
+    return (groups, page.hasMore)
+  }
+
   func categoryEmoji(explicit: String?, categoryId: String?, category: String) -> String {
     explicit
       ?? categoryId.flatMap { categoryEmojiById[$0] }
@@ -361,6 +419,7 @@ final class EntitiesStore {
   private func invalidateListCaches() {
     cachedFilteredRevision = 0
     homeListRevision = 0
+    lendListRevision = 0
   }
 }
 
@@ -371,6 +430,18 @@ final class SyncStatusStore {
   var pendingCount = 0
   var blockedCount = 0
   var deletingHistory = false
+
+  /// Publishes only when syncing / error / lastSyncedAt change so pull-cursor
+  /// writes during sync do not invalidate observing views.
+  func publishUIMeta(_ meta: SyncMeta?) {
+    let prev = syncMeta
+    guard prev?.syncing != meta?.syncing
+      || prev?.error != meta?.error
+      || prev?.lastSyncedAt != meta?.lastSyncedAt
+      || (prev == nil) != (meta == nil)
+    else { return }
+    syncMeta = meta
+  }
 }
 
 @Observable

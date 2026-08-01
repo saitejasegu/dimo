@@ -407,6 +407,8 @@ struct Recurring: Hashable, Sendable, Identifiable {
   var frequency: RecurringFrequency?
   /// Currency the amount is denominated in. nil = account default currency.
   var currency: String?
+  /// Precomputed FX estimate label (e.g. "≈ ₹1,200 today"), or nil when same currency / unavailable.
+  var convertedEstimateLabel: String? = nil
 }
 
 struct Lend: Hashable, Sendable, Identifiable {

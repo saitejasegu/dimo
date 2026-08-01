@@ -7,16 +7,26 @@ struct EntityTypeFingerprints: Equatable, Sendable {
   var transaction: Int
   var recurring: Int
   var lend: Int
+  /// Full preferences payload — theme, notifications, glass opacity, etc.
   var preferences: Int
+  /// Currency + default payment method only — fields that rematerialize money projections.
+  var preferencesProjection: Int
 
   static let empty = EntityTypeFingerprints(
-    category: 0, paymentMethod: 0, transaction: 0, recurring: 0, lend: 0, preferences: 0
+    category: 0,
+    paymentMethod: 0,
+    transaction: 0,
+    recurring: 0,
+    lend: 0,
+    preferences: 0,
+    preferencesProjection: 0
   )
 
   /// One pass with six hashers, rather than six passes over the whole batch.
   static func compute(_ entities: [StoredEntity]) -> EntityTypeFingerprints {
     var hashers: [EntityType: Hasher] = [:]
     var counts: [EntityType: Int] = [:]
+    var preferencesProjectionHasher = Hasher()
     for type in [EntityType.category, .paymentMethod, .transaction, .recurring, .lend, .preferences] {
       hashers[type] = Hasher()
       counts[type] = 0
@@ -35,6 +45,10 @@ struct EntityTypeFingerprints: Equatable, Sendable {
       if type == .preferences || type == .category {
         hasher.combine(entity.payload)
       }
+      if type == .preferences, case .preferences(let prefs) = entity.payload {
+        preferencesProjectionHasher.combine(prefs.currency)
+        preferencesProjectionHasher.combine(prefs.defaultPaymentMethodId)
+      }
       hashers[type] = hasher
     }
 
@@ -44,13 +58,15 @@ struct EntityTypeFingerprints: Equatable, Sendable {
       return hasher.finalize()
     }
 
+    preferencesProjectionHasher.combine(counts[.preferences] ?? 0)
     return EntityTypeFingerprints(
       category: finalize(.category),
       paymentMethod: finalize(.paymentMethod),
       transaction: finalize(.transaction),
       recurring: finalize(.recurring),
       lend: finalize(.lend),
-      preferences: finalize(.preferences)
+      preferences: finalize(.preferences),
+      preferencesProjection: preferencesProjectionHasher.finalize()
     )
   }
 
@@ -59,6 +75,27 @@ struct EntityTypeFingerprints: Equatable, Sendable {
     category != previous.category
       || paymentMethod != previous.paymentMethod
       || transaction != previous.transaction
+      || preferencesProjection != previous.preferencesProjection
+  }
+
+  func transactionsNeedRebuild(from previous: EntityTypeFingerprints, ratesDateChanged: Bool) -> Bool {
+    transaction != previous.transaction
+      || category != previous.category
+      || paymentMethod != previous.paymentMethod
+      || preferencesProjection != previous.preferencesProjection
+      || ratesDateChanged
+  }
+
+  func recurringNeedsRebuild(from previous: EntityTypeFingerprints, ratesDateChanged: Bool) -> Bool {
+    recurring != previous.recurring
+      || category != previous.category
+      || preferencesProjection != previous.preferencesProjection
+      || ratesDateChanged
+  }
+
+  func paymentMethodsNeedRebuild(from previous: EntityTypeFingerprints) -> Bool {
+    paymentMethod != previous.paymentMethod
+      || preferencesProjection != previous.preferencesProjection
   }
 }
 
@@ -78,6 +115,39 @@ struct EntitySnapshot: Equatable, Sendable {
   var profileEmail: String
 }
 
+/// Which derived slices must be recomputed. Fingerprint-gated so lend-only edits
+/// do not rescan budgets / upcoming.
+struct DeriveDirtyFlags: Sendable {
+  var budgets: Bool
+  var lends: Bool
+  var upcoming: Bool
+
+  static let all = DeriveDirtyFlags(budgets: true, lends: true, upcoming: true)
+
+  static func from(
+    previous: EntitySnapshot?,
+    next: EntitySnapshot
+  ) -> DeriveDirtyFlags {
+    guard let previous else { return .all }
+    let fp = next.fingerprints
+    let prev = previous.fingerprints
+    let txOrLimitsChanged =
+      fp.transaction != prev.transaction
+      || fp.category != prev.category
+      || fp.preferencesProjection != prev.preferencesProjection
+      || previous.ratesDate != next.ratesDate
+      || previous.limits != next.limits
+    return DeriveDirtyFlags(
+      budgets: txOrLimitsChanged,
+      lends: fp.lend != prev.lend,
+      upcoming: fp.transaction != prev.transaction
+        || fp.recurring != prev.recurring
+        || fp.preferencesProjection != prev.preferencesProjection
+        || previous.ratesDate != next.ratesDate
+    )
+  }
+}
+
 /// Projections needed by Home, Budgets and Lending. Computed on every hydrate because
 /// the tab bar can show any of them without warning.
 struct DerivedSnapshot: Equatable, Sendable {
@@ -88,6 +158,22 @@ struct DerivedSnapshot: Equatable, Sendable {
   var lendTotalOutstanding: Double
   var upcomingThisMonth: [Recurring]
   var upcomingAll: [Recurring]
+  var upcomingThisMonthTotal: Double
+  var upcomingAllTotal: Double
+
+  static let empty = DerivedSnapshot(
+    monthBudgetTotals: BudgetTotals(
+      totalSpent: 0, totalLimit: 0, pct: 0, left: 0, over: false, transactionCount: 0
+    ),
+    categoryBudgets: [],
+    suggestedBudgetUpdates: [],
+    lendSummaries: [],
+    lendTotalOutstanding: 0,
+    upcomingThisMonth: [],
+    upcomingAll: [],
+    upcomingThisMonthTotal: 0,
+    upcomingAllTotal: 0
+  )
 }
 
 /// Stats-tab projections. The most expensive part of hydrate (range scoping, per-month
@@ -131,6 +217,8 @@ struct StatsInputs: Equatable, Sendable {
 /// so hydrate never contends with UI formatters.
 enum EntityHydrator {
   private static let queue = DispatchQueue(label: "app.dimo.entity-hydrator", qos: .userInitiated)
+  /// Cap expanded stats lists so "See all" cannot lay out unbounded rows.
+  static let expandedStatsLimit = 50
 
   static func project(
     entities: [StoredEntity],
@@ -166,11 +254,7 @@ enum EntityHydrator {
           profileEmail: profileEmail,
           previous: previous
         )
-        if snapshot == previous {
-          continuation.resume(returning: nil)
-        } else {
-          continuation.resume(returning: snapshot)
-        }
+        continuation.resume(returning: snapshot)
       }
     }
   }
@@ -180,7 +264,11 @@ enum EntityHydrator {
     recurring: [Recurring],
     lends: [Lend],
     limits: CategoryLimits,
-    categories: [CategoryEntity]
+    categories: [CategoryEntity],
+    rates: RateTable?,
+    defaultCurrency: String,
+    previous: DerivedSnapshot?,
+    dirty: DeriveDirtyFlags
   ) async -> DerivedSnapshot {
     await withCheckedContinuation { continuation in
       queue.async {
@@ -190,7 +278,11 @@ enum EntityHydrator {
             recurring: recurring,
             lends: lends,
             limits: limits,
-            categories: categories
+            categories: categories,
+            rates: rates,
+            defaultCurrency: defaultCurrency,
+            previous: previous,
+            dirty: dirty
           )
         )
       }
@@ -236,11 +328,11 @@ enum EntityHydrator {
     )
     let cats = StatsSelectors.statCategories(
       scope: scope,
-      limit: categoriesExpanded ? Int.max : 5
+      limit: categoriesExpanded ? expandedStatsLimit : 5
     )
     let merchants = StatsSelectors.topMerchants(
       scope: scope,
-      limit: merchantsExpanded ? Int.max : 5
+      limit: merchantsExpanded ? expandedStatsLimit : 5
     )
     return StatsSnapshot(
       scope: scope,
@@ -257,31 +349,61 @@ enum EntityHydrator {
     recurring: [Recurring],
     lends: [Lend],
     limits: CategoryLimits,
-    categories: [CategoryEntity]
+    categories: [CategoryEntity],
+    rates: RateTable?,
+    defaultCurrency: String,
+    previous: DerivedSnapshot?,
+    dirty: DeriveDirtyFlags
   ) -> DerivedSnapshot {
-    let monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: limits)
-    let categoryBudgets = BudgetSelectors.categoryBudgets(transactions, limits: limits)
-    let suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
-      transactions,
-      categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
-    )
-    let lendSummaries = LendSelectors.contactSummaries(lends)
-    let lendTotalOutstanding = LendSelectors.totalLent(lends)
-    // Built once and shared: this is a full pass over every transaction id, and both
-    // upcoming views need the same set.
-    let recordedIDs = RecurringSelectors.recordedOccurrenceIDs(transactions)
-    let upcomingThisMonth = RecurringSelectors.upcomingBills(recurring, recordedIDs: recordedIDs)
-    let upcomingAll = RecurringSelectors.allUpcomingBills(recurring, recordedIDs: recordedIDs)
+    var result = previous ?? .empty
 
-    return DerivedSnapshot(
-      monthBudgetTotals: monthBudgetTotals,
-      categoryBudgets: categoryBudgets,
-      suggestedBudgetUpdates: suggestedBudgetUpdates,
-      lendSummaries: lendSummaries,
-      lendTotalOutstanding: lendTotalOutstanding,
-      upcomingThisMonth: upcomingThisMonth,
-      upcomingAll: upcomingAll
-    )
+    if dirty.budgets || previous == nil {
+      result.monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: limits)
+      result.categoryBudgets = BudgetSelectors.categoryBudgets(transactions, limits: limits)
+      result.suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
+        transactions,
+        categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
+      )
+    }
+
+    if dirty.lends || previous == nil {
+      result.lendSummaries = LendSelectors.contactSummaries(lends)
+      result.lendTotalOutstanding = LendSelectors.totalLent(lends)
+    }
+
+    if dirty.upcoming || previous == nil {
+      let recordedIDs = RecurringSelectors.recordedOccurrenceIDs(transactions)
+      result.upcomingThisMonth = RecurringSelectors.upcomingBills(recurring, recordedIDs: recordedIDs)
+      result.upcomingAll = RecurringSelectors.allUpcomingBills(recurring, recordedIDs: recordedIDs)
+      result.upcomingThisMonthTotal = upcomingTotal(
+        result.upcomingThisMonth,
+        defaultCurrency: defaultCurrency,
+        rates: rates
+      )
+      result.upcomingAllTotal = upcomingTotal(
+        result.upcomingAll,
+        defaultCurrency: defaultCurrency,
+        rates: rates
+      )
+    }
+
+    return result
+  }
+
+  private static func upcomingTotal(
+    _ items: [Recurring],
+    defaultCurrency: String,
+    rates: RateTable?
+  ) -> Double {
+    items.reduce(0) { total, item in
+      total + (item.paused
+        ? 0
+        : ExchangeRates.recurringAmountInDefault(
+            item,
+            defaultCurrency: defaultCurrency,
+            rates: rates
+          ))
+    }
   }
 
   private static func build(
@@ -297,26 +419,16 @@ enum EntityHydrator {
     previous: EntitySnapshot?
   ) -> EntitySnapshot {
     let prevFp = previous?.fingerprints
+    let ratesDateChanged = previous?.ratesDate != ratesDate
     let rebuildCategories = prevFp.map { $0.category != fingerprints.category } ?? true
     let rebuildPaymentMethods =
-      prevFp.map {
-        $0.paymentMethod != fingerprints.paymentMethod || $0.preferences != fingerprints.preferences
-      } ?? true
+      prevFp.map { fingerprints.paymentMethodsNeedRebuild(from: $0) } ?? true
     let rebuildTransactions =
-      prevFp.map {
-        $0.transaction != fingerprints.transaction
-          || $0.category != fingerprints.category
-          || $0.paymentMethod != fingerprints.paymentMethod
-          || $0.preferences != fingerprints.preferences
-          || previous?.ratesDate != ratesDate
-      } ?? true
+      prevFp.map { fingerprints.transactionsNeedRebuild(from: $0, ratesDateChanged: ratesDateChanged) }
+      ?? true
     let rebuildRecurring =
-      prevFp.map {
-        $0.recurring != fingerprints.recurring
-          || $0.category != fingerprints.category
-          || $0.preferences != fingerprints.preferences
-          || previous?.ratesDate != ratesDate
-      } ?? true
+      prevFp.map { fingerprints.recurringNeedsRebuild(from: $0, ratesDateChanged: ratesDateChanged) }
+      ?? true
     let rebuildLends = prevFp.map { $0.lend != fingerprints.lend } ?? true
     let rebuildPreferences = prevFp.map { $0.preferences != fingerprints.preferences } ?? true
 
@@ -382,6 +494,7 @@ enum EntityHydrator {
     let categoryById = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
     let pmById = Dictionary(uniqueKeysWithValues: paymentMethods.map { ($0.id, $0) })
     let formatters = Formatters()
+    let defaultCurrency = prefs.currency.rawValue
 
     let transactions: [Transaction]
     if rebuildTransactions {
@@ -393,7 +506,7 @@ enum EntityHydrator {
           let sourceAmount = tx.sourceCurrency.flatMap { code in
             tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
           }
-          let amountCurrency = tx.currency ?? prefs.currency.rawValue
+          let amountCurrency = tx.currency ?? defaultCurrency
           let categoryName = cat?.name ?? "Unknown"
           return Transaction(
             id: tx.id,
@@ -404,7 +517,7 @@ enum EntityHydrator {
             amount: ExchangeRates.transactionAmountInDefault(
               amountMinor: tx.amountMinor,
               currency: tx.currency,
-              defaultCurrency: prefs.currency.rawValue,
+              defaultCurrency: defaultCurrency,
               rates: rates
             ),
             paymentMethod: pm?.label,
@@ -455,12 +568,31 @@ enum EntityHydrator {
       }
       recurring = nextRecurring.map { rec -> Recurring in
         let cat = categoryById[rec.categoryId]
+        let sourceCurrency = rec.currency
+        let convertedEstimateLabel: String?
+        if let sourceCurrency, sourceCurrency != defaultCurrency {
+          let sourceMinor = rec.amountMinor
+          if let convertedMinor = ExchangeRates.convertMinor(
+            sourceMinor,
+            from: sourceCurrency,
+            to: defaultCurrency,
+            rates: rates
+          ) {
+            let converted = ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency)
+            convertedEstimateLabel =
+              "≈ \(Formatting.money(converted, currencyCode: defaultCurrency)) today"
+          } else {
+            convertedEstimateLabel = "Rate unavailable"
+          }
+        } else {
+          convertedEstimateLabel = nil
+        }
         return Recurring(
           id: rec.id,
           name: rec.name,
           category: cat?.name ?? "",
           due: DateHelpers.recurringDueLabel(anchorDate: rec.anchorDate, frequency: rec.frequency),
-          amount: ExchangeRates.toMajorUnits(rec.amountMinor, rec.currency ?? prefs.currency.rawValue),
+          amount: ExchangeRates.toMajorUnits(rec.amountMinor, sourceCurrency ?? defaultCurrency),
           paused: rec.paused,
           green: cat?.tint == .green,
           emoji: cat?.emoji,
@@ -469,7 +601,8 @@ enum EntityHydrator {
           paymentMethodId: rec.paymentMethodId,
           anchorDate: rec.anchorDate,
           frequency: rec.frequency,
-          currency: rec.currency
+          currency: rec.currency,
+          convertedEstimateLabel: convertedEstimateLabel
         )
       }
     } else {

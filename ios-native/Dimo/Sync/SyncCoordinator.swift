@@ -161,6 +161,7 @@ actor SyncCoordinator {
         $0.syncing = true
         $0.error = nil
       }
+      repository.setEntityObservationsSuspended(true)
       do {
         // Backfill workspace name/email for existing rows on every authenticated sync.
         // WorkOS JWTs omit these claims, so pass the session user profile explicitly.
@@ -180,16 +181,20 @@ actor SyncCoordinator {
           }
           try repository.enqueueFullUpload(entityTypes: Array(EntityType.allCases))
           try await pushAll()
-          try await pullAll()
+          try await pullAll(includeEmail: true)
         } else {
-          try await pullAll()
+          try await pullAll(includeEmail: true)
           try repository.runPendingBackfills()
           // Upload bootstrap defaults only if pull left them unsynced (empty
           // workspace). Avoids fresh null-budget seeds overwriting cloud budgets.
           try repository.enqueueUnsyncedDefaults()
           try repository.enqueueUnsyncedEmailMessages()
-          try await pushAll()
-          try await pullAll()
+          let didPush = try await pushAll()
+          // Second pull only when local ops were accepted — picks up server revisions.
+          // Skip emailMessage: iOS already owns those rows from the first pull/push.
+          if didPush {
+            try await pullAll(includeEmail: false)
+          }
         }
         retryAttempt = 0
         retryTask?.cancel()
@@ -202,12 +207,15 @@ actor SyncCoordinator {
             $0.lastSyncedAt = Int(Date().timeIntervalSince1970 * 1000)
           }
         }
+        repository.setEntityObservationsSuspended(false)
       } catch is CancellationError {
+        repository.setEntityObservationsSuspended(false)
         try? repository.updateSyncMeta {
           $0.syncing = false
         }
         return
       } catch {
+        repository.setEntityObservationsSuspended(false)
         if replace { fullReplace = true }
         try? repository.updateSyncMeta {
           $0.syncing = false
@@ -230,8 +238,9 @@ actor SyncCoordinator {
     }
   }
 
-  private func pullAll() async throws {
+  private func pullAll(includeEmail: Bool) async throws {
     for entityType in EntityType.allCases {
+      if entityType == .emailMessage, !includeEmail { continue }
       try await pullType(entityType)
     }
   }
@@ -257,10 +266,13 @@ actor SyncCoordinator {
     }
   }
 
-  private func pushAll() async throws {
+  /// Returns whether any outbox operations were pushed.
+  @discardableResult
+  private func pushAll() async throws -> Bool {
+    var anyPushed = false
     while true {
       let pending = try repository.pendingOutbox(limit: 500)
-      if pending.isEmpty { return }
+      if pending.isEmpty { return anyPushed }
       let grouped = Dictionary(grouping: pending, by: \.entityType)
       var pushed = false
       for (entityType, ops) in grouped {
@@ -269,10 +281,11 @@ actor SyncCoordinator {
           let batch = Array(ops[index..<min(index + 50, ops.count)])
           try await pushBatch(entityType: entityType, operations: batch)
           pushed = true
+          anyPushed = true
           index += 50
         }
       }
-      if !pushed { return }
+      if !pushed { return anyPushed }
     }
   }
 

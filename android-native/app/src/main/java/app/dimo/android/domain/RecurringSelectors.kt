@@ -57,7 +57,7 @@ object RecurringSelectors {
         val frequency = rec.frequency ?: return@mapNotNull null
         rec to nextDueUnrecorded(rec, anchor, frequency, recordedIDs, now)
       }
-      .sortedBy { it.second }
+      .sortedByDescending { it.second }
   }
 
   fun upcomingBills(
@@ -69,10 +69,11 @@ object RecurringSelectors {
     val dueThisMonth = withNextDue(recs, transactions, now)
       .filter { (_, due) -> due.year == now.year && due.monthValue == now.monthValue }
       .map { it.first }
-    return if (limit == null) dueThisMonth else dueThisMonth.take(limit)
+    // Descending due date; a limit keeps the next N soonest (suffix of the list).
+    return if (limit == null) dueThisMonth else dueThisMonth.takeLast(limit)
   }
 
-  /** All bills, including paused bills, sorted by next unpaid due date (any month). */
+  /** All bills, including paused bills, sorted by next unpaid due date descending (any month). */
   fun allUpcomingBills(
     recs: List<Recurring>,
     transactions: List<Transaction>,
