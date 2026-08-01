@@ -72,6 +72,22 @@ describe("local repository", () => {
     expect((await db.syncMeta.get("global"))?.lastPulledRevision).toBe(7);
   });
 
+  it("fills in per-type pull cursors missing from an older sync record", async () => {
+    await initializeLocalDatabase();
+    await db.syncMeta.update("global", {
+      lastPulledRevision: 900,
+      pulledRevisions: { transaction: 900, category: 900 } as never,
+    });
+
+    await initializeLocalDatabase();
+    expect((await db.syncMeta.get("global"))?.pulledRevisions).toMatchObject({
+      transaction: 900,
+      category: 900,
+      lend: 0,
+      emailMessage: 0,
+    });
+  });
+
   it("normalizes older preferences to the one-year stats default", () => {
     const olderPreferences: Partial<typeof DEFAULT_PREFERENCES> = {
       ...DEFAULT_PREFERENCES,

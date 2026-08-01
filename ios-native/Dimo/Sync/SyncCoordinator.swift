@@ -246,8 +246,11 @@ actor SyncCoordinator {
   }
 
   private func pullType(_ entityType: EntityType) async throws {
-    var meta = try repository.syncMeta()
-    var cursor = meta?.pulledRevisions[entityType] ?? meta?.lastPulledRevision ?? 0
+    // A missing per-type cursor means this type was never pulled, so it restarts at
+    // zero. `lastPulledRevision` is the maximum across every type, and resuming from
+    // it skips every row of this type written before that point.
+    let meta = try repository.syncMeta()
+    var cursor = meta?.pulledRevisions[entityType] ?? 0
     while true {
       let page = try await transport.pull(
         entityType: entityType,
@@ -262,7 +265,6 @@ actor SyncCoordinator {
       try repository.mergeRemotePage(rows, entityType: entityType, cursor: pageCursor)
       cursor = pageCursor
       if !page.hasMore { break }
-      meta = try repository.syncMeta()
     }
   }
 

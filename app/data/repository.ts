@@ -35,8 +35,13 @@ import {
  * Version 4 replays the cloud snapshot once. Some mobile-web databases pulled
  * lending rows before the `kind` field existed and otherwise keep classifying
  * repayments as money lent.
+ *
+ * Version 5 replays it again. Databases whose per-type pull cursor for a type was
+ * once missing resumed that type from the workspace-wide revision instead of zero,
+ * permanently hiding every row of that type written before then; only a replay from
+ * zero brings them back.
  */
-const BOOTSTRAP_VERSION = 4;
+const BOOTSTRAP_VERSION = 5;
 
 /**
  * Bump when a new legacy-row repair is added, so every client runs it once.
@@ -433,7 +438,7 @@ export async function initializeLocalDatabase() {
   await db.open();
   await db.transaction("rw", allTypedTables(), async () => {
     const device = await ensureDevice();
-    const shouldReplayCloudSnapshot = device.bootstrapVersion < 4;
+    const shouldReplayCloudSnapshot = device.bootstrapVersion < BOOTSTRAP_VERSION;
     if (device.bootstrapVersion < BOOTSTRAP_VERSION) {
       if (!(await getStoredRow("paymentMethod", CASH_PAYMENT_METHOD.id))) {
         await putLocalOnly("paymentMethod", CASH_PAYMENT_METHOD);
@@ -460,7 +465,13 @@ export async function initializeLocalDatabase() {
         ...(existingMeta.pulledRevisions ?? {}),
       };
       const patch: Partial<SyncMetaRecord> = {};
-      if (!existingMeta.pulledRevisions) patch.pulledRevisions = pulled;
+      // A cursor missing for even one type makes that type resume from the wrong
+      // place, so fill the gaps with zero rather than only rebuilding a wholly
+      // absent record.
+      const complete = (Object.keys(EMPTY_PULLED_REVISIONS) as EntityType[]).every(
+        (type) => typeof existingMeta.pulledRevisions?.[type] === "number",
+      );
+      if (!complete) patch.pulledRevisions = pulled;
       if (shouldReplayCloudSnapshot) {
         patch.lastPulledRevision = 0;
         patch.pulledRevisions = { ...EMPTY_PULLED_REVISIONS };

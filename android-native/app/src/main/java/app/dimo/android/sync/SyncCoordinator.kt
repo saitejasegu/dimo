@@ -236,8 +236,11 @@ class SyncCoordinator(
   }
 
   private suspend fun pullType(entityType: EntityType) {
+    // A missing per-type cursor means this type was never pulled, so it restarts at
+    // zero. lastPulledRevision is the maximum across every type, and resuming from it
+    // skips every row of this type written before that point.
     val meta = repository.syncMeta()
-    var cursor = meta?.pulledRevisions?.get(entityType) ?: meta?.lastPulledRevision ?: 0L
+    var cursor = meta?.pulledRevisions?.get(entityType) ?: 0L
     while (true) {
       val page = transport.pull(entityType, WORKSPACE_ID, cursor, PULL_PAGE)
       val pageCursor = if (page.entities.isEmpty()) {

@@ -1,6 +1,6 @@
 import { ConvexReactClient } from "convex/react";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
-import { db, EMPTY_PULLED_REVISIONS } from "@/data/db";
+import { db, EMPTY_PULLED_REVISIONS, type SyncMetaRecord } from "@/data/db";
 import {
   WORKSPACE_ID,
   ALL_CLOUD_ENTITY_TYPES,
@@ -122,6 +122,19 @@ function toStoredFromPull<T extends EntityType>(
     serverRevision,
     ...fields,
   } as StoredRowMap[T];
+}
+
+/**
+ * Where a pull for one entity type resumes. A missing entry means the type was never
+ * pulled, so it must restart at zero: `lastPulledRevision` is the maximum across every
+ * type, and resuming from it skips every row of this type written before that point.
+ */
+export function pullCursorFor(
+  meta: Pick<SyncMetaRecord, "pulledRevisions"> | undefined,
+  entityType: EntityType,
+) {
+  const cursor = meta?.pulledRevisions?.[entityType];
+  return typeof cursor === "number" && Number.isFinite(cursor) ? cursor : 0;
 }
 
 export class SyncCoordinator {
@@ -282,9 +295,8 @@ export class SyncCoordinator {
   }
 
   private async pullType(entityType: EntityType) {
-    let meta = await db.syncMeta.get(WORKSPACE_ID);
-    let cursor =
-      meta?.pulledRevisions?.[entityType] ?? meta?.lastPulledRevision ?? 0;
+    const meta = await db.syncMeta.get(WORKSPACE_ID);
+    let cursor = pullCursorFor(meta, entityType);
     while (true) {
       const page = (await this.client.query(PULL_REF[entityType], {
         workspaceId: WORKSPACE_ID,
@@ -298,7 +310,6 @@ export class SyncCoordinator {
       await mergeRemotePage(entityType, rows as never, pageCursor);
       cursor = pageCursor;
       if (!page.hasMore) break;
-      meta = await db.syncMeta.get(WORKSPACE_ID);
     }
   }
 
