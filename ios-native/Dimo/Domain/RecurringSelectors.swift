@@ -70,7 +70,7 @@ enum RecurringSelectors {
         )
         return (rec, due)
       }
-      .sorted { $0.1 > $1.1 }
+      .sorted { $0.1 < $1.1 }
   }
 
   static func upcomingBills(
@@ -104,12 +104,11 @@ enum RecurringSelectors {
       }
       .map(\.0)
 
-    // Descending due date; a limit keeps the next N soonest (suffix of the list).
     guard let limit else { return dueThisMonth }
-    return Array(dueThisMonth.suffix(limit))
+    return Array(dueThisMonth.prefix(limit))
   }
 
-  /// All bills, including paused bills, sorted by next unpaid due date descending (any month).
+  /// All bills, including paused bills, sorted by next unpaid due date ascending (any month).
   static func allUpcomingBills(
     _ recs: [Recurring],
     transactions: [Transaction],

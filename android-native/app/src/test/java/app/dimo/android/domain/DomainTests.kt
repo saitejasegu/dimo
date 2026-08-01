@@ -273,7 +273,7 @@ class RecurringSelectorsTests : ZonedTest() {
   )
 
   @Test
-  fun upcomingBillsSortedByDueDateDescending() {
+  fun upcomingBillsSortedByDueDateAscending() {
     val now = LocalDate.of(2026, 7, 12)
     val recs = listOf(
       recurring("late", "Rent", "2026-07-28"),
@@ -283,7 +283,7 @@ class RecurringSelectorsTests : ZonedTest() {
       recurring("next-month", "Later", "2026-08-01"),
     )
     val upcoming = RecurringSelectors.upcomingBills(recs, emptyList(), limit = 3, now = now)
-    assertEquals(listOf("late", "mid", "early"), upcoming.map { it.id })
+    assertEquals(listOf("early", "mid", "late"), upcoming.map { it.id })
   }
 
   @Test
@@ -299,7 +299,7 @@ class RecurringSelectorsTests : ZonedTest() {
       recurring("next-month", "Later", "2026-08-01"),
     )
     val upcoming = RecurringSelectors.upcomingBills(recs, emptyList(), now = now)
-    assertEquals(listOf("fifth", "fourth", "third", "second", "first"), upcoming.map { it.id })
+    assertEquals(listOf("first", "second", "third", "fourth", "fifth"), upcoming.map { it.id })
   }
 
   @Test
@@ -335,7 +335,7 @@ class RecurringSelectorsTests : ZonedTest() {
       recurring("second", "Second", "2026-07-15"),
     )
     val all = RecurringSelectors.allUpcomingBills(recs, emptyList(), now = now)
-    assertEquals(listOf("next-month", "second", "paused", "first"), all.map { it.id })
+    assertEquals(listOf("first", "paused", "second", "next-month"), all.map { it.id })
   }
 
   @Test

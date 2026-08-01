@@ -7,13 +7,15 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
 import { recurringAmountInDefault } from "@/features/currency/rates";
 import { Card, HeroCard } from "@/components/ui/Card";
-import { UpcomingRow } from "@/components/common/UpcomingRow";
+import { UpcomingBillsPanel } from "@/components/common/UpcomingBillsPanel";
 import { CategoryBar } from "@/components/common/CategoryBar";
+import { ChevronIcon } from "@/components/ui/icons";
+import { Modal } from "@/components/ui/Modal";
 import { WebScreen } from "@/components/web/WebScreen";
 import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
-  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
+  const [upcomingDialogOpen, setUpcomingDialogOpen] = useState(false);
   const { profile, currency, rates } = useAppState();
   const actions = useAppActions();
   const {
@@ -26,10 +28,8 @@ export function OverviewScreen() {
 
   const firstName = profile.name.split(" ")[0];
   const monthSub = `${transactionCount} transactions`;
-  const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
-  const canShowAll = allUpcoming.length > upcoming.length;
   const showUpcomingSection = allUpcoming.length > 0;
-  const upcomingTotal = visibleUpcoming.reduce(
+  const thisMonthTotal = upcoming.reduce(
     (total, item) => total + (item.paused ? 0 : recurringAmountInDefault(item, currency, rates)),
     0,
   );
@@ -76,45 +76,19 @@ export function OverviewScreen() {
       >
         {showUpcomingSection && (
           <Card className="h-full p-[22px]">
-            <div className="mb-3.5 flex items-baseline justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setUpcomingDialogOpen(true)}
+              className="flex w-full items-center gap-3 text-left"
+            >
               <span className="font-display text-[17px] font-semibold text-ink">
-                {upcomingExpanded ? "Upcoming" : "Upcoming this month"}
+                Upcoming this month
               </span>
-              <div className="flex shrink-0 items-baseline gap-3">
-                {visibleUpcoming.length > 0 ? (
-                  <span className="text-[13px] font-medium text-muted">
-                    {money(upcomingTotal, currency)}
-                  </span>
-                ) : null}
-                {canShowAll || upcomingExpanded ? (
-                  <button
-                    type="button"
-                    onClick={() => setUpcomingExpanded((open) => !open)}
-                    className="text-xs font-medium text-green"
-                  >
-                    {upcomingExpanded ? "This month" : `Show all (${allUpcoming.length})`}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex flex-col gap-3.5">
-              {visibleUpcoming.length === 0 ? (
-                <div className="rounded-[14px] border border-line bg-surface px-3 py-[18px] text-center text-sm text-faint">
-                  None
-                </div>
-              ) : (
-                visibleUpcoming.map((rec) => (
-                  <UpcomingRow
-                    key={rec.id}
-                    recurring={rec}
-                    currency={currency}
-                    rates={rates}
-                    onClick={actions.openEditRecurring}
-                    size="web"
-                  />
-                ))
-              )}
-            </div>
+              <span className="ml-auto text-[13px] font-medium text-muted">
+                {money(thisMonthTotal, currency)}
+              </span>
+              <ChevronIcon direction="right" size={12} className="text-faint" />
+            </button>
           </Card>
         )}
 
@@ -137,6 +111,25 @@ export function OverviewScreen() {
       </div>
 
       <ActivityScreen embedded />
+      {upcomingDialogOpen ? (
+        <Modal
+          onClose={() => setUpcomingDialogOpen(false)}
+          width={520}
+          className="max-h-[85vh]"
+        >
+          <UpcomingBillsPanel
+            upcoming={upcoming}
+            allUpcoming={allUpcoming}
+            currency={currency}
+            rates={rates}
+            onOpenRecurring={(id) => {
+              setUpcomingDialogOpen(false);
+              actions.openEditRecurring(id);
+            }}
+            size="web"
+          />
+        </Modal>
+      ) : null}
     </WebScreen>
   );
 }

@@ -14,15 +14,15 @@ import { TransactionRow } from "@/components/common/TransactionRow";
 import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Sheet } from "@/components/ui/Sheet";
-import { FilterIcon } from "@/components/ui/icons";
+import { FilterIcon, ChevronIcon } from "@/components/ui/icons";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { Button } from "@/components/ui/Button";
-import { UpcomingRow } from "@/components/common/UpcomingRow";
+import { UpcomingBillsPanel } from "@/components/common/UpcomingBillsPanel";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
+  const [upcomingSheetOpen, setUpcomingSheetOpen] = useState(false);
   const { profile, currency, rates, query, categories } = useAppState();
   const actions = useAppActions();
   const {
@@ -42,14 +42,16 @@ export function HomeScreen() {
     [categories],
   );
   const filtersActive = query.trim() !== "" || filter.length > 0 || paymentFilter !== "All";
-  const visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming;
-  const canShowAll = allUpcoming.length > upcoming.length;
   const showUpcomingSection = allUpcoming.length > 0;
 
   const initial = profile.name.charAt(0).toUpperCase();
   const monthSub = `${transactionCount} transactions`;
-  const upcomingTotal = visibleUpcoming.reduce(
-    (total, item) => total + (item.paused ? 0 : recurringAmountInDefault(item, currency, rates)),
+  const thisMonthTotal = upcoming.reduce(
+    (sum, item) =>
+      sum +
+      (item.paused
+        ? 0
+        : recurringAmountInDefault(item, currency, rates)),
     0,
   );
 
@@ -83,46 +85,21 @@ export function HomeScreen() {
       }
     >
       {showUpcomingSection && (
-        <>
-          <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <div className="mb-[22px]">
+          <button
+            type="button"
+            onClick={() => setUpcomingSheetOpen(true)}
+            className="flex w-full items-center gap-3 rounded-[14px] border border-line bg-surface px-4 py-3 text-left"
+          >
             <span className="font-display text-base font-semibold text-ink">
-              {upcomingExpanded ? "Upcoming" : "Upcoming this month"}
+              Upcoming this month
             </span>
-            <div className="flex shrink-0 items-baseline gap-3">
-              {visibleUpcoming.length > 0 ? (
-                <span className="text-[13px] font-medium text-muted">
-                  {money(upcomingTotal, currency)}
-                </span>
-              ) : null}
-              {canShowAll || upcomingExpanded ? (
-                <button
-                  type="button"
-                  onClick={() => setUpcomingExpanded((open) => !open)}
-                  className="text-xs font-medium text-green"
-                >
-                  {upcomingExpanded ? "This month" : `Show all (${allUpcoming.length})`}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="mb-[22px] flex flex-col gap-2">
-            {visibleUpcoming.length === 0 ? (
-              <div className="rounded-[14px] border border-line bg-surface px-3 py-[18px] text-center text-sm text-faint">
-                None
-              </div>
-            ) : (
-              visibleUpcoming.map((rec) => (
-                <UpcomingRow
-                  key={rec.id}
-                  recurring={rec}
-                  currency={currency}
-                  rates={rates}
-                  onClick={actions.openEditRecurring}
-                />
-              ))
-            )}
-          </div>
-        </>
+            <span className="ml-auto text-[13px] font-medium text-muted">
+              {money(thisMonthTotal, currency)}
+            </span>
+            <ChevronIcon direction="right" size={12} className="text-faint" />
+          </button>
+        </div>
       )}
 
       <div className="mb-3.5 flex items-center justify-between gap-3">
@@ -143,6 +120,20 @@ export function HomeScreen() {
         >
           Load more
         </Button>
+      ) : null}
+      {upcomingSheetOpen ? (
+        <Sheet onClose={() => setUpcomingSheetOpen(false)}>
+          <UpcomingBillsPanel
+            upcoming={upcoming}
+            allUpcoming={allUpcoming}
+            currency={currency}
+            rates={rates}
+            onOpenRecurring={(id) => {
+              setUpcomingSheetOpen(false);
+              actions.openEditRecurring(id);
+            }}
+          />
+        </Sheet>
       ) : null}
       {filtersOpen ? <Sheet title="Filter transactions" onClose={() => setFiltersOpen(false)}>
         <div className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted">Search</div>

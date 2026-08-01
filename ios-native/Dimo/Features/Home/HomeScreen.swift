@@ -8,7 +8,9 @@ struct HomeScreen: View {
   var onOpenSettings: () -> Void
   @Environment(AppEnvironment.self) private var environment
   @State private var filtersOpen = false
-  @State private var upcomingExpanded = false
+  @State private var upcomingSheetOpen = false
+  /// Whether the upcoming sheet shows every bill or only this month.
+  @State private var upcomingShowAll = false
   @State private var activeFilter = TransactionFilter()
   @State private var visibleLimit = TransactionSelectors.homePageSize
   @State private var selecting = false
@@ -75,6 +77,9 @@ struct HomeScreen: View {
           filtersOpen = false
         }
       )
+    }
+    .sheet(isPresented: $upcomingSheetOpen) {
+      upcomingSheet
     }
     .confirmationDialog(
       "Delete \(selectedIds.count) transaction\(selectedIds.count == 1 ? "" : "s")?",
@@ -164,50 +169,93 @@ struct HomeScreen: View {
 
   @ViewBuilder
   private var upcomingSection: some View {
-    let upcoming = entities.upcomingThisMonth
-    let allUpcoming = entities.upcomingAll
-    if !allUpcoming.isEmpty {
-      let visibleUpcoming = upcomingExpanded ? allUpcoming : upcoming
-      let canShowAll = allUpcoming.count > upcoming.count
-      let upcomingTotal = upcomingExpanded
-        ? entities.upcomingAllTotal
-        : entities.upcomingThisMonthTotal
-      VStack(alignment: .leading, spacing: 0) {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-          Text(upcomingExpanded ? "Upcoming" : "Upcoming this month")
+    if !entities.upcomingAll.isEmpty {
+      Button {
+        upcomingShowAll = false
+        upcomingSheetOpen = true
+      } label: {
+        HStack(spacing: 12) {
+          Text("Upcoming this month")
             .font(DimoFont.display(16, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Spacer()
-          if !visibleUpcoming.isEmpty {
-            Text(Formatting.money(upcomingTotal, currency: entities.currency))
-              .font(DimoFont.body(13, weight: .medium))
-              .foregroundStyle(Theme.muted)
-          }
-          if canShowAll || upcomingExpanded {
+          Text(
+            Formatting.money(
+              entities.upcomingThisMonthTotal,
+              currency: entities.currency
+            )
+          )
+            .font(DimoFont.body(13, weight: .medium))
+            .foregroundStyle(Theme.muted)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Theme.faint)
+        }
+        .cardRow()
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Upcoming this month")
+      .accessibilityValue(
+        Formatting.money(
+          entities.upcomingThisMonthTotal,
+          currency: entities.currency
+        )
+      )
+      .accessibilityHint("Shows upcoming bills")
+      .padding(.bottom, 22)
+    }
+  }
+
+  @ViewBuilder
+  private var upcomingSheet: some View {
+    let upcoming = entities.upcomingThisMonth
+    let allUpcoming = entities.upcomingAll
+    let visibleUpcoming = upcomingShowAll ? allUpcoming : upcoming
+    let canShowAll = allUpcoming.count > upcoming.count
+    let upcomingTotal = upcomingShowAll
+      ? entities.upcomingAllTotal
+      : entities.upcomingThisMonthTotal
+
+    VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(upcomingShowAll ? "Upcoming" : "Upcoming this month")
+          .font(DimoFont.display(19, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .frame(maxWidth: .infinity, alignment: .center)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          Text(Formatting.money(upcomingTotal, currency: entities.currency))
+            .font(DimoFont.body(13, weight: .medium))
+            .foregroundStyle(Theme.muted)
+          Spacer()
+          if canShowAll || upcomingShowAll {
             Button {
-              upcomingExpanded.toggle()
+              upcomingShowAll.toggle()
             } label: {
-              Text(upcomingExpanded ? "This month" : "Show all (\(allUpcoming.count))")
+              Text(upcomingShowAll ? "This month" : "Show all (\(allUpcoming.count))")
                 .font(DimoFont.body(12, weight: .medium))
                 .foregroundStyle(Theme.green)
             }
             .buttonStyle(.plain)
           }
         }
-        .padding(.bottom, 10)
+      }
 
-        if visibleUpcoming.isEmpty {
-          Text("None")
-            .font(DimoFont.body(14))
-            .foregroundStyle(Theme.faint)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, 7)
-            .cardRow()
-        } else {
-          VStack(spacing: 8) {
+      if visibleUpcoming.isEmpty {
+        Text("None")
+          .font(DimoFont.body(14))
+          .foregroundStyle(Theme.faint)
+          .frame(maxWidth: .infinity, alignment: .center)
+          .padding(.vertical, 18)
+          .cardRow()
+      } else {
+        ScrollView {
+          LazyVStack(spacing: 8) {
             ForEach(visibleUpcoming) { rec in
               Button {
-                store.openEditRecurring(rec.id)
+                upcomingSheetOpen = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                  store.openEditRecurring(rec.id)
+                }
               } label: {
                 HStack(spacing: 12) {
                   CategoryTintView(
@@ -271,9 +319,25 @@ struct HomeScreen: View {
             }
           }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: upcomingListHeight(visibleUpcoming))
       }
-      .padding(.bottom, 22)
     }
+    .padding(.horizontal, 22)
+    .padding(.top, 24)
+    .padding(.bottom, 22)
+    .contentHeightSheet()
+    .presentationDragIndicator(.visible)
+    .presentationBackground(Theme.canvas)
+  }
+
+  /// Sheet detents need a concrete list height, so measure the rows the sheet will
+  /// lay out and cap it before the sheet would grow taller than a large detent.
+  private func upcomingListHeight(_ bills: [Recurring]) -> CGFloat {
+    let rows = CGFloat(bills.count) * 60
+    let spacing = CGFloat(max(0, bills.count - 1)) * 8
+    let estimates = CGFloat(bills.filter { $0.convertedEstimateLabel != nil }.count) * 19
+    return min(rows + spacing + estimates, 460)
   }
 
   private var transactionsSection: some View {

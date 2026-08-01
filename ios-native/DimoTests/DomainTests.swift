@@ -208,7 +208,7 @@ final class DateHelpersTests: XCTestCase {
 }
 
 final class RecurringSelectorsTests: XCTestCase {
-  func testUpcomingBillsSortedByDueDateDescending() {
+  func testUpcomingBillsSortedByDueDateAscending() {
     let cal = Calendar(identifier: .gregorian)
     let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 12))!
     let recs = [
@@ -220,7 +220,7 @@ final class RecurringSelectorsTests: XCTestCase {
     ]
 
     let upcoming = RecurringSelectors.upcomingBills(recs, transactions: [], limit: 3, now: now, calendar: cal)
-    XCTAssertEqual(upcoming.map(\.id), ["late", "mid", "early"])
+    XCTAssertEqual(upcoming.map(\.id), ["early", "mid", "late"])
   }
 
   func testUpcomingBillsReturnsEntireCurrentMonthWithoutLimit() {
@@ -237,7 +237,7 @@ final class RecurringSelectorsTests: XCTestCase {
     ]
 
     let upcoming = RecurringSelectors.upcomingBills(recs, transactions: [], now: now, calendar: cal)
-    XCTAssertEqual(upcoming.map(\.id), ["fifth", "fourth", "third", "second", "first"])
+    XCTAssertEqual(upcoming.map(\.id), ["first", "second", "third", "fourth", "fifth"])
   }
 
   func testChargedBillDropsOutOfUpcoming() {
@@ -270,7 +270,7 @@ final class RecurringSelectorsTests: XCTestCase {
     ]
 
     let all = RecurringSelectors.allUpcomingBills(recs, transactions: [], now: now, calendar: cal)
-    XCTAssertEqual(all.map(\.id), ["next-month", "second", "paused", "first"])
+    XCTAssertEqual(all.map(\.id), ["first", "paused", "second", "next-month"])
   }
 
   func testPausedOnlyAccountsRemainAvailableInExpandedHomeResults() {
