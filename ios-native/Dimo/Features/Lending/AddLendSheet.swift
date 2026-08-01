@@ -9,25 +9,79 @@ struct AddLendSheet: View {
   /// search field and list stay visible above the keyboard.
   @State private var contactSearchOpen = false
   @State private var cachedRecentContacts: [LendContactSuggestion] = []
-  @State private var cachedRepaymentLimit: Double = 0
+  /// Cap for the draft's kind, or nil when the entry opens a balance rather
+  /// than settling one.
+  @State private var cachedSettlementLimit: Double?
 
+  private var kind: LendKind { store.lendDraft.kind }
   private var isEditing: Bool { store.lendDraft.editingId != nil }
-  private var isRepayment: Bool { store.lendDraft.kind == .repaid }
-  /// Contact is locked when recording a repayment from summary, or when editing.
-  private var contactLocked: Bool { isEditing || (isRepayment && !store.lendDraft.contactName.isEmpty) }
+  /// Settlements are always started from a contact's summary row, so their
+  /// counterparty is already decided.
+  private var isSettlement: Bool { kind == .repaid || kind == .returned }
+  /// Contact is locked when settling from the summary, or when editing.
+  private var contactLocked: Bool { isEditing || (isSettlement && !store.lendDraft.contactName.isEmpty) }
+  /// Direction is only choosable while opening a brand-new balance.
+  private var canChooseDirection: Bool { !isEditing && !isSettlement }
 
   private var sheetTitle: String {
     if isEditing {
-      return isRepayment ? "Edit repayment" : "Edit lend"
+      switch kind {
+      case .lent: return "Edit lend"
+      case .repaid: return "Edit repayment"
+      case .borrowed: return "Edit borrowing"
+      case .returned: return "Edit payment"
+      }
     }
-    return isRepayment ? "Got back" : "Add lend"
+    switch kind {
+    case .lent: return "Add lend"
+    case .borrowed: return "Add borrowing"
+    case .repaid: return "Got back"
+    case .returned: return "Paid back"
+    }
   }
 
   private var saveTitle: String {
-    if isEditing {
-      return isRepayment ? "Save repayment" : "Save lend"
+    switch kind {
+    case .lent: return "Save lend"
+    case .borrowed: return "Save borrowing"
+    case .repaid: return isEditing ? "Save repayment" : "Save got back"
+    case .returned: return isEditing ? "Save payment" : "Save paid back"
     }
-    return isRepayment ? "Save got back" : "Save lend"
+  }
+
+  private var contactLabel: String {
+    switch kind {
+    case .lent: return "Lent to"
+    case .borrowed: return "Borrowed from"
+    case .repaid: return "From"
+    case .returned: return "To"
+    }
+  }
+
+  private var amountLabel: String {
+    switch kind {
+    case .lent, .borrowed: return "Amount"
+    case .repaid: return "Amount got back"
+    case .returned: return "Amount paid back"
+    }
+  }
+
+  private var commentPlaceholder: String {
+    switch kind {
+    case .lent: return "e.g. Dinner split, emergency"
+    case .borrowed: return "e.g. Rent top-up, cab fare"
+    case .repaid: return "e.g. Partial repayment"
+    case .returned: return "e.g. Partial payment"
+    }
+  }
+
+  private var deleteTitle: String {
+    switch kind {
+    case .lent: return "Delete this lend?"
+    case .repaid: return "Delete this repayment?"
+    case .borrowed: return "Delete this borrowing?"
+    case .returned: return "Delete this payment?"
+    }
   }
 
   var body: some View {
@@ -37,8 +91,12 @@ struct AddLendSheet: View {
       titleAlignment: isEditing ? .leading : .center
     ) {
       VStack(alignment: .leading, spacing: 16) {
+        if canChooseDirection && !contactSearchOpen {
+          directionSwitcher
+        }
+
         VStack(alignment: .leading, spacing: 6) {
-          lendLabel(isRepayment ? "From" : "Lent to")
+          lendLabel(contactLabel)
           if contactLocked {
             HStack(spacing: 10) {
               ContactAvatar(
@@ -93,7 +151,7 @@ struct AddLendSheet: View {
             .tint(Theme.green)
           }
 
-          lendField(isRepayment ? "Amount got back" : "Amount") {
+          lendField(amountLabel) {
             HStack(spacing: 8) {
               Text(Formatting.currencySymbol(store.currency))
                 .foregroundStyle(Theme.muted)
@@ -101,17 +159,14 @@ struct AddLendSheet: View {
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.plain)
                 .onChange(of: store.lendDraft.amount) { _, amount in
-                  limitRepaymentAmount(amount)
+                  clampToSettlementLimit(amount)
                 }
             }
           }
 
           lendField("Comments (optional)") {
-            TextField(
-              isRepayment ? "e.g. Partial repayment" : "e.g. Dinner split, emergency",
-              text: $store.lendDraft.comment
-            )
-            .textFieldStyle(.plain)
+            TextField(commentPlaceholder, text: $store.lendDraft.comment)
+              .textFieldStyle(.plain)
           }
 
           Button {
@@ -139,8 +194,9 @@ struct AddLendSheet: View {
       refreshLendCaches()
     }
     .onChange(of: store.entities.revision) { _, _ in refreshLendCaches() }
-    .onChange(of: store.lendDraft.contactId) { _, _ in refreshRepaymentLimit() }
-    .onChange(of: store.lendDraft.editingId) { _, _ in refreshRepaymentLimit() }
+    .onChange(of: store.lendDraft.contactId) { _, _ in refreshSettlementLimit() }
+    .onChange(of: store.lendDraft.editingId) { _, _ in refreshSettlementLimit() }
+    .onChange(of: store.lendDraft.kind) { _, _ in refreshSettlementLimit() }
     .overlay(alignment: .topTrailing) {
       if isEditing {
         Button { confirmDelete = true } label: {
@@ -160,7 +216,7 @@ struct AddLendSheet: View {
         .padding(.trailing, 20)
       }
     }
-    .alert(isRepayment ? "Delete this repayment?" : "Delete this lend?", isPresented: $confirmDelete) {
+    .alert(deleteTitle, isPresented: $confirmDelete) {
       Button("Delete", role: .destructive) {
         guard let id = store.lendDraft.editingId else { return }
         store.deleteLend(id)
@@ -170,36 +226,65 @@ struct AddLendSheet: View {
   }
 
   private var canSave: Bool {
-    store.lendDraft.contactId != nil
+    let amount = Double(store.lendDraft.amount) ?? 0
+    return store.lendDraft.contactId != nil
       && !store.lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && (Double(store.lendDraft.amount) ?? 0) > 0
-      && (!isRepayment || (Double(store.lendDraft.amount) ?? 0) <= cachedRepaymentLimit + 0.000_001)
+      && amount > 0
+      && (cachedSettlementLimit.map { amount <= $0 + 0.000_001 } ?? true)
   }
-
-  private var repaymentLimit: Double { cachedRepaymentLimit }
 
   private func refreshLendCaches() {
     cachedRecentContacts = LendSelectors.recentContacts(store.lends)
-    refreshRepaymentLimit()
+    refreshSettlementLimit()
   }
 
-  private func refreshRepaymentLimit() {
+  private func refreshSettlementLimit() {
     guard let contactId = store.lendDraft.contactId else {
-      cachedRepaymentLimit = 0
+      // No contact picked yet; a settlement cannot exceed a balance of zero.
+      cachedSettlementLimit = isSettlement ? 0 : nil
       return
     }
-    cachedRepaymentLimit = LendSelectors.outstandingAmount(
-      for: contactId,
+    cachedSettlementLimit = LendSelectors.settlementLimit(
+      for: kind,
+      contactId: contactId,
       in: store.lends,
       excludingLendId: store.lendDraft.editingId
     )
   }
 
-  private func limitRepaymentAmount(_ amountText: String) {
-    guard isRepayment, let amount = Double(amountText), amount > repaymentLimit else { return }
-    store.lendDraft.amount = repaymentLimit.rounded() == repaymentLimit
-      ? String(Int(repaymentLimit))
-      : String(format: "%.2f", repaymentLimit)
+  /// Keeps a settlement from overshooting the balance it is closing.
+  private func clampToSettlementLimit(_ amountText: String) {
+    guard let limit = cachedSettlementLimit,
+          let amount = Double(amountText),
+          amount > limit
+    else { return }
+    store.lendDraft.amount = limit.rounded() == limit
+      ? String(Int(limit))
+      : String(format: "%.2f", limit)
+  }
+
+  /// Picks whether a fresh entry opens a balance in the user's favour or
+  /// against it. Same capsule pair as the Lending screen's section switcher.
+  private var directionSwitcher: some View {
+    HStack(spacing: 8) {
+      ForEach([LendKind.lent, .borrowed], id: \.self) { candidate in
+        let selected = kind == candidate
+        Button {
+          store.lendDraft.kind = candidate
+        } label: {
+          Text(candidate == .lent ? "I lent" : "I borrowed")
+            .font(DimoFont.body(15, weight: .semibold))
+            .foregroundStyle(selected ? Theme.canvas : Theme.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(selected ? Theme.ink : Theme.canvas)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+      }
+    }
   }
 
   /// Recent contacts from lend history, offered as one-tap picks until a

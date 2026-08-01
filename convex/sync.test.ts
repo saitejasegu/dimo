@@ -278,6 +278,38 @@ describe("Convex typed sync protocol", () => {
     expect(lends.latestRevision).toBe(2);
   });
 
+  it("round-trips every lend direction, including borrowed and returned", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    const kinds = ["lent", "repaid", "borrowed", "returned"] as const;
+
+    await t.mutation(pushLends, {
+      workspaceId: "global",
+      operations: kinds.map((kind, index) => ({
+        operationId: `lend-${kind}`,
+        workspaceId: "global",
+        entityId: `lend-${kind}`,
+        version: { timestamp: 100 + index, counter: 0, deviceId: "device-a" },
+        deleted: false,
+        contactName: "Sam",
+        contactId: "cn-sam",
+        amountMinor: 5000,
+        occurredAt: 100 + index,
+        comment: "",
+        kind,
+      })),
+    });
+
+    const lends = await t.query(pullLends, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(lends.entities).toHaveLength(kinds.length);
+    expect(lends.entities.map((entity: { kind?: string }) => entity.kind)).toEqual([...kinds]);
+  });
+
   it("preserves native-owned emailMessage rows when clearing web-owned types", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",

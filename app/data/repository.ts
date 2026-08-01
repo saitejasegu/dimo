@@ -4,6 +4,7 @@ import {
   type DeviceMetaRecord,
   type SyncMetaRecord,
 } from "@/data/db";
+import { toLendKind } from "@/lib/types";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -278,7 +279,7 @@ export function sanitizePayload<T extends EntityType>(
         amountMinor: Math.max(1, Math.round(Number(value.amountMinor) || 0)),
         occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
         comment: String(value.comment ?? ""),
-        kind: value.kind === "repaid" ? "repaid" : "lent",
+        kind: toLendKind(value.kind),
       } as EntityPayloadMap[T];
     }
     case "emailMessage": {

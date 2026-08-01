@@ -155,7 +155,7 @@ struct DerivedSnapshot: Equatable, Sendable {
   var categoryBudgets: [CategoryBudget]
   var suggestedBudgetUpdates: [SuggestedCategoryBudgetUpdate]
   var lendSummaries: [LendContactSummary]
-  var lendTotalOutstanding: Double
+  var lendTotals: LendTotals
   var upcomingThisMonth: [Recurring]
   var upcomingAll: [Recurring]
   var upcomingThisMonthTotal: Double
@@ -168,7 +168,7 @@ struct DerivedSnapshot: Equatable, Sendable {
     categoryBudgets: [],
     suggestedBudgetUpdates: [],
     lendSummaries: [],
-    lendTotalOutstanding: 0,
+    lendTotals: .zero,
     upcomingThisMonth: [],
     upcomingAll: [],
     upcomingThisMonthTotal: 0,
@@ -367,8 +367,9 @@ enum EntityHydrator {
     }
 
     if dirty.lends || previous == nil {
-      result.lendSummaries = LendSelectors.contactSummaries(lends)
-      result.lendTotalOutstanding = LendSelectors.totalLent(lends)
+      let summaries = LendSelectors.contactSummaries(lends)
+      result.lendSummaries = summaries
+      result.lendTotals = LendSelectors.totals(from: summaries)
     }
 
     if dirty.upcoming || previous == nil {

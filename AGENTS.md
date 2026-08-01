@@ -52,8 +52,11 @@ transient state, not routes.
   currently the constant `"global"`.
 - Persist money as positive integer minor units. Occurrence timestamps are Unix
   milliseconds; recurring anchors are local calendar strings (`YYYY-MM-DD`).
-  Lending direction is `kind` (`lent` or `repaid`), with
-  `signedAmount` positive for lent and negative for repaid.
+  Lending direction is `kind`: `lent` (user gave money), `repaid` (contact gave
+  it back), `borrowed` (user took money), `returned` (user paid it back).
+  `signedAmount` is positive for `lent`/`returned` and negative for
+  `repaid`/`borrowed`, so a contact's net balance is positive when they owe the
+  user and negative when the user owes them.
 - Every entity write and its per-entity outbox operation must commit
   atomically. A later local edit replaces the pending operation for that key.
 - Fresh databases seed only Cash (`payment-method-cash`) and default
@@ -172,9 +175,24 @@ from derived UI models.
 - Group people by address-book `contactId`, never display name. Legacy missing
   IDs fall back to the name. Contact names/IDs may sync; photos are read
   on-device and must never be persisted or synced.
-- Repayments cannot exceed the contact’s outstanding amount. When editing a
-  repayment, exclude that row from the available-balance calculation. Settled
-  contacts are omitted from summaries.
+- A settlement cannot overshoot the balance it closes: `repaid` is capped by
+  what the contact owes, `returned` by what the user owes them. `lent` and
+  `borrowed` open a balance and are uncapped. Use
+  `LendSelectors.settlementLimit(for:contactId:in:excludingLendId:)` rather
+  than re-deriving the cap, and when editing a settlement exclude that row from
+  the available-balance calculation. Only contacts whose balance nets to zero
+  are omitted from summaries — a negative balance means the user owes them and
+  must still be listed.
+- Editing an entry never flips its direction; the saved row's `kind` wins over
+  the draft.
+- iOS is currently the only client that can *record* a borrowing. Web reads all
+  four directions correctly (`app/features/lending/selectors.ts`) but stays
+  read-only, so it reports balances both ways without offering an entry form.
+- Android still coerces an unrecognized `kind` to `lent`
+  (`LendKind.fromWire`), so a borrowing displays there as a lend and inverts
+  that contact's balance. Android only rewrites a row the user edits, so this
+  is a display gap rather than data loss — port `LendKind`, `signedAmount`, and
+  the `LendSelectors` balance/summary changes before adding borrowing UI there.
 - The current unsettled cycle starts after the most recent zero balance. Use
   `LendSelectors.unsettledTransactions(for:in:)` rather than duplicating it.
 - Native shared summaries use a plain-text share sheet

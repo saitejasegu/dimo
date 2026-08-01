@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { versionValidator } from "./values";
+import { lendKindValidator, versionValidator } from "./values";
 
 const syncMeta = {
   // Optional only so pre-auth rows can remain orphaned during rollout. All
@@ -97,7 +97,7 @@ export default defineSchema({
     amountMinor: v.number(),
     occurredAt: v.number(),
     comment: v.string(),
-    kind: v.optional(v.union(v.literal("lent"), v.literal("repaid"))),
+    kind: v.optional(lendKindValidator),
   })
     .index("by_owner_workspace_entity", ["ownerId", "workspaceId", "entityId"])
     .index("by_owner_workspace_revision", ["ownerId", "workspaceId", "revision"])

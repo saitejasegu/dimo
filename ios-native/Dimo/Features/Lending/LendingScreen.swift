@@ -25,7 +25,7 @@ struct LendingScreen: View {
 
   var body: some View {
     let summaries = entities.lendSummaries
-    let total = entities.lendTotalOutstanding
+    let totals = entities.lendTotals
 
     VStack(spacing: 0) {
       VStack(spacing: 0) {
@@ -37,7 +37,7 @@ struct LendingScreen: View {
         }
         .frame(minHeight: 56)
 
-        hero(total: total, contacts: summaries.count)
+        hero(totals: totals, contacts: summaries.count)
           .padding(.top, 16)
 
         sectionSwitcher
@@ -93,19 +93,16 @@ struct LendingScreen: View {
     }
   }
 
-  private func hero(total: Double, contacts: Int) -> some View {
+  private func hero(totals: LendTotals, contacts: Int) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("Outstanding")
-        .font(DimoFont.body(13))
-        .foregroundStyle(Theme.sideMuted)
-        .padding(.bottom, 8)
-      Text(Formatting.money(total, currency: entities.currency))
-        .font(DimoFont.display(30, weight: .semibold))
-        .foregroundStyle(Theme.sideText)
-        .padding(.bottom, 6)
+      HStack(alignment: .top, spacing: 16) {
+        heroFigure(title: "Owed to me", amount: totals.owedToMe)
+        heroFigure(title: "I owe", amount: totals.iOwe)
+      }
+      .padding(.bottom, 8)
       Text(
         entities.lends.isEmpty
-          ? "No money lent yet"
+          ? "Nothing recorded yet"
           : "\(contacts) contact\(contacts == 1 ? "" : "s") · \(entities.lends.count) entr\(entities.lends.count == 1 ? "y" : "ies")"
       )
       .font(DimoFont.body(12))
@@ -115,6 +112,20 @@ struct LendingScreen: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Theme.inverse)
     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+  }
+
+  private func heroFigure(title: String, amount: Double) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(DimoFont.body(13))
+        .foregroundStyle(Theme.sideMuted)
+      Text(Formatting.money(amount, currency: entities.currency))
+        .font(DimoFont.display(26, weight: .semibold))
+        .foregroundStyle(Theme.sideText)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private var sectionSwitcher: some View {
@@ -141,10 +152,10 @@ struct LendingScreen: View {
 
   private var emptyState: some View {
     VStack(spacing: 8) {
-      Text("Nothing lent yet")
+      Text("Nothing recorded yet")
         .font(DimoFont.body(15, weight: .semibold))
         .foregroundStyle(Theme.ink)
-      Text("Tap + to record money you lend to a contact.")
+      Text("Tap + to record money you lend or borrow.")
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.muted)
     }
@@ -157,7 +168,7 @@ struct LendingScreen: View {
       Text("All settled")
         .font(DimoFont.body(15, weight: .semibold))
         .foregroundStyle(Theme.ink)
-      Text("Everyone has paid you back.")
+      Text("Nothing outstanding either way.")
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.muted)
     }
@@ -166,11 +177,13 @@ struct LendingScreen: View {
   }
 
   private func summaryRow(_ summary: LendContactSummary) -> some View {
-    HStack(spacing: 0) {
+    let owedToMe = summary.direction == .owedToMe
+    return HStack(spacing: 0) {
       Button {
-        store.openAddRepayment(
+        store.openAddSettlement(
           contactName: summary.contactName,
-          contactId: summary.contactId
+          contactId: summary.contactId,
+          direction: summary.direction
         )
       } label: {
         HStack(spacing: 12) {
@@ -186,15 +199,15 @@ struct LendingScreen: View {
               .font(DimoFont.body(14, weight: .medium))
               .foregroundStyle(Theme.ink)
               .lineLimit(1)
-            Text("\(summary.count) entr\(summary.count == 1 ? "y" : "ies") · last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
+            Text("\(owedToMe ? "Owes you" : "You owe") · \(summary.count) entr\(summary.count == 1 ? "y" : "ies") · last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.muted)
               .lineLimit(1)
           }
           Spacer()
-          Text(Formatting.money(summary.total, currency: entities.currency))
+          Text(Formatting.money(summary.magnitude, currency: entities.currency))
             .font(DimoFont.display(15, weight: .semibold))
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(owedToMe ? Theme.ink : Theme.danger)
         }
         .padding(.leading, 12)
         .padding(.vertical, 12)
@@ -202,7 +215,11 @@ struct LendingScreen: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("Record amount got back from \(summary.contactName)")
+      .accessibilityLabel(
+        owedToMe
+          ? "Record amount got back from \(summary.contactName)"
+          : "Record amount paid back to \(summary.contactName)"
+      )
 
       Button {
         messageToShare = shareText(for: summary)
@@ -238,18 +255,22 @@ struct LendingScreen: View {
     let transactionLines: [String] = LendSelectors
       .unsettledTransactions(for: summary.contactId, in: entities.lends)
       .map { lend -> String in
-        let sign = lend.kind == .repaid ? "-" : "+"
+        let sign = lend.isIncoming ? "-" : "+"
         let amount = Formatting.money(lend.amount, currency: entities.currency)
         let occurredAt = Date(timeIntervalSince1970: TimeInterval(lend.occurredAt) / 1000)
         let date = dateFormatter.string(from: occurredAt)
         return "• \(date) · \(sign)\(amount)"
       }
     let transactions = transactionLines.joined(separator: "\n")
+    let balance = Formatting.money(summary.magnitude, currency: entities.currency)
+    let headline = summary.direction == .owedToMe
+      ? "Outstanding: \(balance)"
+      : "I owe you: \(balance)"
 
     return """
     Hi \(summary.contactName), here’s our lending summary:
 
-    Outstanding: \(Formatting.money(summary.total, currency: entities.currency))
+    \(headline)
 
     \(transactions)
     """
@@ -293,15 +314,20 @@ struct LendingScreen: View {
     }
   }
 
+  /// Stands in for an empty comment so a row still says what it was. Plain
+  /// lends need none — the contact name already reads as "lent to".
+  private func fallbackDetail(for kind: LendKind) -> String? {
+    switch kind {
+    case .lent: return nil
+    case .repaid: return "Got back"
+    case .borrowed: return "Borrowed"
+    case .returned: return "Paid back"
+    }
+  }
+
   private func lendRow(_ lend: Lend) -> some View {
-    let isRepaid = lend.kind == .repaid
-    let detail: String = {
-      if isRepaid {
-        let base = lend.comment.isEmpty ? "Got back" : lend.comment
-        return "\(base) · \(lend.time)"
-      }
-      return lend.comment.isEmpty ? lend.time : "\(lend.comment) · \(lend.time)"
-    }()
+    let base = lend.comment.isEmpty ? fallbackDetail(for: lend.kind) : lend.comment
+    let detail = base.map { "\($0) · \(lend.time)" } ?? lend.time
 
     return Button {
       store.openEditLend(lend.id)
@@ -327,7 +353,7 @@ struct LendingScreen: View {
         Spacer()
         Text(Formatting.money(lend.signedAmount, currency: entities.currency))
           .font(DimoFont.display(15, weight: .semibold))
-          .foregroundStyle(isRepaid ? Theme.green : Theme.ink)
+          .foregroundStyle(lend.isIncoming ? Theme.green : Theme.ink)
       }
       .padding(12)
       .background(Theme.surface)

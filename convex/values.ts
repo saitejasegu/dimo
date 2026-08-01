@@ -16,6 +16,22 @@ export const versionValidator = v.object({
   deviceId: v.string(),
 });
 
+/** Direction of a lending entry, shared by the table, the payload validator,
+ * and the push operation validator so they cannot drift apart.
+ *
+ * `lent`/`returned` move money out of the user's pocket; `repaid`/`borrowed`
+ * move it in. A contact's net balance is positive when they owe the user and
+ * negative when the user owes them.
+ *
+ * Optional at every use site so rows written before repayments existed keep
+ * syncing; a missing value means "lent". */
+export const lendKindValidator = v.union(
+  v.literal("lent"),
+  v.literal("repaid"),
+  v.literal("borrowed"),
+  v.literal("returned"),
+);
+
 export const notificationValidator = v.object({
   bills: v.boolean(),
   budget: v.boolean(),
@@ -96,9 +112,7 @@ export const lendValidator = v.object({
   amountMinor: v.number(),
   occurredAt: v.number(),
   comment: v.string(),
-  /** Direction of money. Optional so rows written before repayments existed
-   * keep syncing; a missing value means "lent". */
-  kind: v.optional(v.union(v.literal("lent"), v.literal("repaid"))),
+  kind: v.optional(lendKindValidator),
 });
 
 /** Native-owned reviewed Gmail suggestion. Includes the full normalized body
@@ -250,7 +264,7 @@ export const lendOperationValidator = v.object({
   amountMinor: v.number(),
   occurredAt: v.number(),
   comment: v.string(),
-  kind: v.optional(v.union(v.literal("lent"), v.literal("repaid"))),
+  kind: v.optional(lendKindValidator),
 });
 
 export const emailMessageOperationValidator = v.object({

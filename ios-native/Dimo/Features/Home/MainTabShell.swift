@@ -223,7 +223,7 @@ struct MainTabShell: View {
     switch tab {
     case .home: return "Add expense"
     case .budgets: return "Add category"
-    case .lending: return "Add lend"
+    case .lending: return "Add lending entry"
     default: return "Add"
     }
   }

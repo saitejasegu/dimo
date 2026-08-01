@@ -7,7 +7,9 @@ import { cn } from "@/lib/cn";
 import { useAppState } from "@/store/app-store";
 import {
   groupLendsByDay,
+  isIncomingLend,
   lendContactSummaries,
+  lendKindLabel,
   lendingTotals,
   signedLendAmount,
 } from "@/features/lending/selectors";
@@ -42,23 +44,33 @@ function EmptyState({
 export function LendingScreen() {
   const { lends, currency } = useAppState();
   const [section, setSection] = useState<LendingSection>("summary");
-  const totals = useMemo(() => lendingTotals(lends), [lends]);
   const summaries = useMemo(() => lendContactSummaries(lends), [lends]);
+  const totals = useMemo(() => lendingTotals(summaries), [summaries]);
   const dayGroups = useMemo(() => groupLendsByDay(lends), [lends]);
 
   return (
     <WebScreen>
       <PageHeader
         title="Lending"
-        subtitle="Money lent to contacts, synced from your mobile app."
+        subtitle="Money lent and borrowed, synced from your mobile app."
         align="center"
         action={<Badge label="Read only" tone="muted" className="px-3 py-1.5" />}
       />
 
       <HeroCard className="mb-[22px] p-6">
-        <div className="mb-2.5 text-[13px] text-side-muted">Outstanding</div>
-        <div className="font-display text-4xl font-semibold">
-          {money(totals.outstanding, currency)}
+        <div className="flex gap-10">
+          <div>
+            <div className="mb-2.5 text-[13px] text-side-muted">Owed to me</div>
+            <div className="font-display text-4xl font-semibold">
+              {money(totals.owedToMe, currency)}
+            </div>
+          </div>
+          <div>
+            <div className="mb-2.5 text-[13px] text-side-muted">I owe</div>
+            <div className="font-display text-4xl font-semibold">
+              {money(totals.iOwe, currency)}
+            </div>
+          </div>
         </div>
         <div className="mt-2 text-xs text-side-sub">
           {summaries.length === 0
@@ -106,21 +118,28 @@ export function LendingScreen() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-display text-base font-semibold text-ink">
-                    {money(summary.outstanding, currency)}
+                  <div
+                    className={cn(
+                      "font-display text-base font-semibold",
+                      summary.direction === "owedToMe" ? "text-ink" : "text-danger",
+                    )}
+                  >
+                    {money(summary.magnitude, currency)}
                   </div>
-                  <div className="mt-0.5 text-[11px] text-faint">outstanding</div>
+                  <div className="mt-0.5 text-[11px] text-faint">
+                    {summary.direction === "owedToMe" ? "owes you" : "you owe"}
+                  </div>
                 </div>
               </div>
             ))}
           </Card>
         ) : (
           <EmptyState
-            title={lends.length === 0 ? "Nothing lent yet" : "All settled"}
+            title={lends.length === 0 ? "Nothing recorded yet" : "All settled"}
             description={
               lends.length === 0
                 ? "Lending records added in the mobile app will appear here after syncing."
-                : "Everyone has paid you back. Past entries are still available in Activity."
+                : "Nothing outstanding either way. Past entries are still available in Activity."
             }
           />
         )
@@ -135,8 +154,8 @@ export function LendingScreen() {
                 <div className="text-xs text-faint">{money(group.netAmount, currency)} net</div>
               </div>
               {group.items.map((lend, index) => {
-                const repaid = lend.kind === "repaid";
-                const detail = lend.comment.trim() || (repaid ? "Got back" : "Money lent");
+                const incoming = isIncomingLend(lend.kind);
+                const detail = lend.comment.trim() || lendKindLabel(lend.kind);
                 return (
                   <div
                     key={lend.id}
@@ -162,7 +181,7 @@ export function LendingScreen() {
                     <div
                       className={cn(
                         "font-display text-[15px] font-semibold",
-                        repaid ? "text-green" : "text-ink",
+                        incoming ? "text-green" : "text-ink",
                       )}
                     >
                       {money(signedLendAmount(lend), currency)}

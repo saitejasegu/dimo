@@ -138,8 +138,26 @@ struct RecurringEntity: Codable, Hashable, Sendable, Identifiable {
   var currency: String?
 }
 
+/// Direction of a lending entry. `lent`/`returned` move money out of the
+/// user's pocket, `repaid`/`borrowed` move it in, so a contact's net balance
+/// is positive when they owe the user and negative when the user owes them.
 enum LendKind: String, Codable, Sendable {
-  case lent, repaid
+  /// The user gave the contact money.
+  case lent
+  /// The contact gave it back.
+  case repaid
+  /// The user took money from the contact.
+  case borrowed
+  /// The user paid the contact back.
+  case returned
+
+  /// Money flowed towards the user rather than away from them.
+  var isIncoming: Bool {
+    switch self {
+    case .repaid, .borrowed: return true
+    case .lent, .returned: return false
+    }
+  }
 }
 
 struct LendEntity: Codable, Hashable, Sendable, Identifiable {
@@ -423,8 +441,12 @@ struct Lend: Hashable, Sendable, Identifiable {
   var occurredAt: Int
   var kind: LendKind
 
-  /// Positive for money lent out, negative for money received back.
-  var signedAmount: Double { kind == .repaid ? -amount : amount }
+  /// Positive for money that left the user's pocket (lent out, or paid back to
+  /// someone they borrowed from), negative for money that came in.
+  var signedAmount: Double { kind.isIncoming ? -amount : amount }
+
+  /// Money came towards the user, so the row reads as a credit.
+  var isIncoming: Bool { kind.isIncoming }
 }
 
 typealias CategoryLimits = [String: Double?]

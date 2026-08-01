@@ -7,7 +7,9 @@ import { money } from "@/lib/format";
 import { useAppState } from "@/store/app-store";
 import {
   groupLendsByDay,
+  isIncomingLend,
   lendContactSummaries,
+  lendKindLabel,
   lendingTotals,
   signedLendAmount,
 } from "@/features/lending/selectors";
@@ -27,8 +29,8 @@ const SECTIONS = [
 export function LendingScreen() {
   const { lends, currency } = useAppState();
   const [section, setSection] = useState<LendingSection>("summary");
-  const totals = useMemo(() => lendingTotals(lends), [lends]);
   const summaries = useMemo(() => lendContactSummaries(lends), [lends]);
+  const totals = useMemo(() => lendingTotals(summaries), [summaries]);
   const groups = useMemo(() => groupLendsByDay(lends), [lends]);
 
   return (
@@ -40,9 +42,19 @@ export function LendingScreen() {
             trailing={<Badge label="Read only" tone="muted" />}
           />
           <HeroCard className="mt-4 p-5">
-            <div className="mb-2 text-[13px] text-side-muted">Outstanding</div>
-            <div className="font-display text-3xl font-semibold">
-              {money(totals.outstanding, currency)}
+            <div className="flex gap-6">
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 text-[13px] text-side-muted">Owed to me</div>
+                <div className="truncate font-display text-3xl font-semibold">
+                  {money(totals.owedToMe, currency)}
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-2 text-[13px] text-side-muted">I owe</div>
+                <div className="truncate font-display text-3xl font-semibold">
+                  {money(totals.iOwe, currency)}
+                </div>
+              </div>
             </div>
             <div className="mt-1.5 text-xs text-side-sub">
               {summaries.length === 0
@@ -79,8 +91,18 @@ export function LendingScreen() {
                     {" · "}last {formatTransactionDay(summary.lastOccurredAt).toLowerCase()}
                   </div>
                 </div>
-                <div className="font-display text-[15px] font-semibold text-ink">
-                  {money(summary.outstanding, currency)}
+                <div className="text-right">
+                  <div
+                    className={cn(
+                      "font-display text-[15px] font-semibold",
+                      summary.direction === "owedToMe" ? "text-ink" : "text-danger",
+                    )}
+                  >
+                    {money(summary.magnitude, currency)}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-faint">
+                    {summary.direction === "owedToMe" ? "owes you" : "you owe"}
+                  </div>
                 </div>
               </Card>
             ))}
@@ -88,12 +110,12 @@ export function LendingScreen() {
         ) : (
           <div className="py-12 text-center">
             <div className="font-display text-base font-semibold text-ink">
-              {lends.length === 0 ? "Nothing lent yet" : "All settled"}
+              {lends.length === 0 ? "Nothing recorded yet" : "All settled"}
             </div>
             <div className="mx-auto mt-2 max-w-xs text-[13px] leading-5 text-muted">
               {lends.length === 0
                 ? "Lending records added in the native app will appear here after syncing."
-                : "Everyone has paid you back. Past entries are available in Activity."}
+                : "Nothing outstanding either way. Past entries are available in Activity."}
             </div>
           </div>
         )
@@ -111,9 +133,8 @@ export function LendingScreen() {
               </div>
               <div className="flex flex-col gap-2">
                 {group.items.map((lend) => {
-                  const repaid = lend.kind === "repaid";
-                  const detail =
-                    lend.comment.trim() || (repaid ? "Got back" : "Money lent");
+                  const incoming = isIncomingLend(lend.kind);
+                  const detail = lend.comment.trim() || lendKindLabel(lend.kind);
                   return (
                     <Card key={lend.id} className="flex items-center gap-3 p-3">
                       <Avatar
@@ -133,7 +154,7 @@ export function LendingScreen() {
                       <div
                         className={cn(
                           "font-display text-[15px] font-semibold",
-                          repaid ? "text-green" : "text-ink",
+                          incoming ? "text-green" : "text-ink",
                         )}
                       >
                         {money(signedLendAmount(lend), currency)}

@@ -1116,6 +1116,119 @@ final class LendSelectorsTests: XCTestCase {
       ["current-lend", "partial-repayment"]
     )
   }
+
+  func testBorrowingNetsNegativeAndStaysInSummaries() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Anil", contactId: "cn-n", amount: 100, kind: .borrowed),
+      lend("2", name: "Anil", contactId: "cn-n", amount: 40, kind: .returned),
+    ])
+
+    XCTAssertEqual(summaries.count, 1)
+    XCTAssertEqual(summaries[0].total, -60)
+    XCTAssertEqual(summaries[0].magnitude, 60)
+    XCTAssertEqual(summaries[0].direction, .iOwe)
+  }
+
+  func testSummariesOmitContactsThatNetToZeroInEitherDirection() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Anil", contactId: "cn-n", amount: 100, kind: .borrowed),
+      lend("2", name: "Anil", contactId: "cn-n", amount: 100, kind: .returned),
+      lend("3", name: "Ravi", contactId: "cn-r", amount: 50),
+      lend("4", name: "Ravi", contactId: "cn-r", amount: 50, kind: .repaid),
+    ])
+
+    XCTAssertTrue(summaries.isEmpty)
+  }
+
+  func testSummariesSortByBalanceSizeRegardlessOfDirection() {
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Ravi", contactId: "cn-r", amount: 20),
+      lend("2", name: "Anil", contactId: "cn-n", amount: 90, kind: .borrowed),
+      lend("3", name: "Priya", contactId: "cn-p", amount: 50),
+    ])
+
+    XCTAssertEqual(summaries.map(\.contactId), ["cn-n", "cn-p", "cn-r"])
+  }
+
+  func testSettlementLimitCapsEachDirectionAndLeavesOpeningEntriesFree() {
+    let lends = [
+      lend("lent", name: "Ravi", contactId: "cn-r", amount: 100),
+      lend("borrowed", name: "Anil", contactId: "cn-n", amount: 80, kind: .borrowed),
+    ]
+
+    XCTAssertEqual(
+      LendSelectors.settlementLimit(for: .repaid, contactId: "cn-r", in: lends),
+      100
+    )
+    XCTAssertEqual(
+      LendSelectors.settlementLimit(for: .returned, contactId: "cn-n", in: lends),
+      80
+    )
+    // A contact who owes the user cannot be paid back, and vice versa.
+    XCTAssertEqual(
+      LendSelectors.settlementLimit(for: .returned, contactId: "cn-r", in: lends),
+      0
+    )
+    XCTAssertEqual(
+      LendSelectors.settlementLimit(for: .repaid, contactId: "cn-n", in: lends),
+      0
+    )
+    XCTAssertNil(LendSelectors.settlementLimit(for: .lent, contactId: "cn-r", in: lends))
+    XCTAssertNil(LendSelectors.settlementLimit(for: .borrowed, contactId: "cn-n", in: lends))
+  }
+
+  func testBorrowedBalanceExcludesThePaymentBeingEdited() {
+    let lends = [
+      lend("borrowed", name: "Anil", contactId: "cn-n", amount: 100, kind: .borrowed),
+      lend("returned", name: "Anil", contactId: "cn-n", amount: 30, kind: .returned),
+    ]
+
+    XCTAssertEqual(LendSelectors.netBalance(for: "cn-n", in: lends), -70)
+    XCTAssertEqual(LendSelectors.borrowedBalance(for: "cn-n", in: lends), 70)
+    XCTAssertEqual(
+      LendSelectors.borrowedBalance(for: "cn-n", in: lends, excludingLendId: "returned"),
+      100
+    )
+  }
+
+  func testTotalsNetPerContactSoOneContactLandsOnOneSide() {
+    // Lent 100 and borrowed 30 from the same person: 70 owed to the user, and
+    // nothing on the other side.
+    let summaries = LendSelectors.contactSummaries([
+      lend("1", name: "Ravi", contactId: "cn-r", amount: 100),
+      lend("2", name: "Ravi", contactId: "cn-r", amount: 30, kind: .borrowed),
+      lend("3", name: "Anil", contactId: "cn-n", amount: 45, kind: .borrowed),
+    ])
+
+    XCTAssertEqual(LendSelectors.totals(from: summaries), LendTotals(owedToMe: 70, iOwe: 45))
+    XCTAssertEqual(LendSelectors.totals(from: summaries).net, 25)
+  }
+
+  func testUnsettledTransactionsRestartAfterABorrowingIsCleared() {
+    let lends = [
+      lend("old-borrow", name: "Anil", contactId: "cn-n", amount: 100, kind: .borrowed, occurredAt: 1_000),
+      lend("old-payment", name: "Anil", contactId: "cn-n", amount: 100, kind: .returned, occurredAt: 2_000),
+      lend("current-borrow", name: "Anil", contactId: "cn-n", amount: 60, kind: .borrowed, occurredAt: 3_000),
+      lend("partial-payment", name: "Anil", contactId: "cn-n", amount: 25, kind: .returned, occurredAt: 4_000),
+    ]
+
+    XCTAssertEqual(
+      LendSelectors.unsettledTransactions(for: "cn-n", in: lends).map(\.id),
+      ["current-borrow", "partial-payment"]
+    )
+  }
+
+  func testSignedAmountDirectionPerKind() {
+    XCTAssertEqual(lend("1", name: "R", contactId: "c", amount: 10, kind: .lent).signedAmount, 10)
+    XCTAssertEqual(lend("2", name: "R", contactId: "c", amount: 10, kind: .repaid).signedAmount, -10)
+    XCTAssertEqual(lend("3", name: "R", contactId: "c", amount: 10, kind: .borrowed).signedAmount, -10)
+    XCTAssertEqual(lend("4", name: "R", contactId: "c", amount: 10, kind: .returned).signedAmount, 10)
+
+    XCTAssertFalse(lend("1", name: "R", contactId: "c", amount: 10, kind: .lent).isIncoming)
+    XCTAssertTrue(lend("2", name: "R", contactId: "c", amount: 10, kind: .repaid).isIncoming)
+    XCTAssertTrue(lend("3", name: "R", contactId: "c", amount: 10, kind: .borrowed).isIncoming)
+    XCTAssertFalse(lend("4", name: "R", contactId: "c", amount: 10, kind: .returned).isIncoming)
+  }
 }
 
 final class EmailFeatureStoreTests: XCTestCase {

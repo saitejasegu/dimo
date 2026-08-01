@@ -613,14 +613,15 @@ final class AppStore {
     guard !contact.isEmpty else { return }
     let existing = lendDraft.editingId.flatMap { id in lends.first { $0.id == id } }
     guard let contactId = lendDraft.contactId ?? existing?.contactId else { return }
+    // Editing never flips direction; the saved row's kind wins.
     let kind = existing?.kind ?? lendDraft.kind
-    if kind == .repaid {
-      let outstanding = LendSelectors.outstandingAmount(
-        for: contactId,
-        in: lends,
-        excludingLendId: existing?.id
-      )
-      guard amount <= outstanding + 0.000_001 else { return }
+    if let limit = LendSelectors.settlementLimit(
+      for: kind,
+      contactId: contactId,
+      in: lends,
+      excludingLendId: existing?.id
+    ) {
+      guard amount <= limit + 0.000_001 else { return }
     }
     let occurredAt: Int
     if let existing,
@@ -639,12 +640,21 @@ final class AppStore {
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: occurredAt,
       comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
-      kind: existing?.kind ?? lendDraft.kind
+      kind: kind
     )
     write { try $0.saveEntity(entityType: .lend, payload: .lend(entity)) }
     closeOverlay()
-    let noun = kind == .repaid ? "Repayment" : "Lend"
+    let noun = Self.lendNoun(for: kind)
     showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
+  }
+
+  private static func lendNoun(for kind: LendKind) -> String {
+    switch kind {
+    case .lent: return "Lend"
+    case .repaid: return "Repayment"
+    case .borrowed: return "Borrowing"
+    case .returned: return "Payment"
+    }
   }
 
   func openEditLend(_ id: String) {
@@ -663,15 +673,22 @@ final class AppStore {
     overlay = .lend
   }
 
-  func openAddRepayment(contactName: String, contactId: String) {
-    lendDraft = LendDraft(kind: .repaid, contactName: contactName, contactId: contactId)
+  /// Opens the sheet pre-set to whichever entry closes this contact's balance:
+  /// a repayment when they owe the user, a payment back when the user owes them.
+  func openAddSettlement(contactName: String, contactId: String, direction: LendDirection) {
+    lendDraft = LendDraft(
+      kind: direction.settlementKind,
+      contactName: contactName,
+      contactId: contactId
+    )
     overlay = .lend
   }
 
   func deleteLend(_ id: String) {
+    let kind = lends.first { $0.id == id }?.kind ?? .lent
     write { try $0.removeEntity(entityType: .lend, id: id) }
     closeOverlay()
-    showToast("Lend deleted")
+    showToast("\(Self.lendNoun(for: kind)) deleted")
   }
 
   /// Today keeps the current time so entries order naturally; past dates pin to noon

@@ -160,7 +160,27 @@ export interface Recurring {
   currency?: EnterableCurrency;
 }
 
-export type LendKind = "lent" | "repaid";
+/**
+ * Direction of a lending entry. `lent`/`returned` move money away from the
+ * user, `repaid`/`borrowed` move it towards them, so a contact's net balance is
+ * positive when they owe the user and negative when the user owes them.
+ *
+ * Borrowing is recorded on native only; web is read-only for lending and just
+ * has to report all four directions truthfully.
+ */
+export type LendKind = "lent" | "repaid" | "borrowed" | "returned";
+
+export const LEND_KINDS: readonly LendKind[] = [
+  "lent",
+  "repaid",
+  "borrowed",
+  "returned",
+];
+
+/** Narrows an unknown stored/wire value, defaulting legacy rows to `lent`. */
+export function toLendKind(value: unknown): LendKind {
+  return LEND_KINDS.includes(value as LendKind) ? (value as LendKind) : "lent";
+}
 
 export interface Lend {
   id: ID;

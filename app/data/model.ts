@@ -1,5 +1,6 @@
 import type {
   Currency,
+  LendKind,
   NotificationSettings,
   PaymentMethodType,
   ThemePreference,
@@ -126,8 +127,11 @@ export interface LendEntity {
   amountMinor: number;
   occurredAt: number;
   comment: string;
-  /** Missing on legacy rows and treated as money lent. */
-  kind?: "lent" | "repaid";
+  /**
+   * Missing on legacy rows and treated as money lent. `borrowed`/`returned`
+   * are written by native clients only.
+   */
+  kind?: LendKind;
 }
 
 /** Native-owned reviewed Gmail suggestion, including full normalized body. */

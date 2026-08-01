@@ -37,7 +37,7 @@ final class EntitiesStore {
   private(set) var categoryBudgets: [CategoryBudget] = []
   private(set) var suggestedBudgetUpdates: [SuggestedCategoryBudgetUpdate] = []
   private(set) var lendSummaries: [LendContactSummary] = []
-  private(set) var lendTotalOutstanding: Double = 0
+  private(set) var lendTotals: LendTotals = .zero
   private(set) var upcomingThisMonth: [Recurring] = []
   private(set) var upcomingAll: [Recurring] = []
   private(set) var upcomingThisMonthTotal: Double = 0
@@ -299,8 +299,8 @@ final class EntitiesStore {
       lendSummaries = derived.lendSummaries
       changed = true
     }
-    if lendTotalOutstanding != derived.lendTotalOutstanding {
-      lendTotalOutstanding = derived.lendTotalOutstanding
+    if lendTotals != derived.lendTotals {
+      lendTotals = derived.lendTotals
       changed = true
     }
     if upcomingThisMonth != derived.upcomingThisMonth {

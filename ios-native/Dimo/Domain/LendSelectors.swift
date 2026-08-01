@@ -1,16 +1,49 @@
 import Foundation
 
+/// Which way an unsettled balance runs.
+enum LendDirection: Hashable, Sendable {
+  /// The contact still owes the user money.
+  case owedToMe
+  /// The user still owes the contact money.
+  case iOwe
+
+  /// The entry kind that settles a balance running this way.
+  var settlementKind: LendKind {
+    switch self {
+    case .owedToMe: return .repaid
+    case .iOwe: return .returned
+    }
+  }
+}
+
 struct LendContactSummary: Hashable, Sendable, Identifiable {
   var contactName: String
   /// Address-book identifier of the contact this group belongs to.
   var contactId: String
-  /// Net outstanding (lent minus repaid). Only contacts with a positive balance
+  /// Signed net balance: positive when the contact owes the user, negative
+  /// when the user owes the contact. Only contacts with a non-zero balance
   /// appear in the summary list.
   var total: Double
   var count: Int
   var lastOccurredAt: Int
 
   var id: String { contactId }
+
+  var direction: LendDirection { total > 0 ? .owedToMe : .iOwe }
+
+  /// Balance without its sign, for display next to a direction label.
+  var magnitude: Double { abs(total) }
+}
+
+/// Both sides of the ledger, netted per contact so someone the user has both
+/// lent to and borrowed from lands on one side only.
+struct LendTotals: Equatable, Sendable {
+  var owedToMe: Double
+  var iOwe: Double
+
+  static let zero = LendTotals(owedToMe: 0, iOwe: 0)
+
+  var net: Double { owedToMe - iOwe }
 }
 
 struct LendDayGroup: Equatable, Sendable {
@@ -29,22 +62,67 @@ struct LendContactSuggestion: Hashable, Sendable, Identifiable {
 enum LendSelectors {
   static let historyPageSize = 50
 
-  /// Net amount still out: money lent minus money got back.
-  static func totalLent(_ lends: [Lend]) -> Double {
-    lends.reduce(0) { $0 + $1.signedAmount }
+  /// Both sides of the ledger. Takes already-netted contact summaries rather
+  /// than raw entries, so a contact the user has both lent to and borrowed
+  /// from is not counted on both sides.
+  static func totals(from summaries: [LendContactSummary]) -> LendTotals {
+    summaries.reduce(into: LendTotals.zero) { totals, summary in
+      switch summary.direction {
+      case .owedToMe: totals.owedToMe += summary.total
+      case .iOwe: totals.iOwe += summary.magnitude
+      }
+    }
   }
 
-  /// Amount that can still be recorded as repaid for a contact. When editing a
-  /// repayment, exclude it so its current amount remains eligible.
+  /// Signed balance with one contact: positive when they owe the user,
+  /// negative when the user owes them. When editing an entry, exclude it so
+  /// its current amount remains eligible.
+  static func netBalance(
+    for contactId: String,
+    in lends: [Lend],
+    excludingLendId: String? = nil
+  ) -> Double {
+    lends.reduce(0) { total, lend in
+      guard lend.contactId == contactId, lend.id != excludingLendId else { return total }
+      return total + lend.signedAmount
+    }
+  }
+
+  /// Amount that can still be recorded as repaid by a contact.
   static func outstandingAmount(
     for contactId: String,
     in lends: [Lend],
     excludingLendId: String? = nil
   ) -> Double {
-    max(0, lends.reduce(0) { total, lend in
-      guard lend.contactId == contactId, lend.id != excludingLendId else { return total }
-      return total + lend.signedAmount
-    })
+    max(0, netBalance(for: contactId, in: lends, excludingLendId: excludingLendId))
+  }
+
+  /// Amount the user can still record paying back to a contact they borrowed
+  /// from — the mirror image of `outstandingAmount`.
+  static func borrowedBalance(
+    for contactId: String,
+    in lends: [Lend],
+    excludingLendId: String? = nil
+  ) -> Double {
+    max(0, -netBalance(for: contactId, in: lends, excludingLendId: excludingLendId))
+  }
+
+  /// How much a settlement of `kind` may be for without overshooting zero.
+  /// Entries that open a balance rather than close one are uncapped.
+  static func settlementLimit(
+    for kind: LendKind,
+    contactId: String,
+    in lends: [Lend],
+    excludingLendId: String? = nil
+  ) -> Double? {
+    switch kind {
+    case .lent, .borrowed:
+      return nil
+    case .repaid:
+      return outstandingAmount(for: contactId, in: lends, excludingLendId: excludingLendId)
+    case .returned:
+      return borrowedBalance(for: contactId, in: lends, excludingLendId: excludingLendId)
+    }
   }
 
   /// Chronological transactions in the contact's current unsettled cycle.
@@ -70,8 +148,8 @@ enum LendSelectors {
   }
 
   /// Groups lends per person by address-book identifier, keeping the name
-  /// casing of the most recent entry, sorted by highest outstanding total;
-  /// settled contacts are omitted.
+  /// casing of the most recent entry, sorted by largest balance in either
+  /// direction; contacts whose balance nets to zero are omitted.
   static func contactSummaries(_ lends: [Lend]) -> [LendContactSummary] {
     var byContact: [String: LendContactSummary] = [:]
     for lend in lends.sorted(by: { $0.occurredAt > $1.occurredAt }) {
@@ -91,9 +169,9 @@ enum LendSelectors {
       }
     }
     return byContact.values
-      .filter { $0.total > 0.0001 }
+      .filter { $0.magnitude > 0.0001 }
       .sorted {
-        if $0.total != $1.total { return $0.total > $1.total }
+        if $0.magnitude != $1.magnitude { return $0.magnitude > $1.magnitude }
         return $0.contactName < $1.contactName
       }
   }

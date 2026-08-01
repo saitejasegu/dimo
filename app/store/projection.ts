@@ -20,6 +20,7 @@ import {
 import {
   paymentMethodLabel,
   resolvePaymentMethodId,
+  toLendKind,
   type CategoryLimits,
   type EnterableCurrency,
   type Lend,
@@ -307,7 +308,7 @@ export function projectEntities(
           amountMinor: item.amountMinor,
           occurredAt: item.occurredAt,
           comment: item.comment,
-          kind: item.kind === "repaid" ? ("repaid" as const) : ("lent" as const),
+          kind: toLendKind(item.kind),
           time: formatTransactionTime(item.occurredAt),
           day: formatTransactionDay(item.occurredAt),
         }))
