@@ -2438,6 +2438,48 @@ final class BulkEntityWriteTests: XCTestCase {
   }
 }
 
+final class EntityObservationSuspensionTests: XCTestCase {
+  /// A sync run suspends entity observations for its whole duration, but the user's
+  /// own write has to be on screen immediately — not after the network round trip.
+  func testLocalWriteIsDeliveredWhileSyncSuspendsObservations() throws {
+    let userId = "observe-\(UUID().uuidString)"
+    let pool = try AppDatabase.activate(userId: userId)
+    let repository = Repository(db: pool)
+    try repository.initializeLocalDatabase()
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+
+    let initial = expectation(description: "initial batch")
+    initial.assertForOverFulfill = false
+    let delivered = expectation(description: "batch containing the new transaction")
+    delivered.assertForOverFulfill = false
+    let cancellable = repository.observeEntities { batch in
+      initial.fulfill()
+      if batch.contains(where: { $0.entityId == "tx-during-sync" }) {
+        delivered.fulfill()
+      }
+    }
+    defer { cancellable.cancel() }
+    wait(for: [initial], timeout: 5)
+
+    // A sync run is in flight for the rest of this test — it never resumes.
+    repository.setEntityObservationsSuspended(true)
+    try repository.saveEntity(
+      entityType: .transaction,
+      payload: .transaction(TransactionEntity(
+        id: "tx-during-sync",
+        name: "Coffee",
+        amountMinor: 25000,
+        occurredAt: 1_720_000_000_000,
+        categoryId: "category-food",
+        paymentMethodId: SeedData.cashPaymentMethod.id,
+        currency: "INR"
+      ))
+    )
+
+    wait(for: [delivered], timeout: 5)
+  }
+}
+
 final class EmailLinkedTransactionRetentionTests: XCTestCase {
   func testAcceptedSuggestionKeepsEmailForReferenceUntilTransactionDeleted() throws {
     let userId = "email-link-\(UUID().uuidString)"

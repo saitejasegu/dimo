@@ -31,6 +31,31 @@ final class Repository: @unchecked Sendable {
   private func notifyWrite() {
     lock.lock(); let values = Array(listeners.values); lock.unlock()
     for listener in values { listener() }
+    flushEntityObservationsAfterLocalWrite()
+  }
+
+  /// A local write must reach the UI even while a sync run has entity observations
+  /// suspended. Suspension exists to fold bulk *remote* merge pages into a single
+  /// projection, not to hide the user's own edit behind a network round trip: a
+  /// sync started by the previous write (or by launch/foreground) can easily still
+  /// be in flight when the next expense is saved.
+  private func flushEntityObservationsAfterLocalWrite() {
+    lock.lock()
+    guard entityObservationsSuspended,
+          let deliver = entityObservationDeliver,
+          let fetch = entityObservationFetch
+    else {
+      lock.unlock()
+      return
+    }
+    // The fetch below reads everything committed so far, including the remote pages
+    // that raised the flag, so resume has nothing left to deliver.
+    entityObservationDirty = false
+    lock.unlock()
+    DispatchQueue.global(qos: .userInitiated).async {
+      let batch = (try? fetch()) ?? []
+      deliver(batch)
+    }
   }
 
   func initializeLocalDatabase() throws {
