@@ -46,7 +46,7 @@ struct EmailMessageStatusCard: View {
           ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 7) {
               Label(email.accountEmail, systemImage: "envelope.fill")
-                .emailStatusBadge(foreground: Theme.body, background: Theme.canvasDeep)
+                .emailStatusBadge(foreground: Theme.body, background: neutralBadgeBackground)
 
               if let analyzer = email.analyzer {
                 Label(
@@ -61,14 +61,14 @@ struct EmailMessageStatusCard: View {
                 .fixedSize(horizontal: true, vertical: false)
               } else {
                 Label("Not analyzed", systemImage: "hourglass")
-                  .emailStatusBadge(foreground: Theme.muted, background: Theme.canvasDeep)
+                  .emailStatusBadge(foreground: Theme.muted, background: neutralBadgeBackground)
               }
 
               if let classification = email.classification {
                 Text(classification.title)
                   .emailStatusBadge(
                     foreground: classification == .refund ? Theme.green : Theme.muted,
-                    background: classification == .refund ? Theme.greenSoft : Theme.canvasDeep
+                    background: classification == .refund ? Theme.greenSoft : neutralBadgeBackground
                   )
               }
             }
@@ -103,11 +103,11 @@ struct EmailMessageStatusCard: View {
       }
 
       if email.analysisState == .failed, let onRetry {
-        Divider().overlay(Theme.lineSoft)
+        Divider().overlay(Theme.dangerLine)
         Button(action: onRetry) {
           Label(retryTitle, systemImage: "arrow.clockwise")
             .font(DimoFont.body(13, weight: .semibold))
-            .foregroundStyle(Theme.green)
+            .foregroundStyle(Theme.danger)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 32)
         }
@@ -115,11 +115,16 @@ struct EmailMessageStatusCard: View {
       }
     }
     .padding(16)
-    .background(Theme.surface)
+    .background(isFailed ? Theme.dangerSoft : Theme.surface)
     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line))
+    .overlay(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(isFailed ? Theme.dangerLine : Theme.line)
+    )
     .accessibilityElement(children: .contain)
   }
+
+  private var isFailed: Bool { email.analysisState == .failed }
 
   private var retryTitle: String {
     switch email.analyzer {
@@ -153,8 +158,15 @@ struct EmailMessageStatusCard: View {
   private var statusBackground: Color {
     switch email.analysisState {
     case .analyzed, .added, .refundApplied: return Theme.greenSoft
-    case .pending, .failed, .needsReview, .dismissed, .expired: return Theme.canvasDeep
+    case .failed: return Theme.dangerLine
+    case .pending, .needsReview, .dismissed, .expired: return Theme.canvasDeep
     }
+  }
+
+  // The neutral chips sit on a red-tinted surface when analysis failed, so the
+  // usual canvas fill would clash.
+  private var neutralBadgeBackground: Color {
+    isFailed ? Theme.surface : Theme.canvasDeep
   }
 }
 
