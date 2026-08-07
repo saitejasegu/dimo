@@ -3,27 +3,44 @@
 Homepage: `https://dimo-silk.vercel.app`  
 Privacy: `https://dimo-silk.vercel.app/privacy`  
 Terms: `https://dimo-silk.vercel.app/terms`  
-OAuth logo file to upload: `store/oauth-logo.png` (also `public/brand/dimo-logo-512.png`)
+Logo to upload in Google Cloud: `store/oauth-logo.png`
 
-## After deploying the site
+The Cloud Console dialog listing old issues does **not** clear until you finish
+the steps below and click **Proceed** for a new review.
 
-1. Confirm the homepage shows **Dimo**, the product description, and sign-in **without** requiring login.
-2. Upload `store/oauth-logo.png` (or `public/brand/dimo-logo-512.png`) as the OAuth consent screen logo in Google Cloud Console.
-3. Keep the OAuth app name exactly **Dimo**.
+## Checklist (do in order)
 
-## Domain ownership (required)
+### 1. Redeploy the website
+Push/deploy so the homepage H1 reads **“Dimo — personal expense tracker”** and
+shows the purpose section. Confirm in an incognito window.
 
-Google must see that you control `dimo-silk.vercel.app`:
+### 2. Verify domain ownership (this is why issue #1 remains)
+The meta tag alone is not enough — Search Console must show **Verified**.
 
-1. Open [Google Search Console](https://search.google.com/search-console).
-2. Add property → URL prefix → `https://dimo-silk.vercel.app`.
-3. Choose **HTML tag** verification.
-4. Copy the content value from the meta tag (the long token).
-5. In Vercel → Project → Settings → Environment Variables, set:
+1. Open [Google Search Console](https://search.google.com/search-console) with the
+   **same Google account** that owns the Cloud project.
+2. Property: URL prefix `https://dimo-silk.vercel.app`
+3. If not verified yet: use HTML tag (already on the site) → **Verify**.
+4. You must see a green **Ownership verified** state.
+5. In Google Cloud → OAuth consent screen → Branding, confirm
+   `dimo-silk.vercel.app` is an authorized domain / homepage URL.
 
-   `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` = `<token>`
+### 3. Upload the new logo
+In Google Cloud → OAuth consent screen → Branding → App logo, upload:
 
-6. Redeploy, then click Verify in Search Console.
-7. Back in Google Cloud OAuth branding, choose **I have fixed the issues** → Proceed.
+`store/oauth-logo.png`
 
-Alternate: Search Console “HTML file” method — download the file Google gives you into `public/` and redeploy, then verify.
+(This file spells **Dimo** on a green tile — not a plain letter D.)
+
+App name must stay exactly: **Dimo**
+
+### 4. Request re-verification
+In the issues dialog:
+
+1. Select **I have fixed the issues**
+2. Click **Proceed**
+3. Wait for Google’s new review (can take days)
+
+## Why the dialog still lists issues
+That screen is a snapshot of the **last failed** attempt. Website fixes and a
+verified Search Console property only count after you click Proceed again.

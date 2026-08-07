@@ -90,16 +90,18 @@ export function LandingPage({
         </header>
 
         <section className="relative mx-auto max-w-3xl px-6 pb-10 pt-10 sm:pt-16">
-          <p className="mb-4 font-display text-sm font-semibold uppercase tracking-[0.14em] text-green">
-            Dimo
-          </p>
           <h1 className="max-w-xl font-display text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
-            Track spending without the clutter.
+            Dimo — personal expense tracker
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-body sm:text-lg">
-            Dimo is a personal expense tracker for everyday spending, budgets,
-            recurring bills, and stats. Your data stays on your devices and
+            Dimo helps you track everyday spending, budgets, recurring bills,
+            and stats without clutter. Your data stays on your devices and
             syncs privately when you sign in.
+          </p>
+          <p className="mt-3 max-w-xl text-[15px] leading-7 text-body">
+            Purpose: a calm personal finance app for logging expenses, setting
+            category budgets, managing recurring bills, reviewing spend stats,
+            and optionally connecting Gmail on iOS for purchase suggestions.
           </p>
 
           <div
