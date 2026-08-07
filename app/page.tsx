@@ -1,5 +1,10 @@
-import { AuthRoot } from "@/auth/AuthRoot";
+import { AuthGate } from "@/auth/AuthGate";
+import { PublicHome } from "@/components/marketing/PublicHome";
 
 export default function Page() {
-  return <AuthRoot />;
+  return (
+    <AuthGate>
+      <PublicHome />
+    </AuthGate>
+  );
 }

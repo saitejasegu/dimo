@@ -1,52 +1,57 @@
-# Google OAuth branding verification — Dimo
+# Google OAuth homepage + brand verification — Dimo
 
-Homepage: `https://dimo-silk.vercel.app`  
-Privacy: `https://dimo-silk.vercel.app/privacy`  
-Terms: `https://dimo-silk.vercel.app/terms`  
-Logo to upload in Google Cloud: `store/oauth-logo.png`
+## Critical: you need a domain you own
 
-The Cloud Console dialog listing old issues does **not** clear until you finish
-the steps below and click **Proceed** for a new review.
+Google’s homepage rules require the site to be hosted on a **verified domain you
+own**. A `*.vercel.app` URL does **not** qualify for ownership the way a custom
+domain does:
 
-## Checklist (do in order)
+- Homepage today: `https://dimo-silk.vercel.app`
+- Top private domain of that host is `vercel.app` (owned by Vercel, not you)
 
-### 1. Redeploy the website
-Push/deploy so the homepage H1 reads **“Dimo — personal expense tracker”** and
-shows the purpose section. Confirm in an incognito window.
+That is why Cloud keeps saying: *“The website of your home page URL is not
+registered to you.”* Search Console HTML-tag checks on a Vercel subdomain are
+not enough for OAuth brand verification.
 
-### 2. Verify domain ownership (this is why issue #1 remains)
-The meta tag alone is not enough — Search Console must show **Verified**.
+### What to do
 
-1. Open [Google Search Console](https://search.google.com/search-console) with the
-   **same Google account** that owns the Cloud project.
-2. Property: URL prefix `https://dimo-silk.vercel.app`
-3. If not verified yet: use HTML tag (already on the site) → **Verify**.
-4. You must see a green **Ownership verified** state.
-5. In Google Cloud → OAuth consent screen → Branding, confirm
-   `dimo-silk.vercel.app` is an authorized domain / homepage URL.
+1. **Buy a domain** you control (examples: `dimo.app`, `getdimo.com`, `dimo.finance`).
+2. In **Vercel** → Project → Settings → Domains → add that domain and finish DNS.
+3. Redeploy so these URLs work on your domain:
+   - `https://YOURDOMAIN/`
+   - `https://YOURDOMAIN/privacy`
+   - `https://YOURDOMAIN/terms`
+4. In **Google Search Console**, add a **Domain** property for `YOURDOMAIN`
+   (DNS TXT verification — preferred) or URL prefix `https://YOURDOMAIN`.
+5. Use the **same Google account** that owns the Cloud OAuth project; that
+   account must be a Search Console **Owner**.
+6. In Google Cloud → OAuth Branding / Authorized domains:
+   - Authorized domain: `YOURDOMAIN` (not `vercel.app`)
+   - Home page: `https://YOURDOMAIN`
+   - Privacy: `https://YOURDOMAIN/privacy`
+   - Terms: `https://YOURDOMAIN/terms`
+7. Update App Store listing URLs in `store/listing.json` to the same domain.
+8. Re-submit branding verification.
 
-### 3. Re-upload the logo (required when Google flags the logo)
-In Google Cloud → OAuth consent screen → Branding → **App logo**, upload a
-**fresh** file:
+Until the homepage/privacy URLs use **your** domain, Google will keep failing
+ownership no matter how complete the page content is.
 
-`store/oauth-logo.png`
+## Homepage content checklist (already in the app)
 
-That file is a green square with the white wordmark **Dimo** and ledger bars.
-It matches the logo on `https://dimo-silk.vercel.app`.
+After you point a custom domain at this deploy, the public `/` page should show:
 
-Tips if Google still rejects the logo:
-- Upload the file again after redeploying the homepage (branding must match).
-- Use PNG, square, under 1MB (ours is 1024×1024).
-- App name must stay exactly **Dimo**.
-- Do not use a plain letter “D” or a Google-like mark.
+| Google requirement | On Dimo homepage |
+| --- | --- |
+| Identify the app/brand | App name **Dimo**, logo, H1 |
+| Describe functionality | “What Dimo does” feature list |
+| Explain why user data is requested | “Why Dimo requests Google user data” (sign-in + optional Gmail readonly) |
+| Privacy policy link matching consent screen | `/privacy` on the same domain |
+| Visible without login | Server-rendered public page (not behind auth) |
+| Not only a login wall | Marketing + purpose above/beside sign-in |
 
-### 4. Request re-verification
-In the issues dialog:
+Logo upload file: `store/oauth-logo.png`
 
-1. Select **I have fixed the issues**
-2. Click **Proceed**
-3. Wait for Google’s new review (can take days)
+## Temporary note about dimo-silk.vercel.app
 
-## Why the dialog still lists issues
-That screen is a snapshot of the **last failed** attempt. Website fixes and a
-verified Search Console property only count after you click Proceed again.
+Keep using it for development. For **Google OAuth brand / restricted Gmail
+verification**, switch homepage + privacy + terms to the custom domain first.

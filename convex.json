@@ -34,11 +34,17 @@
       "environmentType": "production",
       "configure": {
         "redirectUris": [
+          "https://dimoapp.xyz/callback",
+          "https://www.dimoapp.xyz/callback",
           "https://dimo-silk.vercel.app/callback",
           "dimo://callback"
         ],
-        "appHomepageUrl": "https://dimo-silk.vercel.app",
-        "corsOrigins": ["https://dimo-silk.vercel.app"]
+        "appHomepageUrl": "https://dimoapp.xyz",
+        "corsOrigins": [
+          "https://dimoapp.xyz",
+          "https://www.dimoapp.xyz",
+          "https://dimo-silk.vercel.app"
+        ]
       }
     }
   }

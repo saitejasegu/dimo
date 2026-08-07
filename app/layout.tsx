@@ -25,12 +25,12 @@ export const metadata: Metadata = {
     "Dimo is a personal spending tracker for expenses, budgets, recurring bills, and stats. Local-first, with private sync when you sign in.",
   applicationName: "Dimo",
   manifest: "/site.webmanifest",
-  metadataBase: new URL("https://dimo-silk.vercel.app"),
+  metadataBase: new URL("https://dimoapp.xyz"),
   openGraph: {
     title: "Dimo — Personal expense tracker",
     description:
       "Track everyday spending, budgets, and recurring bills. Your data stays on your devices and syncs privately when you sign in.",
-    url: "https://dimo-silk.vercel.app",
+    url: "https://dimoapp.xyz",
     siteName: "Dimo",
     images: [{ url: "/brand/dimo-logo-512.png", width: 512, height: 512, alt: "Dimo" }],
     type: "website",
