@@ -1,7 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect width="64" height="64" rx="16" fill="#1f9d63"/>
-  <path fill="#f5f8f6" fill-rule="evenodd" d="M18 15h16.2c10.4 0 17.3 6.4 17.3 17S44.6 49 34.2 49H18V15Zm11.6 26.8c6 0 9.9-3.6 9.9-9.4s-3.9-9.4-9.9-9.4H24.2v18.8h5.4Z"/>
-  <rect x="27.2" y="28.2" width="10.5" height="2.4" rx="1.2" fill="#1f9d63"/>
-  <rect x="27.2" y="32.6" width="7.5" height="2.4" rx="1.2" fill="#1f9d63"/>
-  <rect x="27.2" y="37" width="4.5" height="2.4" rx="1.2" fill="#1f9d63"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Dimo">
+  <rect width="64" height="64" rx="15" fill="#1f9d63"/>
+  <g transform="scale(.0625)">
+    <path fill="#f5f8f6" d="M256 208h244c179 0 300 118 300 304S679 816 500 816H256V208Z"/>
+    <path fill="#1f9d63" d="M416 360h90c97 0 150 58 150 152s-53 152-150 152h-90V360Z"/>
+    <g fill="#f5f8f6">
+      <rect x="456" y="420" width="136" height="28" rx="14"/>
+      <rect x="456" y="498" width="108" height="28" rx="14"/>
+      <rect x="456" y="576" width="76" height="28" rx="14"/>
+    </g>
+  </g>
 </svg>
