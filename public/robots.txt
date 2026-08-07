@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Allow: /privacy
+Allow: /terms
+Allow: /brand/
+
+Sitemap: https://dimo-silk.vercel.app/sitemap.xml

@@ -50,6 +50,8 @@ export function DimoMark({ className = "h-14 w-14" }: { className?: string }) {
 interface LandingPageProps {
   onSignIn: (provider: AuthProvider) => void;
   signInError?: string | null;
+  /** When false, buttons stay visible but inert (auth still booting). */
+  signInReady?: boolean;
   /** Optional slot under the sign-in buttons (e.g. config hints). */
   footerNote?: ReactNode;
 }
@@ -58,7 +60,12 @@ interface LandingPageProps {
  * Public homepage for unauthenticated visitors. Required for Google OAuth
  * branding verification: app name, purpose, and brand must be visible without login.
  */
-export function LandingPage({ onSignIn, signInError, footerNote }: LandingPageProps) {
+export function LandingPage({
+  onSignIn,
+  signInError,
+  signInReady = true,
+  footerNote,
+}: LandingPageProps) {
   return (
     <main className="h-[var(--app-height,100dvh)] overflow-y-auto overscroll-y-contain bg-canvas font-body text-ink [-webkit-overflow-scrolling:touch] select-text">
       <div className="relative isolate overflow-hidden">
@@ -95,7 +102,10 @@ export function LandingPage({ onSignIn, signInError, footerNote }: LandingPagePr
             syncs privately when you sign in.
           </p>
 
-          <div id="sign-in" className="mt-8 max-w-md space-y-3">
+          <div
+            id="sign-in"
+            className={`mt-8 max-w-md space-y-3 ${signInReady ? "" : "pointer-events-none opacity-60"}`}
+          >
             <Button
               fullWidth
               variant="contrast"

@@ -17,14 +17,28 @@ const plexSans = IBM_Plex_Sans({
   variable: "--font-plex-sans",
 });
 
+const googleSiteVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
+
 export const metadata: Metadata = {
-  title: "Dimo — Expenses",
-  description: "Track spending, budgets, and recurring bills with Dimo.",
+  title: "Dimo — Personal expense tracker",
+  description:
+    "Dimo is a personal spending tracker for expenses, budgets, recurring bills, and stats. Local-first, with private sync when you sign in.",
   applicationName: "Dimo",
   manifest: "/site.webmanifest",
+  metadataBase: new URL("https://dimo-silk.vercel.app"),
+  openGraph: {
+    title: "Dimo — Personal expense tracker",
+    description:
+      "Track everyday spending, budgets, and recurring bills. Your data stays on your devices and syncs privately when you sign in.",
+    url: "https://dimo-silk.vercel.app",
+    siteName: "Dimo",
+    images: [{ url: "/brand/dimo-logo-512.png", width: 512, height: 512, alt: "Dimo" }],
+    type: "website",
+  },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/brand/dimo-logo-120.png", sizes: "120x120", type: "image/png" },
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
@@ -41,6 +55,9 @@ export const metadata: Metadata = {
   },
   other: {
     "mobile-web-app-capable": "yes",
+    ...(googleSiteVerification
+      ? { "google-site-verification": googleSiteVerification }
+      : {}),
   },
 };
 

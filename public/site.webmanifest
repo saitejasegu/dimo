@@ -1,7 +1,7 @@
 {
   "name": "Dimo",
   "short_name": "Dimo",
-  "description": "Track spending, budgets, and recurring bills with Dimo.",
+  "description": "Dimo is a personal spending tracker for expenses, budgets, and recurring bills.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f5f8f6",

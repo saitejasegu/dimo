@@ -52,6 +52,8 @@ Copy from `store/listing.json` into App Store Connect:
 
 **Legal URLs:** privacy `https://dimo-silk.vercel.app/privacy`, terms `https://dimo-silk.vercel.app/terms`. Redeploy after edits (`npm run build` → host `out/`).
 
+**Google OAuth branding:** see `store/GOOGLE_OAUTH.md` (public homepage, logo upload, Search Console ownership).
+
 ## 5. Submit for review
 
 1. App Store Connect → your app → iOS version
