@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dimo</title>
+    <meta
+      name="description"
+      content="Dimo is a personal expense tracker for spending, budgets, recurring bills, and stats."
+    />
+    <meta name="application-name" content="Dimo" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #14231c;
+        --body: #5f6d67;
+        --muted: #7c8a84;
+        --green: #1f9d63;
+        --canvas: #f5f8f6;
+        --line: #e4eae7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: var(--canvas);
+        color: var(--ink);
+        line-height: 1.55;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 2rem;
+      }
+      .brand img {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+      }
+      .brand span {
+        font-family: Helvetica, Arial, sans-serif;
+        font-weight: 700;
+        font-size: 1.25rem;
+      }
+      h1 {
+        font-family: Helvetica, Arial, sans-serif;
+        font-size: 2.5rem;
+        line-height: 1.1;
+        margin: 0 0 0.75rem;
+      }
+      h2 {
+        font-family: Helvetica, Arial, sans-serif;
+        font-size: 1.35rem;
+        margin: 2rem 0 0.75rem;
+      }
+      p, li { color: var(--body); font-size: 1.05rem; }
+      ul { padding-left: 1.2rem; }
+      li { margin: 0.55rem 0; }
+      a { color: var(--green); }
+      .label {
+        font-family: Helvetica, Arial, sans-serif;
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--green);
+        margin-bottom: 0.5rem;
+      }
+      nav a {
+        margin-right: 1rem;
+        font-family: Helvetica, Arial, sans-serif;
+        text-decoration: none;
+      }
+      nav a:hover { text-decoration: underline; }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 2rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img src="/brand/dimo-logo-512.png" alt="Dimo logo" width="40" height="40" />
+        <span>Dimo</span>
+      </div>
+
+      <nav>
+        <a href="/">Open Dimo</a>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+      </nav>
+
+      <p class="label">Application name: Dimo</p>
+      <h1>Dimo</h1>
+
+      <h2>Purpose of the Dimo app</h2>
+      <p>
+        The purpose of <strong>Dimo</strong> is to help people track personal
+        spending. Dimo is a personal expense tracker. It lets users log everyday
+        expenses, set category budgets, manage recurring bills, review spend
+        stats, and optionally get purchase suggestions from Gmail on iOS.
+      </p>
+      <p>
+        Dimo is built for individual personal use. It is not a bank, payment
+        processor, tax advisor, or advertising product.
+      </p>
+
+      <hr />
+
+      <h2>What Dimo does</h2>
+      <ul>
+        <li><strong>Log expenses</strong> — amounts, categories, payment methods, notes, and dates.</li>
+        <li><strong>Budgets and recurring bills</strong> — monthly limits and subscriptions in one place.</li>
+        <li><strong>Stats</strong> — review spending by period, category, and merchant.</li>
+        <li><strong>Lending records</strong> — track money lent or borrowed (native apps).</li>
+        <li><strong>Optional Gmail suggestions (iOS)</strong> — with consent, suggest purchases or refunds to review before saving.</li>
+      </ul>
+
+      <hr />
+
+      <h2>Why Dimo requests Google user data</h2>
+      <p>
+        Dimo requests Google account access only for the purposes below. Dimo
+        does not sell Google user data or use it for advertising.
+      </p>
+      <ul>
+        <li>
+          <strong>Sign-in (name, email, profile photo)</strong> — to create and
+          recognize your Dimo account so your workspace can sync across your
+          devices. These fields are read-only in Dimo.
+        </li>
+        <li>
+          <strong>Gmail read-only (optional, iOS)</strong> — if you connect
+          Gmail, Dimo uses <code>gmail.readonly</code> access to find purchase
+          and refund emails and suggest expenses you can accept or dismiss.
+          Gmail tokens stay on your device. You can disconnect anytime.
+        </li>
+      </ul>
+
+      <hr />
+
+      <h2>Privacy policy</h2>
+      <p>
+        Read the
+        <a href="/privacy">Dimo Privacy Policy</a>
+        and
+        <a href="/terms">Terms of Service</a>.
+      </p>
+
+      <p style="margin-top: 2.5rem; color: var(--muted); font-size: 0.95rem;">
+        © 2026 Saiteja Segu · Application name: Dimo
+      </p>
+    </main>
+  </body>
+</html>

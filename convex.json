@@ -39,7 +39,7 @@
           "https://dimo-silk.vercel.app/callback",
           "dimo://callback"
         ],
-        "appHomepageUrl": "https://dimoapp.xyz",
+        "appHomepageUrl": "https://dimoapp.xyz/about/",
         "corsOrigins": [
           "https://dimoapp.xyz",
           "https://www.dimoapp.xyz",

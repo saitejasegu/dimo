@@ -1,5 +1,21 @@
 # Google OAuth homepage + brand verification — Dimo
 
+## If branding still fails on `/` (stale Google cache)
+
+Google often caches a failed verdict **per homepage URL**. A common fix:
+
+1. Deploy the plain page at `https://dimoapp.xyz/about/`
+2. In Google Cloud → OAuth Branding, set **Application home page** to:
+
+   `https://dimoapp.xyz/about/`
+
+   (keep privacy/terms on the same domain)
+3. App name must stay exactly: `Dimo`
+4. Resubmit: **I have fixed the issues** → Proceed
+
+That `/about/` page is static HTML (no React/auth) with H1 **Dimo** and an
+explicit purpose section.
+
 ## Critical: you need a domain you own
 
 Google’s homepage rules require the site to be hosted on a **verified domain you
