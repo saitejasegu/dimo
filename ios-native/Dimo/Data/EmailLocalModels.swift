@@ -42,7 +42,7 @@ enum EmailSyncWindow: String, Codable, CaseIterable, Hashable, Sendable {
   case oneMonth
   case threeMonths
 
-  static let defaultValue: EmailSyncWindow = .oneDay
+  static let defaultValue: EmailSyncWindow = .oneWeek
 
   var title: String {
     switch self {

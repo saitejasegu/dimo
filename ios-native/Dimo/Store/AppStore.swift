@@ -239,6 +239,11 @@ final class AppStore {
       expenseReminder = ExpenseReminderStore.load(userId: userId)
       ExpenseReminderRouter.store = self
       await refreshExpenseReminderAuthorization()
+      // Redeem a notification opt-in taken during onboarding, before any user
+      // existed to scope the setting to.
+      if OnboardingStore.consumePendingReminderOptIn(), !expenseReminder.enabled {
+        await updateExpenseReminder { $0.enabled = true }
+      }
       await refreshExpenseReminderSchedule()
 
       // Start Convex before email so OpenRouter work cannot delay sync.

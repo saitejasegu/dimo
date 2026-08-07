@@ -881,9 +881,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       try saveAnalysisSettings()
       return
     }
-    if models.contains(where: { $0.id == OpenRouterClient.defaultModelID }) {
-      analysisSettings.openRouterModelID = OpenRouterClient.defaultModelID
-      rememberModelSelection(OpenRouterClient.defaultModelID, for: .freeShared)
+    if models.contains(where: { $0.id == OpenRouterClient.defaultFreeModelID }) {
+      analysisSettings.openRouterModelID = OpenRouterClient.defaultFreeModelID
+      rememberModelSelection(OpenRouterClient.defaultFreeModelID, for: .freeShared)
       try saveAnalysisSettings()
       return
     }
@@ -1038,8 +1038,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         if let remembered = analysisSettings.lastBYOKOpenRouterModelID,
            models.contains(where: { $0.id == remembered }) {
           analysisSettings.openRouterModelID = remembered
-        } else if models.contains(where: { $0.id == OpenRouterClient.defaultModelID }) {
-          analysisSettings.openRouterModelID = OpenRouterClient.defaultModelID
+        } else if models.contains(where: { $0.id == OpenRouterClient.defaultBYOKModelID }) {
+          analysisSettings.openRouterModelID = OpenRouterClient.defaultBYOKModelID
         }
         if let selected = analysisSettings.openRouterModelID {
           rememberModelSelection(selected, for: .bringYourOwnKey)

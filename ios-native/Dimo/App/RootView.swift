@@ -12,7 +12,11 @@ struct RootView: View {
         case .loading:
           LaunchLoadingView()
         case .signedOut:
-          SignInScreen()
+          if environment.onboardingCompleted {
+            SignInScreen()
+          } else {
+            OnboardingFlow { environment.completeOnboarding() }
+          }
         case .signedIn:
           if let store = environment.session.appStore {
             MainTabShell(store: store)

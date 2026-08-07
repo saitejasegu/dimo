@@ -421,7 +421,7 @@ struct EmailSettingsSection: View {
           Text(store.selectedOpenRouterModel?.name ?? "Choose an OpenRouter model")
             .font(DimoFont.body(12, weight: .semibold))
             .foregroundStyle(Theme.ink)
-          Text(store.selectedOpenRouterModelID ?? OpenRouterClient.defaultModelID)
+          Text(store.selectedOpenRouterModelID ?? defaultModelIDForMode)
             .font(DimoFont.body(9))
             .foregroundStyle(Theme.muted)
             .lineLimit(1)
@@ -534,6 +534,15 @@ struct EmailSettingsSection: View {
       .foregroundStyle(Theme.body)
       .fixedSize(horizontal: false, vertical: true)
       .emailSettingsCard()
+    }
+  }
+
+  /// Placeholder model id shown before the user picks one — the default that
+  /// the current access mode would actually seed.
+  private var defaultModelIDForMode: String {
+    switch store.openRouterAccessMode {
+    case .freeShared: return OpenRouterClient.defaultFreeModelID
+    case .bringYourOwnKey: return OpenRouterClient.defaultBYOKModelID
     }
   }
 

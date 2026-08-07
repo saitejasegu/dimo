@@ -9,9 +9,17 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
 
   private let refreshAccount = "workos.refreshToken"
   private let userAccount = "workos.user"
+  private let lastProviderKey = "dimo.auth.lastProvider"
   private let lock = NSLock()
   private var cached: WorkOSSession?
   private var onIdToken: (@Sendable (String?) -> Void)?
+
+  /// Provider used for the most recent successful sign-in, so a fresh `login`
+  /// does not silently force Google on someone who signed up with Apple.
+  private var lastProvider: String {
+    get { UserDefaults.standard.string(forKey: lastProviderKey) ?? "GoogleOAuth" }
+    set { UserDefaults.standard.set(newValue, forKey: lastProviderKey) }
+  }
 
   var currentAccessToken: String? {
     lock.withLock { cached?.accessToken }
@@ -69,7 +77,7 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
 
   func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> WorkOSSession {
     self.onIdToken = onIdToken
-    let session = try await performSignIn(provider: "GoogleOAuth")
+    let session = try await performSignIn(provider: lastProvider)
     onIdToken(session.accessToken)
     return session
   }
@@ -131,6 +139,7 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
       redirectURI: AppConfig.workOSRedirectURI
     )
     try persist(session)
+    lastProvider = provider
     return session
   }
 
@@ -144,6 +153,7 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   private func clearPersisted() {
     KeychainStore.delete(account: refreshAccount)
     KeychainStore.delete(account: userAccount)
+    UserDefaults.standard.removeObject(forKey: lastProviderKey)
     lock.withLock { cached = nil }
   }
 

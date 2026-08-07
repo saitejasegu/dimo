@@ -123,7 +123,11 @@ enum OpenRouterClientError: LocalizedError, Sendable {
 }
 
 actor OpenRouterClient {
-  static let defaultModelID = "openai/gpt-oss-20b:free"
+  /// Seeded when a user on the shared free tier has no model picked. Must stay
+  /// a `:free` model — free-mode selection filters on `OpenRouterModel.isFree`.
+  static let defaultFreeModelID = "openai/gpt-oss-20b:free"
+  /// Seeded when a user saves their own API key and has no model picked.
+  static let defaultBYOKModelID = "openai/gpt-5.6-luna"
   static let standardOutputTokenLimit = 512
   static let incompleteOutputRetryTokenLimit = 2_048
 

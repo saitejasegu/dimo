@@ -437,7 +437,7 @@ struct AccountScreen: View {
     }
     .background(Theme.canvas.ignoresSafeArea())
     .edgeSwipeBack(action: closeAccount)
-    .confirmationDialog("Sign out?", isPresented: $confirmSignOut) {
+    .alert("Sign out?", isPresented: $confirmSignOut) {
       Button("Sign out", role: .destructive) {
         Task {
           do {
@@ -447,13 +447,19 @@ struct AccountScreen: View {
           }
         }
       }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This removes your local data from this device. Your cloud data is kept.")
     }
-    .confirmationDialog("Delete account and cloud data?", isPresented: $confirmDelete) {
+    .alert("Delete account and cloud data?", isPresented: $confirmDelete) {
       Button("Delete account", role: .destructive) {
         Task {
           try? await environment.session.deleteAccount()
         }
       }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This permanently deletes your data from this device and the cloud. This action cannot be undone.")
     }
   }
 

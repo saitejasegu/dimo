@@ -3319,8 +3319,8 @@ final class EmailAnalysisPacingTests: XCTestCase {
 }
 
 final class EmailSyncWindowTests: XCTestCase {
-  func testDefaultWindowIsOneDay() {
-    XCTAssertEqual(EmailSyncWindow.defaultValue, .oneDay)
+  func testDefaultWindowIsOneWeek() {
+    XCTAssertEqual(EmailSyncWindow.defaultValue, .oneWeek)
   }
 
   func testEveryWindowUsesItsCalendarCutoff() throws {
@@ -3577,7 +3577,7 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
     try repository.initializeLocalDatabase()
 
     XCTAssertNil(try repository.emailAnalysisSettings().selectedProvider)
-    XCTAssertEqual(try repository.emailAnalysisSettings().syncWindow, .oneDay)
+    XCTAssertEqual(try repository.emailAnalysisSettings().syncWindow, .oneWeek)
     XCTAssertEqual(
       try repository.emailAnalysisSettings().openRouterAccessMode,
       .bringYourOwnKey
@@ -3586,8 +3586,8 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
     var settings = try repository.emailAnalysisSettings()
     settings.selectedProvider = .openRouter
     settings.openRouterAccessMode = .freeShared
-    settings.openRouterModelID = OpenRouterClient.defaultModelID
-    settings.lastFreeOpenRouterModelID = OpenRouterClient.defaultModelID
+    settings.openRouterModelID = OpenRouterClient.defaultFreeModelID
+    settings.lastFreeOpenRouterModelID = OpenRouterClient.defaultFreeModelID
     settings.lastBYOKOpenRouterModelID = "openai/gpt-4o-mini"
     settings.openRouterPrivacyMode = .allowNonZDR
     settings.nonZDRConsentVersion = 1
@@ -3601,8 +3601,8 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
     let restored = try repository.emailAnalysisSettings()
     XCTAssertEqual(restored.selectedProvider, .openRouter)
     XCTAssertEqual(restored.openRouterAccessMode, .freeShared)
-    XCTAssertEqual(restored.openRouterModelID, OpenRouterClient.defaultModelID)
-    XCTAssertEqual(restored.lastFreeOpenRouterModelID, OpenRouterClient.defaultModelID)
+    XCTAssertEqual(restored.openRouterModelID, OpenRouterClient.defaultFreeModelID)
+    XCTAssertEqual(restored.lastFreeOpenRouterModelID, OpenRouterClient.defaultFreeModelID)
     XCTAssertEqual(restored.lastBYOKOpenRouterModelID, "openai/gpt-4o-mini")
     XCTAssertEqual(restored.openRouterPrivacyMode, .allowNonZDR)
     XCTAssertEqual(restored.nonZDRConsentVersion, 1)
@@ -3672,7 +3672,7 @@ final class OpenRouterPolicyTests: XCTestCase {
 
   func testModelPricingAndStructuredOutputSupport() {
     let model = OpenRouterModel(
-      id: OpenRouterClient.defaultModelID,
+      id: OpenRouterClient.defaultFreeModelID,
       name: "GPT OSS 20B Free",
       contextLength: 131_072,
       pricing: .init(prompt: "0", completion: "0"),
@@ -4126,5 +4126,50 @@ private final class OpenRouterRequestLog: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return storedOutputTokenLimits
+  }
+}
+
+final class OnboardingStoreTests: XCTestCase {
+  // Mirrors the private key in OnboardingStore so the version gate can be
+  // exercised without exposing it on the production type.
+  private let completedVersionKey = "dimo.onboarding.completedVersion"
+
+  override func setUp() {
+    super.setUp()
+    OnboardingStore.resetForTesting()
+  }
+
+  override func tearDown() {
+    OnboardingStore.resetForTesting()
+    super.tearDown()
+  }
+
+  func testHasCompletedFlipsOnMark() {
+    XCTAssertFalse(OnboardingStore.hasCompleted)
+    OnboardingStore.markCompleted()
+    XCTAssertTrue(OnboardingStore.hasCompleted)
+  }
+
+  func testStaleVersionReshowsOnboarding() {
+    UserDefaults.standard.set(OnboardingStore.currentVersion - 1, forKey: completedVersionKey)
+    XCTAssertFalse(OnboardingStore.hasCompleted)
+
+    UserDefaults.standard.set(OnboardingStore.currentVersion + 1, forKey: completedVersionKey)
+    XCTAssertTrue(OnboardingStore.hasCompleted)
+  }
+
+  func testPendingReminderOptInIsSingleShot() {
+    XCTAssertFalse(OnboardingStore.consumePendingReminderOptIn())
+
+    OnboardingStore.setPendingReminderOptIn()
+    XCTAssertTrue(OnboardingStore.consumePendingReminderOptIn())
+    XCTAssertFalse(OnboardingStore.consumePendingReminderOptIn())
+  }
+}
+
+final class AuthProviderKindTests: XCTestCase {
+  func testWorkOSProviderIdentifiers() {
+    XCTAssertEqual(AuthProviderKind.apple.workOSProvider, "AppleOAuth")
+    XCTAssertEqual(AuthProviderKind.google.workOSProvider, "GoogleOAuth")
   }
 }

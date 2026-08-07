@@ -7,6 +7,20 @@ enum SessionPhase: Equatable {
   case signedIn
 }
 
+/// Identity providers offered on the sign-in screen. The raw strings are WorkOS
+/// OAuth provider identifiers passed straight through to the authorize URL.
+enum AuthProviderKind: String, CaseIterable, Sendable {
+  case apple
+  case google
+
+  var workOSProvider: String {
+    switch self {
+    case .apple: return "AppleOAuth"
+    case .google: return "GoogleOAuth"
+    }
+  }
+}
+
 @Observable
 @MainActor
 final class SessionController {
@@ -32,8 +46,8 @@ final class SessionController {
     }
   }
 
-  func signInWithGoogle() async throws {
-    let session = try await authProvider.signIn(provider: "GoogleOAuth")
+  func signIn(with kind: AuthProviderKind) async throws {
+    let session = try await authProvider.signIn(provider: kind.workOSProvider)
     await enterSignedIn(session: session)
   }
 
