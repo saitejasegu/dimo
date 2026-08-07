@@ -49,7 +49,7 @@ Copy from `store/listing.json` into App Store Connect:
 | Icon | `store/AppIcon-1024.png` |
 | Screenshots | Capture on Simulator into `store/screenshots/` |
 
-**Privacy URL:** deploy the static site (`npm run build` → host `out/`) so `https://YOUR_DOMAIN/privacy` is public, then put that URL in Connect.
+**Privacy URL:** `https://dimo-silk.vercel.app/privacy` (paste into App Store Connect). Redeploy after privacy-page edits (`npm run build` → host `out/`).
 
 ## 5. Submit for review
 
