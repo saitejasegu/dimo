@@ -44,13 +44,14 @@ Copy from `store/listing.json` into App Store Connect:
 |-------|--------|
 | Name / subtitle | `listing.json` |
 | Description / keywords | `listing.json` |
-| Privacy Policy URL | `https://dimo-silk.vercel.app/privacy` |
-| Terms of Service URL | `https://dimo-silk.vercel.app/terms` (if Connect asks) |
-| App Privacy | Reflect WorkOS auth + Convex sync as applicable |
+| Privacy Policy URL | `https://dimoapp.xyz/privacy` |
+| Support URL | `https://dimoapp.xyz/support` |
+| Terms of Service URL | `https://dimoapp.xyz/terms` (if Connect asks) |
+| App Privacy | Copy the answers in `APP_PRIVACY.md` |
 | Icon | `store/AppIcon-1024.png` |
 | Screenshots | Capture on Simulator into `store/screenshots/` |
 
-**Legal URLs:** privacy `https://dimo-silk.vercel.app/privacy`, terms `https://dimo-silk.vercel.app/terms`. Redeploy after edits (`npm run build` → host `out/`).
+**Public URLs:** support `https://dimoapp.xyz/support`, privacy `https://dimoapp.xyz/privacy`, terms `https://dimoapp.xyz/terms`. Redeploy after edits (`npm run build` → host `out/`).
 
 **Google OAuth branding:** see `store/GOOGLE_OAUTH.md` (public homepage, logo upload, Search Console ownership).
 
@@ -59,7 +60,8 @@ Copy from `store/listing.json` into App Store Connect:
 1. App Store Connect → your app → iOS version
 2. Select the TestFlight build
 3. Complete Age Rating, Pricing (Free), Review Information (contact + demo notes)
-4. Add for Review → Submit
+4. Complete App Privacy using `store/APP_PRIVACY.md`
+5. Add for Review → Submit
 
 ## 6. After feedback
 

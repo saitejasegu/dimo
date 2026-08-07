@@ -428,6 +428,7 @@ struct AccountScreen: View {
         VStack(spacing: 14) {
           profileCard
           syncCard
+          legalCard
           sessionCard
         }
         .padding(.horizontal, 22)
@@ -564,6 +565,22 @@ struct AccountScreen: View {
       }
     }
     .frame(maxWidth: .infinity)
+    .settingsCard()
+  }
+
+  private var legalCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Help & legal")
+        .font(DimoFont.display(16, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+
+      Link("Support", destination: URL(string: "https://dimoapp.xyz/support")!)
+      Link("Privacy Policy", destination: URL(string: "https://dimoapp.xyz/privacy")!)
+      Link("Terms of Service", destination: URL(string: "https://dimoapp.xyz/terms")!)
+    }
+    .font(DimoFont.body(14, weight: .medium))
+    .foregroundStyle(Theme.green)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .settingsCard()
   }
 

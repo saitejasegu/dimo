@@ -10,17 +10,17 @@
   "homepageUrl": "https://dimoapp.xyz/about/",
   "privacyPolicyUrl": "https://dimoapp.xyz/privacy",
   "termsOfServiceUrl": "https://dimoapp.xyz/terms",
-  "supportUrl": "https://dimoapp.xyz/privacy",
+  "supportUrl": "https://dimoapp.xyz/support",
   "supportEmail": "segusaiteja12345@gmail.com",
   "marketingUrl": "",
   "copyright": "2026 Saiteja Segu",
   "promotionalText": "A calm way to track spending, budgets, and recurring bills.",
-  "description": "Dimo helps you track everyday spending without the clutter.\n\n• Log expenses quickly with categories and payment methods\n• See budgets and where money goes\n• Keep recurring bills in view\n• Review activity and stats over time\n\nBuilt for personal use — data stays on your device and syncs privately to your account when you sign in.",
+  "description": "Dimo helps you track everyday spending without the clutter.\n\n• Log expenses quickly with categories and payment methods\n• See budgets and where money goes\n• Keep recurring bills in view\n• Review activity and stats over time\n• Track lending with people you know\n• Optionally turn Gmail receipts into suggestions you review\n\nBuilt for personal use — your ledger is local-first and syncs privately to your account when you sign in.",
   "keywords": "expenses,budget,spending,bills,money,finance,tracker",
   "whatsNew": "Initial release.",
   "appPrivacy": {
     "dataNotCollected": false,
-    "notes": "Do not declare “Data Not Collected”. Disclose account/contact info (WorkOS name/email), user content (expenses, budgets, recurring, lending), and identifiers needed for sync. Native iOS does not embed Vercel Analytics; the hosted privacy policy covers web Analytics/Speed Insights separately. Point Privacy Policy URL at /privacy."
+    "notes": "Do not declare “Data Not Collected”. Use store/APP_PRIVACY.md. Native iOS does not embed Vercel Analytics; the hosted privacy policy covers web Analytics/Speed Insights separately."
   },
   "screenshots": {
     "required": [

@@ -59,6 +59,15 @@ struct SignInScreen: View {
         ) {
           Task { await signIn(with: .google) }
         }
+
+        HStack(spacing: 16) {
+          Link("Privacy", destination: URL(string: "https://dimoapp.xyz/privacy")!)
+          Link("Terms", destination: URL(string: "https://dimoapp.xyz/terms")!)
+          Link("Support", destination: URL(string: "https://dimoapp.xyz/support")!)
+        }
+        .font(DimoFont.body(12, weight: .medium))
+        .foregroundStyle(Theme.muted)
+        .padding(.top, 4)
       }
       .padding(.horizontal, 24)
       .padding(.bottom, 40)

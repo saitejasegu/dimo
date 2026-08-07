@@ -28,6 +28,9 @@ export function PublicHome() {
             </span>
           </div>
           <nav className="flex items-center gap-4 text-sm text-muted">
+            <a className="hover:text-ink" href="/support">
+              Support
+            </a>
             <a className="hover:text-ink" href="/privacy">
               Privacy
             </a>

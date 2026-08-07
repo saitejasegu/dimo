@@ -45,6 +45,8 @@
 	<string>$(GMAIL_OAUTH_CLIENT_ID)</string>
 	<key>GmailOAuthRedirectScheme</key>
 	<string>$(GMAIL_OAUTH_REDIRECT_SCHEME)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>app.dimo.ios.email-refresh</string>
