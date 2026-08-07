@@ -36,6 +36,28 @@ not enough for OAuth brand verification.
 Until the homepage/privacy URLs use **your** domain, Google will keep failing
 ownership no matter how complete the page content is.
 
+## Fix apex ↔ www redirect (common branding fail)
+
+Right now `https://dimoapp.xyz` **308-redirects** to `https://www.dimoapp.xyz`.
+Google’s branding crawler often fails purpose/name checks on redirecting
+homepages.
+
+**Pick one canonical URL and use it everywhere:**
+
+### Recommended: apex primary
+1. Vercel → Project → Settings → **Domains**
+2. Make **`dimoapp.xyz`** the primary domain
+3. Set **`www.dimoapp.xyz` → redirect to `dimoapp.xyz`** (not the other way)
+4. Confirm `curl -sI https://dimoapp.xyz` returns **200** (not 308)
+5. Google Cloud OAuth homepage = `https://dimoapp.xyz` (no www)
+6. Privacy / terms on the same host
+
+### Or: www primary
+Set OAuth homepage / privacy / terms all to `https://www.dimoapp.xyz/...`
+and keep WorkOS redirect `https://www.dimoapp.xyz/callback`.
+
+Do not mix apex in Google Cloud with a site that only serves content on www.
+
 ## Homepage content checklist (already in the app)
 
 After you point a custom domain at this deploy, the public `/` page should show:

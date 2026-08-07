@@ -42,13 +42,15 @@ export function PublicHome() {
           <h1 className="max-w-xl font-display text-4xl font-semibold leading-[1.1] tracking-tight text-ink sm:text-5xl">
             Dimo
           </h1>
-          <p className="mt-4 max-w-xl font-display text-2xl font-semibold leading-snug text-ink">
-            Personal expense tracker
-          </p>
-          <p className="mt-5 max-w-xl text-base leading-7 text-body sm:text-lg">
-            Dimo is a personal spending tracker. It helps you log everyday
-            expenses, set budgets, manage recurring bills, and review stats —
-            with private sync across your devices when you sign in.
+          <h2 className="mt-4 max-w-xl font-display text-2xl font-semibold leading-snug text-ink">
+            Purpose of the Dimo app
+          </h2>
+          <p className="mt-4 max-w-xl text-base leading-7 text-body sm:text-lg">
+            The purpose of Dimo is to help people track personal spending.
+            Dimo is a personal expense tracker for logging everyday expenses,
+            setting category budgets, managing recurring bills, reviewing spend
+            stats, and optionally suggesting purchases from Gmail on iOS. Your
+            data stays on your devices and syncs privately when you sign in.
           </p>
 
           <div className="mt-8 max-w-md">
