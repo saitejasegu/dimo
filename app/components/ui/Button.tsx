@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
-export type ButtonVariant = "primary" | "secondary" | "danger" | "accent";
+export type ButtonVariant = "primary" | "secondary" | "danger" | "accent" | "contrast";
 export type ButtonSize = "md" | "sm";
 
 interface ButtonProps {
@@ -21,6 +21,9 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   secondary: "border border-line bg-canvas text-ink hover:bg-canvas-deep",
   danger: "border border-danger-line bg-danger-soft text-danger",
   accent: "bg-green text-on-green hover:bg-green-deep",
+  // Inverts with the theme: near-black on light, near-white on dark. Used for
+  // the Sign in with Apple button, which follows Apple's light/dark variants.
+  contrast: "bg-ink text-canvas hover:opacity-90",
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
