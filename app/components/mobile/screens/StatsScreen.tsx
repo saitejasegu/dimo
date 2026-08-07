@@ -1,10 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { money } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useStats } from "@/features/stats/hooks";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
+import { StatsPeriodNav } from "@/components/common/StatsPeriodNav";
+import {
+  StatsTransactionsList,
+  type StatsSelection,
+} from "@/components/common/StatsTransactionsList";
+import { Sheet } from "@/components/ui/Sheet";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { MonthBars } from "@/components/common/MonthBars";
 import { MerchantRow } from "@/components/common/MerchantRow";
@@ -13,9 +20,13 @@ import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 export function StatsScreen() {
   const { currency } = useAppState();
   const actions = useAppActions();
+  const [selection, setSelection] = useState<StatsSelection | null>(null);
   const {
     range,
     scope,
+    offset,
+    periodLabel,
+    canGoBack,
     bars,
     categories,
     categoryCount,
@@ -39,7 +50,14 @@ export function StatsScreen() {
               />
             }
           />
-          <HeroCard className="mt-4 p-5">
+          <StatsPeriodNav
+            offset={offset}
+            label={periodLabel}
+            canGoBack={canGoBack}
+            onChange={actions.setStatsPeriodOffset}
+            className="mt-3"
+          />
+          <HeroCard className="mt-3 p-5">
             <div className="mb-2 text-[13px] text-side-muted">
               {scope.spentLabel}
             </div>
@@ -86,7 +104,7 @@ export function StatsScreen() {
               caption={c.caption}
               value={c.relative}
               tone={c.primary ? "green" : "soft"}
-              onClick={() => actions.openCategory(c.category)}
+              onClick={() => setSelection({ kind: "category", name: c.category })}
             />
           ))}
         </div>
@@ -111,7 +129,7 @@ export function StatsScreen() {
               key={m.name}
               merchant={m}
               currency={currency}
-              onClick={() => actions.openMerchant(m.name)}
+              onClick={() => setSelection({ kind: "merchant", name: m.name })}
             />
           ))}
         </div>
@@ -119,6 +137,21 @@ export function StatsScreen() {
           Tap a merchant to see its transactions.
         </p>
       </Card>
+
+      {selection ? (
+        <Sheet onClose={() => setSelection(null)} title={selection.name}>
+          <StatsTransactionsList
+            selection={selection}
+            transactions={scope.transactions}
+            currency={currency}
+            periodLabel={periodLabel}
+            onOpenTransaction={(id) => {
+              setSelection(null);
+              actions.openDetail(id);
+            }}
+          />
+        </Sheet>
+      ) : null}
     </MobileScreen>
   );
 }

@@ -47,6 +47,7 @@ final class EntitiesStore {
     scopeTotal: 0,
     scopePast: 0,
     spentLabel: "",
+    periodLabel: "",
     averageLabel: "",
     transactions: []
   )
@@ -62,6 +63,8 @@ final class EntitiesStore {
   private var cachedFilter = TransactionFilter()
   @ObservationIgnored
   private var cachedStatsRange: StatsRange = .oneYear
+  @ObservationIgnored
+  private var cachedStatsPeriodOffset = 0
   @ObservationIgnored
   private var cachedSelectedMonth: String?
   @ObservationIgnored
@@ -114,6 +117,7 @@ final class EntitiesStore {
     snapshot: EntitySnapshot,
     derived: DerivedSnapshot,
     filter: TransactionFilter,
+    statsPeriodOffset: Int,
     selectedMonth: String?,
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
@@ -198,6 +202,7 @@ final class EntitiesStore {
 
     cachedFilter = filter
     cachedStatsRange = snapshot.statsRange
+    cachedStatsPeriodOffset = statsPeriodOffset
     cachedSelectedMonth = selectedMonth
     cachedCategoriesExpanded = categoriesExpanded
     cachedMerchantsExpanded = merchantsExpanded
@@ -214,6 +219,7 @@ final class EntitiesStore {
         StatsInputs(
           revision: revision,
           range: snapshot.statsRange,
+          periodOffset: statsPeriodOffset,
           selectedMonth: selectedMonth,
           categoriesExpanded: categoriesExpanded,
           merchantsExpanded: merchantsExpanded
@@ -244,6 +250,7 @@ final class EntitiesStore {
       let stats = await EntityHydrator.deriveStats(
         transactions: rows,
         statsRange: inputs.range,
+        periodOffset: inputs.periodOffset,
         selectedMonth: inputs.selectedMonth,
         categoriesExpanded: inputs.categoriesExpanded,
         merchantsExpanded: inputs.merchantsExpanded
@@ -335,12 +342,14 @@ final class EntitiesStore {
   func refreshProjections(
     filter: TransactionFilter,
     statsRange: StatsRange,
+    statsPeriodOffset: Int,
     selectedMonth: String?,
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
   ) {
     cachedFilter = filter
     cachedStatsRange = statsRange
+    cachedStatsPeriodOffset = statsPeriodOffset
     cachedSelectedMonth = selectedMonth
     cachedCategoriesExpanded = categoriesExpanded
     cachedMerchantsExpanded = merchantsExpanded
@@ -349,6 +358,7 @@ final class EntitiesStore {
       StatsInputs(
         revision: revision,
         range: statsRange,
+        periodOffset: statsPeriodOffset,
         selectedMonth: selectedMonth,
         categoriesExpanded: categoriesExpanded,
         merchantsExpanded: merchantsExpanded
@@ -454,6 +464,8 @@ final class NavStore {
   var toast: String?
   var filter = TransactionFilter()
   var statsRange: StatsRange = .oneYear
+  /// 0 is the current period; -1 is one full range back. Never positive.
+  var statsPeriodOffset: Int = 0
   var selectedMonth: String?
   var merchantsExpanded = false
   var categoriesExpanded = false

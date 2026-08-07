@@ -10,6 +10,7 @@ struct StatsScreen: View {
     StatsInputs(
       revision: entities.revision,
       range: nav.statsRange,
+      periodOffset: nav.statsPeriodOffset,
       selectedMonth: nav.selectedMonth,
       categoriesExpanded: nav.categoriesExpanded,
       merchantsExpanded: nav.merchantsExpanded
@@ -21,8 +22,10 @@ struct StatsScreen: View {
     VStack(spacing: 0) {
       VStack(spacing: 0) {
         topBar
+        periodNav(scope)
+          .padding(.top, 4)
         hero(scope)
-          .padding(.top, 16)
+          .padding(.top, 12)
       }
       .padding(.horizontal, 22)
       .padding(.top, 12)
@@ -43,11 +46,15 @@ struct StatsScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
+    // Whole-screen horizontal swipe mirrors the period chevrons; vertical scrolls stay free.
+    .simultaneousGesture(periodSwipeGesture)
     // Stats projections are the heaviest derived work in the app, so they are computed
     // only while this screen is on screen rather than on every hydrate.
     .onAppear { entities.setStatsVisible(true, inputs: statsInputs) }
     .onDisappear { entities.setStatsVisible(false, inputs: statsInputs) }
     .onChange(of: nav.statsRange) { _, _ in
+      // A new range reinterprets the offset's length, so snap back to current.
+      store.statsPeriodOffset = 0
       store.selectedMonth = nil
     }
     .sheet(item: $txSheet) { selection in
@@ -81,6 +88,85 @@ struct StatsScreen: View {
       }
     }
     .frame(minHeight: 56)
+  }
+
+  private func periodNav(_ scope: StatsScope) -> some View {
+    let isCurrent = nav.statsPeriodOffset == 0
+    let canGoBack = StatsSelectors.hasEarlierData(
+      entities.transactions,
+      range: nav.statsRange,
+      offset: nav.statsPeriodOffset
+    )
+    // One bordered row rather than free-floating chevrons, matching the web nav.
+    return HStack(spacing: 12) {
+      periodStep(systemName: "chevron.left", enabled: canGoBack) {
+        store.statsPeriodOffset = nav.statsPeriodOffset - 1
+      }
+      Spacer(minLength: 0)
+      Button {
+        store.statsPeriodOffset = 0
+      } label: {
+        Text(scope.periodLabel)
+          .font(DimoFont.body(14, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .lineLimit(1)
+      }
+      .buttonStyle(.plain)
+      .disabled(isCurrent)
+      Spacer(minLength: 0)
+      periodStep(systemName: "chevron.right", enabled: !isCurrent) {
+        store.statsPeriodOffset = nav.statsPeriodOffset + 1
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(Theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(Theme.line, lineWidth: 1)
+    )
+  }
+
+  private func periodStep(
+    systemName: String,
+    enabled: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(enabled ? Theme.ink : Theme.disabled)
+        // Keeps a 32pt tap target without drawing a nested box.
+        .frame(width: 32, height: 32)
+        .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+  }
+
+  /// Swipe right → older period (left chevron); swipe left → newer (right chevron).
+  private var periodSwipeGesture: some Gesture {
+    DragGesture(minimumDistance: 40, coordinateSpace: .local)
+      .onEnded { value in
+        let horizontal = value.translation.width
+        let vertical = abs(value.translation.height)
+        // Require a clearly horizontal flick so list scrolling is unaffected.
+        guard abs(horizontal) >= 80, abs(horizontal) > vertical * 1.5 else { return }
+
+        if horizontal > 0 {
+          let canGoBack = StatsSelectors.hasEarlierData(
+            entities.transactions,
+            range: nav.statsRange,
+            offset: nav.statsPeriodOffset
+          )
+          guard canGoBack else { return }
+          store.statsPeriodOffset = nav.statsPeriodOffset - 1
+        } else {
+          guard nav.statsPeriodOffset < 0 else { return }
+          store.statsPeriodOffset = nav.statsPeriodOffset + 1
+        }
+      }
   }
 
   private func hero(_ scope: StatsScope) -> some View {

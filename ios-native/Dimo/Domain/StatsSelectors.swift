@@ -39,6 +39,7 @@ struct StatsScope: Equatable, Sendable {
   var scopeTotal: Double
   var scopePast: Double
   var spentLabel: String
+  var periodLabel: String
   var averageLabel: String
   var transactions: [Transaction]
 }
@@ -123,6 +124,18 @@ enum StatsSelectors {
     return monthDayLabelFormatter.string(from: date)
   }
 
+  private static let monthYearLabelFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.setLocalizedDateFormatFromTemplate("MMMy")
+    return formatter
+  }()
+
+  private static func monthYearLabel(for date: Date) -> String {
+    formatterLock.lock(); defer { formatterLock.unlock() }
+    return monthYearLabelFormatter.string(from: date)
+  }
+
   private static func monthStart(_ date: Date, offset: Int = 0, calendar: Calendar = .current) -> Date {
     let comps = calendar.dateComponents([.year, .month], from: date)
     guard let base = calendar.date(from: comps) else { return date }
@@ -131,6 +144,73 @@ enum StatsSelectors {
 
   private static func startOfLocalDay(_ date: Date, calendar: Calendar = .current) -> Date {
     calendar.startOfDay(for: date)
+  }
+
+  private static func endOfLocalDay(_ date: Date, calendar: Calendar = .current) -> Date {
+    let start = startOfLocalDay(date, calendar: calendar)
+    let next = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+    return next.addingTimeInterval(-0.001)
+  }
+
+  /// Effective "now" for a period `offset` steps back — 0 is the current period,
+  /// -1 is one full range back. Every window function already derives its bounds
+  /// from `now`, so shifting this one value moves the scope, the bars, and the
+  /// average denominator together. Periods are contiguous and never overlap.
+  static func statsAnchor(
+    _ range: StatsRange,
+    offset: Int,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Date {
+    // The current period stays partial: it ends at this instant, not month end.
+    guard offset != 0 else { return now }
+    if range == .oneWeek {
+      let day = startOfLocalDay(now, calendar: calendar)
+      let shifted = calendar.date(byAdding: .day, value: offset * 7, to: day) ?? day
+      return endOfLocalDay(shifted, calendar: calendar)
+    }
+    let months = StatsConstants.rangeMonths[range] ?? 1
+    let shifted = monthStart(now, offset: offset * months, calendar: calendar)
+    let nextMonth = calendar.date(byAdding: .month, value: 1, to: shifted) ?? shifted
+    return nextMonth.addingTimeInterval(-0.001)
+  }
+
+  /// Human label for the window a given offset selects.
+  static func periodLabel(
+    _ range: StatsRange,
+    offset: Int,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> String {
+    if offset == 0 {
+      switch range {
+      case .oneWeek: return "This week"
+      case .month: return "This month"
+      default: return "Last \(StatsConstants.rangeMonths[range] ?? 1) months"
+      }
+    }
+    let anchor = statsAnchor(range, offset: offset, now: now, calendar: calendar)
+    let start = rangeStart(range, now: anchor, calendar: calendar)
+    if range == .oneWeek {
+      return "\(monthDayLabel(for: start)) – \(monthDayLabel(for: anchor))"
+    }
+    if (StatsConstants.rangeMonths[range] ?? 1) == 1 {
+      return monthYearLabel(for: anchor)
+    }
+    return "\(monthYearLabel(for: start)) – \(monthYearLabel(for: anchor))"
+  }
+
+  /// Whether anything predates the selected window, so "previous" can be disabled.
+  static func hasEarlierData(
+    _ transactions: [Transaction],
+    range: StatsRange,
+    offset: Int,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Bool {
+    let anchor = statsAnchor(range, offset: offset, now: now, calendar: calendar)
+    let start = rangeStart(range, now: anchor, calendar: calendar).timeIntervalSince1970 * 1000
+    return transactions.contains { Double($0.occurredAt ?? 0) < start }
   }
 
   static func rangeStart(_ range: StatsRange, now: Date = Date(), calendar: Calendar = .current) -> Date {
@@ -159,33 +239,42 @@ enum StatsSelectors {
     range: StatsRange,
     transactions: [Transaction],
     now: Date = Date(),
-    calendar: Calendar = .current
+    calendar: Calendar = .current,
+    offset: Int = 0
   ) -> StatsScope {
-    let scoped = inRange(transactions, range: range, now: now, calendar: calendar)
+    // Everything below is anchored here, so a past period shifts as one piece.
+    let anchor = statsAnchor(range, offset: offset, now: now, calendar: calendar)
+    let scoped = inRange(transactions, range: range, now: anchor, calendar: calendar)
     let scopeTotal = scoped.reduce(0.0) { $0 + $1.amount }
     let oldestTimestamp = scoped.compactMap(\.occurredAt).min()
     let days: Int
     if let oldestTimestamp {
       let oldestDate = Date(timeIntervalSince1970: TimeInterval(oldestTimestamp) / 1000)
       let oldestDay = startOfLocalDay(oldestDate, calendar: calendar)
-      let today = startOfLocalDay(now, calendar: calendar)
-      days = max(1, (calendar.dateComponents([.day], from: oldestDay, to: today).day ?? 0) + 1)
+      let last = startOfLocalDay(anchor, calendar: calendar)
+      days = max(1, (calendar.dateComponents([.day], from: oldestDay, to: last).day ?? 0) + 1)
     } else {
       days = 1
     }
+    let label = periodLabel(range, offset: offset, now: now, calendar: calendar)
     let spentLabel: String
-    switch range {
-    case .oneWeek: spentLabel = "Spent this week"
-    case .month: spentLabel = "Spent this month"
-    default:
-      let months = StatsConstants.rangeMonths[range] ?? 1
-      spentLabel = "Spent in the last \(months) months"
+    if offset != 0 {
+      spentLabel = "Spent in \(label)"
+    } else {
+      switch range {
+      case .oneWeek: spentLabel = "Spent this week"
+      case .month: spentLabel = "Spent this month"
+      default:
+        let months = StatsConstants.rangeMonths[range] ?? 1
+        spentLabel = "Spent in the last \(months) months"
+      }
     }
     return StatsScope(
       rangeMonths: range == .oneWeek ? 0 : (StatsConstants.rangeMonths[range] ?? 0),
       scopeTotal: scopeTotal,
       scopePast: 0,
       spentLabel: spentLabel,
+      periodLabel: label,
       averageLabel: "\(Formatting.money(scopeTotal / Double(days))) avg per day",
       transactions: scoped
     )
@@ -292,11 +381,13 @@ enum StatsSelectors {
     transactions: [Transaction],
     selectedKey: String?,
     now: Date = Date(),
-    calendar: Calendar = .current
+    calendar: Calendar = .current,
+    offset: Int = 0
   ) -> MonthBars {
-    StatsConstants.isDayStatsRange(range)
-      ? dayBars(range: range, transactions: transactions, selectedDay: selectedKey, now: now, calendar: calendar)
-      : monthBars(range: range, transactions: transactions, selectedMonth: selectedKey, now: now, calendar: calendar)
+    let anchor = statsAnchor(range, offset: offset, now: now, calendar: calendar)
+    return StatsConstants.isDayStatsRange(range)
+      ? dayBars(range: range, transactions: transactions, selectedDay: selectedKey, now: anchor, calendar: calendar)
+      : monthBars(range: range, transactions: transactions, selectedMonth: selectedKey, now: anchor, calendar: calendar)
   }
 
   static func statCategories(scope: StatsScope, limit: Int) -> (categories: [StatCategory], total: Int) {

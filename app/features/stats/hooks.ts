@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useAppState } from "@/store/app-store";
 import {
+  hasEarlierData,
   statCategories,
   statsScope,
   topMerchants,
@@ -11,13 +12,14 @@ export function useStats() {
   const {
     transactions,
     statsRange,
+    statsPeriodOffset,
     selectedMonth,
     merchantsExpanded,
     categoriesExpanded,
   } = useAppState();
 
   return useMemo(() => {
-    const scope = statsScope(statsRange, transactions);
+    const scope = statsScope(statsRange, transactions, new Date(), statsPeriodOffset);
     const { merchants, total: merchantCount } = topMerchants(
       scope,
       merchantsExpanded ? Number.POSITIVE_INFINITY : 5,
@@ -30,9 +32,12 @@ export function useStats() {
     return {
       range: statsRange,
       scope,
+      offset: statsPeriodOffset,
+      periodLabel: scope.periodLabel,
+      canGoBack: hasEarlierData(transactions, statsRange, statsPeriodOffset),
       // Scoped rows only — the bars never cover a period outside the range, and
       // iOS already derives them from the scope.
-      bars: trendBars(statsRange, scope.transactions, selectedMonth),
+      bars: trendBars(statsRange, scope.transactions, selectedMonth, new Date(), statsPeriodOffset),
       categories,
       categoryCount,
       categoriesExpanded,
@@ -40,5 +45,12 @@ export function useStats() {
       merchantCount,
       merchantsExpanded,
     };
-  }, [transactions, statsRange, selectedMonth, merchantsExpanded, categoriesExpanded]);
+  }, [
+    transactions,
+    statsRange,
+    statsPeriodOffset,
+    selectedMonth,
+    merchantsExpanded,
+    categoriesExpanded,
+  ]);
 }

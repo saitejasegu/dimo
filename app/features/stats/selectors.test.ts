@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { dayBars, monthBars, statsScope, topMerchants } from "@/features/stats/selectors";
+import {
+  dayBars,
+  hasEarlierData,
+  monthBars,
+  periodLabel,
+  rangeStart,
+  statsAnchor,
+  statsScope,
+  topMerchants,
+  trendBars,
+} from "@/features/stats/selectors";
 import type { Transaction } from "@/lib/types";
 import { createInitialState } from "@/store/state";
+
+const monthYearLabel = (date: Date) =>
+  new Intl.DateTimeFormat(undefined, { month: "short", year: "numeric" }).format(date);
 
 function transaction(id: string, amount: number, occurredAt: number): Transaction {
   return { id, name: "Merchant", category: "Dining", time: "", day: "", amount, occurredAt };
@@ -97,5 +110,71 @@ describe("real statistics", () => {
     const scope = { ...statsScope("M", [], new Date()), transactions, scopeTotal: 50 };
 
     expect(topMerchants(scope, 3).merchants[0].emoji).toBeUndefined();
+  });
+});
+
+describe("previous stats periods", () => {
+  const now = new Date(2026, 6, 11, 15);
+
+  it("keeps the current period anchored to now at offset 0", () => {
+    expect(statsAnchor("3M", 0, now)).toBe(now);
+    expect(rangeStart("3M", statsAnchor("3M", 0, now))).toEqual(new Date(2026, 4, 1));
+  });
+
+  it("steps back a full range and stays contiguous", () => {
+    // 3M current window is 1 May - 11 Jul, so the previous one is 1 Feb - 30 Apr.
+    const anchor = statsAnchor("3M", -1, now);
+    expect(anchor).toEqual(new Date(2026, 3, 30, 23, 59, 59, 999));
+    expect(rangeStart("3M", anchor)).toEqual(new Date(2026, 1, 1));
+
+    const older = statsAnchor("3M", -2, now);
+    expect(rangeStart("3M", older)).toEqual(new Date(2025, 10, 1));
+  });
+
+  it("scopes totals and bars to the previous period", () => {
+    const rows = [
+      transaction("current", 100, new Date(2026, 6, 2).getTime()),
+      transaction("previous", 50, new Date(2026, 2, 4).getTime()),
+      transaction("older-still", 999, new Date(2025, 0, 1).getTime()),
+    ];
+
+    expect(statsScope("3M", rows, now, 0).scopeTotal).toBe(100);
+    expect(statsScope("3M", rows, now, -1).scopeTotal).toBe(50);
+
+    const bars = trendBars("3M", statsScope("3M", rows, now, -1).transactions, null, now, -1);
+    expect(bars.bars).toHaveLength(3);
+    expect(bars.bars.map((bar) => bar.amount)).toEqual([0, 50, 0]);
+    expect(bars.bars.map((bar) => bar.key)).toEqual(["2026-1", "2026-2", "2026-3"]);
+  });
+
+  it("steps a week back with seven day bars and no overlap", () => {
+    const anchor = statsAnchor("1W", -1, now);
+    expect(anchor).toEqual(new Date(2026, 6, 4, 23, 59, 59, 999));
+    expect(rangeStart("1W", anchor)).toEqual(new Date(2026, 5, 28));
+
+    const bars = trendBars("1W", [], null, now, -1);
+    expect(bars.bars).toHaveLength(7);
+    // Current week starts the day after the previous window ends.
+    expect(rangeStart("1W", now)).toEqual(new Date(2026, 6, 5));
+  });
+
+  it("labels past periods instead of claiming they are current", () => {
+    expect(statsScope("M", [], now, 0).spentLabel).toBe("Spent this month");
+    expect(statsScope("M", [], now, 0).periodLabel).toBe("This month");
+    expect(periodLabel("M", -1, now)).toBe(monthYearLabel(new Date(2026, 5, 1)));
+    expect(statsScope("M", [], now, -1).spentLabel).toBe(
+      `Spent in ${periodLabel("M", -1, now)}`,
+    );
+    expect(periodLabel("3M", -1, now)).toContain("–");
+  });
+
+  it("reports whether earlier data exists so previous can stop", () => {
+    const rows = [transaction("only", 10, new Date(2026, 6, 2).getTime())];
+    expect(hasEarlierData(rows, "3M", 0, now)).toBe(false);
+
+    const withHistory = [...rows, transaction("old", 5, new Date(2025, 0, 1).getTime())];
+    expect(hasEarlierData(withHistory, "3M", 0, now)).toBe(true);
+    // Offset -6 starts 1 Nov 2024, which predates the oldest row.
+    expect(hasEarlierData(withHistory, "3M", -6, now)).toBe(false);
   });
 });

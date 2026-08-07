@@ -199,7 +199,16 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, query: action.query };
 
     case "SET_STATS_RANGE":
-      return { ...state, statsRange: action.range, selectedMonth: null };
+      // A new range reinterprets the offset's length, so snap back to current.
+      return { ...state, statsRange: action.range, statsPeriodOffset: 0, selectedMonth: null };
+
+    case "SET_STATS_PERIOD_OFFSET":
+      // Stepping to another period invalidates the highlighted bar.
+      return {
+        ...state,
+        statsPeriodOffset: Math.min(0, action.offset),
+        selectedMonth: null,
+      };
 
     case "SET_SELECTED_MONTH":
       return { ...state, selectedMonth: action.month };
@@ -725,6 +734,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         defaultStatsRange: action.range,
         statsRange: action.range,
+        statsPeriodOffset: 0,
         selectedMonth: null,
       };
 

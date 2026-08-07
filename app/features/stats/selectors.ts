@@ -11,6 +11,10 @@ function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function endOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
 function inclusiveLocalDayCount(start: Date, end: Date) {
   const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
   const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
@@ -24,6 +28,51 @@ export function rangeStart(range: StatsRange, now = new Date()): Date {
   return monthStart(now, -(RANGE_MONTHS[range] - 1));
 }
 
+/**
+ * Effective "now" for a period `offset` steps back — 0 is the current period,
+ * -1 is one full range back. Every window function already derives its bounds
+ * from `now`, so shifting this one value moves the scope, the bars, and the
+ * average denominator together. Periods are contiguous and never overlap.
+ */
+export function statsAnchor(range: StatsRange, offset: number, now = new Date()): Date {
+  // The current period stays partial: it ends at this instant, not month end.
+  if (offset === 0) return now;
+  if (range === "1W") {
+    const day = startOfLocalDay(now);
+    return endOfLocalDay(new Date(day.getFullYear(), day.getMonth(), day.getDate() + offset * 7));
+  }
+  const shifted = monthStart(now, offset * RANGE_MONTHS[range]);
+  // Day 0 of the following month is the last day of `shifted`'s month.
+  return new Date(shifted.getFullYear(), shifted.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+/** Human label for the window a given offset selects. */
+export function periodLabel(range: StatsRange, offset: number, now = new Date()): string {
+  if (offset === 0) {
+    if (range === "1W") return "This week";
+    if (range === "M") return "This month";
+    return `Last ${RANGE_MONTHS[range]} months`;
+  }
+  const anchor = statsAnchor(range, offset, now);
+  const start = rangeStart(range, anchor);
+  if (range === "1W") {
+    return `${monthDayFormat.format(start)} – ${monthDayFormat.format(anchor)}`;
+  }
+  if (RANGE_MONTHS[range] === 1) return monthYearFormat.format(anchor);
+  return `${monthYearFormat.format(start)} – ${monthYearFormat.format(anchor)}`;
+}
+
+/** Whether anything predates the selected window, so "previous" can be disabled. */
+export function hasEarlierData(
+  transactions: Transaction[],
+  range: StatsRange,
+  offset: number,
+  now = new Date(),
+): boolean {
+  const start = rangeStart(range, statsAnchor(range, offset, now)).getTime();
+  return transactions.some((transaction) => (transaction.occurredAt ?? 0) < start);
+}
+
 function inRange(transactions: Transaction[], range: StatsRange, now = new Date()) {
   const start = rangeStart(range, now).getTime();
   return transactions.filter((t) => (t.occurredAt ?? 0) >= start && (t.occurredAt ?? 0) <= now.getTime());
@@ -34,29 +83,42 @@ export interface StatsScope {
   scopeTotal: number;
   scopePast: number;
   spentLabel: string;
+  periodLabel: string;
   averageLabel: string;
   transactions: Transaction[];
 }
 
-export function statsScope(range: StatsRange, transactions: Transaction[], now = new Date()): StatsScope {
-  const scoped = inRange(transactions, range, now);
+export function statsScope(
+  range: StatsRange,
+  transactions: Transaction[],
+  now = new Date(),
+  offset = 0,
+): StatsScope {
+  // Everything below is anchored here, so a past period shifts as one piece.
+  const anchor = statsAnchor(range, offset, now);
+  const scoped = inRange(transactions, range, anchor);
   const scopeTotal = scoped.reduce((sum, t) => sum + t.amount, 0);
   const oldestTimestamp = scoped.reduce<number | null>((oldest, transaction) => {
     const occurredAt = transaction.occurredAt ?? 0;
     return oldest === null || occurredAt < oldest ? occurredAt : oldest;
   }, null);
-  const days = oldestTimestamp === null ? 1 : inclusiveLocalDayCount(new Date(oldestTimestamp), now);
+  const days =
+    oldestTimestamp === null ? 1 : inclusiveLocalDayCount(new Date(oldestTimestamp), anchor);
+  const label = periodLabel(range, offset, now);
   const spentLabel =
-    range === "1W"
-      ? "Spent this week"
-      : range === "M"
-        ? "Spent this month"
-        : `Spent in the last ${RANGE_MONTHS[range]} months`;
+    offset !== 0
+      ? `Spent in ${label}`
+      : range === "1W"
+        ? "Spent this week"
+        : range === "M"
+          ? "Spent this month"
+          : `Spent in the last ${RANGE_MONTHS[range]} months`;
   return {
     rangeMonths: range === "1W" ? 0 : RANGE_MONTHS[range],
     scopeTotal,
     scopePast: 0,
     spentLabel,
+    periodLabel: label,
     averageLabel: `${money(scopeTotal / days)} avg per day`,
     transactions: scoped,
   };
@@ -112,6 +174,10 @@ const monthDayFormat = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
 });
 const monthFormat = new Intl.DateTimeFormat(undefined, { month: "short" });
+const monthYearFormat = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  year: "numeric",
+});
 
 export function dayBars(
   range: StatsRange,
@@ -180,10 +246,12 @@ export function trendBars(
   transactions: Transaction[],
   selectedKey: string | null,
   now = new Date(),
+  offset = 0,
 ): MonthBars {
+  const anchor = statsAnchor(range, offset, now);
   return isDayStatsRange(range)
-    ? dayBars(range, transactions, selectedKey, now)
-    : monthBars(range, transactions, selectedKey, now);
+    ? dayBars(range, transactions, selectedKey, anchor)
+    : monthBars(range, transactions, selectedKey, anchor);
 }
 
 export interface StatCategory {

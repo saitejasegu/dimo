@@ -4173,3 +4173,148 @@ final class AuthProviderKindTests: XCTestCase {
     XCTAssertEqual(AuthProviderKind.google.workOSProvider, "GoogleOAuth")
   }
 }
+
+final class StatsPeriodNavigationTests: XCTestCase {
+  private var calendar: Calendar {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    return cal
+  }
+
+  private func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 12) -> Date {
+    calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+  }
+
+  private func transaction(_ id: String, _ amount: Double, _ at: Date) -> Transaction {
+    Transaction(
+      id: id,
+      name: "Merchant",
+      category: "Dining",
+      time: "",
+      day: "",
+      amount: amount,
+      occurredAt: Int(at.timeIntervalSince1970 * 1000)
+    )
+  }
+
+  func testCurrentPeriodStaysAnchoredToNow() {
+    let now = date(2026, 7, 11)
+    XCTAssertEqual(StatsSelectors.statsAnchor(.threeMonths, offset: 0, now: now, calendar: calendar), now)
+    XCTAssertEqual(
+      StatsSelectors.rangeStart(.threeMonths, now: now, calendar: calendar),
+      date(2026, 5, 1, 0)
+    )
+  }
+
+  func testSteppingBackMovesAFullRangeAndStaysContiguous() {
+    let now = date(2026, 7, 11)
+    // The 3M window is 1 May - 11 Jul, so the previous one is 1 Feb - 30 Apr.
+    let anchor = StatsSelectors.statsAnchor(.threeMonths, offset: -1, now: now, calendar: calendar)
+    XCTAssertEqual(
+      StatsSelectors.rangeStart(.threeMonths, now: anchor, calendar: calendar),
+      date(2026, 2, 1, 0)
+    )
+    XCTAssertTrue(anchor < date(2026, 5, 1, 0))
+    XCTAssertTrue(anchor > date(2026, 4, 30, 0))
+
+    let older = StatsSelectors.statsAnchor(.threeMonths, offset: -2, now: now, calendar: calendar)
+    XCTAssertEqual(
+      StatsSelectors.rangeStart(.threeMonths, now: older, calendar: calendar),
+      date(2025, 11, 1, 0)
+    )
+  }
+
+  func testScopeAndBarsFollowThePreviousPeriod() {
+    let now = date(2026, 7, 11)
+    let rows = [
+      transaction("current", 100, date(2026, 7, 2)),
+      transaction("previous", 50, date(2026, 3, 4)),
+      transaction("older-still", 999, date(2025, 1, 1)),
+    ]
+
+    let current = StatsSelectors.statsScope(
+      range: .threeMonths, transactions: rows, now: now, calendar: calendar, offset: 0
+    )
+    XCTAssertEqual(current.scopeTotal, 100)
+
+    let previous = StatsSelectors.statsScope(
+      range: .threeMonths, transactions: rows, now: now, calendar: calendar, offset: -1
+    )
+    XCTAssertEqual(previous.scopeTotal, 50)
+
+    let bars = StatsSelectors.trendBars(
+      range: .threeMonths,
+      transactions: previous.transactions,
+      selectedKey: nil,
+      now: now,
+      calendar: calendar,
+      offset: -1
+    )
+    XCTAssertEqual(bars.bars.count, 3)
+    XCTAssertEqual(bars.bars.map(\.amount), [0, 50, 0])
+    XCTAssertEqual(bars.bars.map(\.key), ["2026-1", "2026-2", "2026-3"])
+  }
+
+  func testWeekStepsBackSevenDaysWithoutOverlap() {
+    let now = date(2026, 7, 11)
+    let anchor = StatsSelectors.statsAnchor(.oneWeek, offset: -1, now: now, calendar: calendar)
+    XCTAssertEqual(
+      StatsSelectors.rangeStart(.oneWeek, now: anchor, calendar: calendar),
+      date(2026, 6, 28, 0)
+    )
+    // The current week begins the day after the previous window ends.
+    XCTAssertEqual(
+      StatsSelectors.rangeStart(.oneWeek, now: now, calendar: calendar),
+      date(2026, 7, 5, 0)
+    )
+
+    let bars = StatsSelectors.trendBars(
+      range: .oneWeek, transactions: [], selectedKey: nil, now: now, calendar: calendar, offset: -1
+    )
+    XCTAssertEqual(bars.bars.count, 7)
+  }
+
+  func testPastPeriodsAreNotLabelledAsCurrent() {
+    let now = date(2026, 7, 11)
+    let current = StatsSelectors.statsScope(
+      range: .month, transactions: [], now: now, calendar: calendar, offset: 0
+    )
+    XCTAssertEqual(current.spentLabel, "Spent this month")
+    XCTAssertEqual(current.periodLabel, "This month")
+
+    let previous = StatsSelectors.statsScope(
+      range: .month, transactions: [], now: now, calendar: calendar, offset: -1
+    )
+    XCTAssertNotEqual(previous.spentLabel, "Spent this month")
+    XCTAssertEqual(previous.spentLabel, "Spent in \(previous.periodLabel)")
+    XCTAssertFalse(previous.periodLabel.isEmpty)
+  }
+
+  func testEarlierDataGatesThePreviousStep() {
+    let now = date(2026, 7, 11)
+    let onlyRecent = [transaction("only", 10, date(2026, 7, 2))]
+    XCTAssertFalse(
+      StatsSelectors.hasEarlierData(onlyRecent, range: .threeMonths, offset: 0, now: now, calendar: calendar)
+    )
+
+    let withHistory = onlyRecent + [transaction("old", 5, date(2025, 1, 1))]
+    XCTAssertTrue(
+      StatsSelectors.hasEarlierData(withHistory, range: .threeMonths, offset: 0, now: now, calendar: calendar)
+    )
+    // Offset -6 starts 1 Nov 2024, which predates the oldest row.
+    XCTAssertFalse(
+      StatsSelectors.hasEarlierData(withHistory, range: .threeMonths, offset: -6, now: now, calendar: calendar)
+    )
+  }
+
+  func testStatsInputsChangeWithPeriodOffset() {
+    let base = StatsInputs(
+      revision: 1, range: .threeMonths, periodOffset: 0,
+      selectedMonth: nil, categoriesExpanded: false, merchantsExpanded: false
+    )
+    var shifted = base
+    shifted.periodOffset = -1
+    // Without this the projection cache would never recompute on a period change.
+    XCTAssertNotEqual(base, shifted)
+  }
+}

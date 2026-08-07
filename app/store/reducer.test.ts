@@ -61,3 +61,24 @@ describe("legacy navigation", () => {
     expect(state.view).toBe("home");
   });
 });
+
+describe("stats period offset", () => {
+  it("snaps back to the current period when the range changes", () => {
+    let state = createInitialState();
+    expect(state.statsPeriodOffset).toBe(0);
+
+    state = reducer(state, { type: "SET_STATS_PERIOD_OFFSET", offset: -3 });
+    expect(state.statsPeriodOffset).toBe(-3);
+
+    state = reducer(state, { type: "SET_STATS_RANGE", range: "6M" });
+    expect(state.statsPeriodOffset).toBe(0);
+  });
+
+  it("never steps into the future", () => {
+    const state = reducer(createInitialState(), {
+      type: "SET_STATS_PERIOD_OFFSET",
+      offset: 2,
+    });
+    expect(state.statsPeriodOffset).toBe(0);
+  });
+});

@@ -1,10 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import { money } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useStats } from "@/features/stats/hooks";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { StatsRangeDropdown } from "@/components/common/StatsRangeDropdown";
+import { StatsPeriodNav } from "@/components/common/StatsPeriodNav";
+import {
+  StatsTransactionsList,
+  type StatsSelection,
+} from "@/components/common/StatsTransactionsList";
+import { Modal } from "@/components/ui/Modal";
 import { CategoryBar } from "@/components/common/CategoryBar";
 import { MonthBars } from "@/components/common/MonthBars";
 import { MerchantRow } from "@/components/common/MerchantRow";
@@ -13,9 +20,13 @@ import { WebScreen } from "@/components/web/WebScreen";
 export function StatsScreen() {
   const { currency } = useAppState();
   const actions = useAppActions();
+  const [selection, setSelection] = useState<StatsSelection | null>(null);
   const {
     range,
     scope,
+    offset,
+    periodLabel,
+    canGoBack,
     bars,
     categories,
     categoryCount,
@@ -37,6 +48,14 @@ export function StatsScreen() {
           onChangeDefaults={actions.manageStatsDefaults}
         />
       </div>
+
+      <StatsPeriodNav
+        offset={offset}
+        label={periodLabel}
+        canGoBack={canGoBack}
+        onChange={actions.setStatsPeriodOffset}
+        className="mb-[18px]"
+      />
 
       <div className="mb-[18px] grid grid-cols-[1fr_1.8fr] items-stretch gap-[18px]">
         <HeroCard className="flex flex-col justify-center p-6">
@@ -85,7 +104,7 @@ export function StatsScreen() {
                 value={c.relative}
                 tone={c.primary ? "green" : "soft"}
                 height={7}
-                onClick={() => actions.openCategory(c.category)}
+                onClick={() => setSelection({ kind: "category", name: c.category })}
               />
             ))}
           </div>
@@ -110,7 +129,7 @@ export function StatsScreen() {
                 key={m.name}
                 merchant={m}
                 currency={currency}
-                onClick={() => actions.openMerchant(m.name)}
+                onClick={() => setSelection({ kind: "merchant", name: m.name })}
                 barWidth={64}
               />
             ))}
@@ -120,6 +139,21 @@ export function StatsScreen() {
           </p>
         </Card>
       </div>
+
+      {selection ? (
+        <Modal onClose={() => setSelection(null)} title={selection.name} width={460}>
+          <StatsTransactionsList
+            selection={selection}
+            transactions={scope.transactions}
+            currency={currency}
+            periodLabel={periodLabel}
+            onOpenTransaction={(id) => {
+              setSelection(null);
+              actions.openDetail(id);
+            }}
+          />
+        </Modal>
+      ) : null}
     </WebScreen>
   );
 }

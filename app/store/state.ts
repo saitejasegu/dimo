@@ -83,6 +83,8 @@ export interface AppState {
 
   // ----- Stats controls -----
   statsRange: StatsRange;
+  /** 0 is the current period; -1 is one full range back. Never positive. */
+  statsPeriodOffset: number;
   selectedMonth: string | null;
   merchantsExpanded: boolean;
   categoriesExpanded: boolean;
@@ -165,6 +167,7 @@ export function createInitialState(
     paymentFilter: "All",
     query: "",
     statsRange: "1Y",
+    statsPeriodOffset: 0,
     selectedMonth: null,
     merchantsExpanded: false,
     categoriesExpanded: false,

@@ -95,6 +95,7 @@ export interface AppActions {
   setPaymentFilter: (paymentMethod: PaymentMethod | "All") => void;
   setQuery: (query: string) => void;
   setStatsRange: (range: StatsRange) => void; setSelectedMonth: (month: string) => void;
+  setStatsPeriodOffset: (offset: number) => void;
   toggleMerchants: () => void;
   toggleCategories: () => void;
   openMerchant: (name: string) => void;
@@ -228,6 +229,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       dispatch({ type: "SET_PAYMENT_FILTER", paymentMethod }),
     setQuery: (query) => dispatch({ type: "SET_QUERY", query }),
     setStatsRange: (range) => dispatch({ type: "SET_STATS_RANGE", range }), setSelectedMonth: (month) => dispatch({ type: "SET_SELECTED_MONTH", month }),
+    setStatsPeriodOffset: (offset) => dispatch({ type: "SET_STATS_PERIOD_OFFSET", offset }),
     toggleMerchants: () => dispatch({ type: "TOGGLE_MERCHANTS" }),
     toggleCategories: () => dispatch({ type: "TOGGLE_CATEGORIES" }),
     openMerchant: (name) => dispatch({ type: "OPEN_MERCHANT", name }),

@@ -193,6 +193,7 @@ struct StatsSnapshot: Equatable, Sendable {
       scopeTotal: 0,
       scopePast: 0,
       spentLabel: "",
+      periodLabel: "",
       averageLabel: "",
       transactions: []
     ),
@@ -208,6 +209,9 @@ struct StatsSnapshot: Equatable, Sendable {
 struct StatsInputs: Equatable, Sendable {
   var revision: UInt64
   var range: StatsRange
+  /// Load-bearing: without it `refreshStatsIfNeeded` short-circuits and paging
+  /// to another period would recompute nothing.
+  var periodOffset: Int
   var selectedMonth: String?
   var categoriesExpanded: Bool
   var merchantsExpanded: Bool
@@ -294,6 +298,7 @@ enum EntityHydrator {
   static func deriveStats(
     transactions: [Transaction],
     statsRange: StatsRange,
+    periodOffset: Int,
     selectedMonth: String?,
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
@@ -304,6 +309,7 @@ enum EntityHydrator {
           returning: buildStats(
             transactions: transactions,
             statsRange: statsRange,
+            periodOffset: periodOffset,
             selectedMonth: selectedMonth,
             categoriesExpanded: categoriesExpanded,
             merchantsExpanded: merchantsExpanded
@@ -316,15 +322,21 @@ enum EntityHydrator {
   static func buildStats(
     transactions: [Transaction],
     statsRange: StatsRange,
+    periodOffset: Int,
     selectedMonth: String?,
     categoriesExpanded: Bool,
     merchantsExpanded: Bool
   ) -> StatsSnapshot {
-    let scope = StatsSelectors.statsScope(range: statsRange, transactions: transactions)
+    let scope = StatsSelectors.statsScope(
+      range: statsRange,
+      transactions: transactions,
+      offset: periodOffset
+    )
     let trendBars = StatsSelectors.trendBars(
       range: statsRange,
       transactions: scope.transactions,
-      selectedKey: selectedMonth
+      selectedKey: selectedMonth,
+      offset: periodOffset
     )
     let cats = StatsSelectors.statCategories(
       scope: scope,

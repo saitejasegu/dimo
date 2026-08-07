@@ -108,6 +108,15 @@ final class AppStore {
       scheduleProjectionRefresh()
     }
   }
+  var statsPeriodOffset: Int {
+    get { nav.statsPeriodOffset }
+    set {
+      // Stepping to another period invalidates the highlighted bar.
+      nav.statsPeriodOffset = min(0, newValue)
+      nav.selectedMonth = nil
+      scheduleProjectionRefresh()
+    }
+  }
   var selectedMonth: String? {
     get { nav.selectedMonth }
     set {
@@ -1132,11 +1141,17 @@ final class AppStore {
       snapshot: snapshot,
       derived: derived,
       filter: nav.filter,
+      statsPeriodOffset: nav.statsPeriodOffset,
       selectedMonth: nav.selectedMonth,
       categoriesExpanded: nav.categoriesExpanded,
       merchantsExpanded: nav.merchantsExpanded
     )
-    nav.statsRange = snapshot.statsRange
+    if nav.statsRange != snapshot.statsRange {
+      // A pulled default reinterprets the offset's length, so snap to current.
+      nav.statsRange = snapshot.statsRange
+      nav.statsPeriodOffset = 0
+      nav.selectedMonth = nil
+    }
 
     let emailRelevant: Bool
     if let previousSnapshot {
@@ -1202,6 +1217,7 @@ final class AppStore {
     entities.refreshProjections(
       filter: nav.filter,
       statsRange: nav.statsRange,
+      statsPeriodOffset: nav.statsPeriodOffset,
       selectedMonth: nav.selectedMonth,
       categoriesExpanded: nav.categoriesExpanded,
       merchantsExpanded: nav.merchantsExpanded

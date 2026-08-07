@@ -30,6 +30,7 @@ export type Action =
   | { type: "SET_QUERY"; query: string }
   // stats
   | { type: "SET_STATS_RANGE"; range: StatsRange }
+  | { type: "SET_STATS_PERIOD_OFFSET"; offset: number }
   | { type: "SET_SELECTED_MONTH"; month: string }
   | { type: "TOGGLE_MERCHANTS" }
   | { type: "TOGGLE_CATEGORIES" }
