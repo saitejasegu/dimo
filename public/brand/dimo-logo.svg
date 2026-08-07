@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Dimo">
+  <!-- Full-bleed square (Google applies its own rounding on the consent screen). -->
+  <rect width="1024" height="1024" fill="#1f9d63"/>
+  <text
+    x="512"
+    y="545"
+    text-anchor="middle"
+    font-family="Arial Black, Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="268"
+    font-weight="900"
+    letter-spacing="-4"
+    fill="#f5f8f6"
+  >Dimo</text>
+  <!-- Unique ledger motif so the mark is not a plain word alone -->
+  <g fill="#f5f8f6">
+    <rect x="380" y="640" width="64" height="32" rx="8"/>
+    <rect x="464" y="616" width="64" height="56" rx="8"/>
+    <rect x="548" y="584" width="64" height="88" rx="8"/>
+  </g>
+</svg>

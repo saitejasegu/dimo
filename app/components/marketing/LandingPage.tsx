@@ -25,25 +25,16 @@ function GoogleMark() {
   );
 }
 
-/** Distinctive Dimo mark: green tile, white D with nested spend bars. */
+/** Same wordmark asset as store/oauth-logo.png — must match Google OAuth branding. */
 export function DimoMark({ className = "h-14 w-14" }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 64 64"
-      className={className}
-      role="img"
-      aria-label="Dimo"
-    >
-      <rect width="64" height="64" rx="16" fill="#1f9d63" />
-      <path
-        fill="#f5f8f6"
-        fillRule="evenodd"
-        d="M18 15h16.2c10.4 0 17.3 6.4 17.3 17S44.6 49 34.2 49H18V15Zm11.6 26.8c6 0 9.9-3.6 9.9-9.4s-3.9-9.4-9.9-9.4H24.2v18.8h5.4Z"
-      />
-      <rect x="27.2" y="28.2" width="10.5" height="2.4" rx="1.2" fill="#1f9d63" />
-      <rect x="27.2" y="32.6" width="7.5" height="2.4" rx="1.2" fill="#1f9d63" />
-      <rect x="27.2" y="37" width="4.5" height="2.4" rx="1.2" fill="#1f9d63" />
-    </svg>
+    <img
+      src="/brand/dimo-logo-512.png"
+      alt="Dimo"
+      width={56}
+      height={56}
+      className={`rounded-2xl ${className}`}
+    />
   );
 }
 

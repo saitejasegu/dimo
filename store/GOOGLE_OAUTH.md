@@ -25,14 +25,20 @@ The meta tag alone is not enough — Search Console must show **Verified**.
 5. In Google Cloud → OAuth consent screen → Branding, confirm
    `dimo-silk.vercel.app` is an authorized domain / homepage URL.
 
-### 3. Upload the new logo
-In Google Cloud → OAuth consent screen → Branding → App logo, upload:
+### 3. Re-upload the logo (required when Google flags the logo)
+In Google Cloud → OAuth consent screen → Branding → **App logo**, upload a
+**fresh** file:
 
 `store/oauth-logo.png`
 
-(This file spells **Dimo** on a green tile — not a plain letter D.)
+That file is a green square with the white wordmark **Dimo** and ledger bars.
+It matches the logo on `https://dimo-silk.vercel.app`.
 
-App name must stay exactly: **Dimo**
+Tips if Google still rejects the logo:
+- Upload the file again after redeploying the homepage (branding must match).
+- Use PNG, square, under 1MB (ours is 1024×1024).
+- App name must stay exactly **Dimo**.
+- Do not use a plain letter “D” or a Google-like mark.
 
 ### 4. Request re-verification
 In the issues dialog:
