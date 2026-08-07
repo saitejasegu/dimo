@@ -19,7 +19,17 @@ export default function PrivacyPage() {
       <div className="mx-auto max-w-2xl px-6 py-12">
       <p className="mb-2 text-sm text-muted">Dimo</p>
       <h1 className="mb-2 font-display text-3xl font-semibold">Privacy Policy</h1>
-      <p className="mb-10 text-sm text-muted">Last updated: August 7, 2026</p>
+      <p className="mb-2 text-sm text-muted">Last updated: August 7, 2026</p>
+      <p className="mb-10 text-sm text-muted">
+        Also see our{" "}
+        <a
+          className="font-medium text-green underline decoration-green/30 underline-offset-2"
+          href="/terms"
+        >
+          Terms of Service
+        </a>
+        .
+      </p>
 
       <div className="space-y-8 text-[15px] leading-relaxed text-body">
         <section className="space-y-2">

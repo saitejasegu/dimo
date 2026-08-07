@@ -44,12 +44,13 @@ Copy from `store/listing.json` into App Store Connect:
 |-------|--------|
 | Name / subtitle | `listing.json` |
 | Description / keywords | `listing.json` |
-| Privacy Policy URL | Host `/privacy` (see below), then paste URL |
+| Privacy Policy URL | `https://dimo-silk.vercel.app/privacy` |
+| Terms of Service URL | `https://dimo-silk.vercel.app/terms` (if Connect asks) |
 | App Privacy | Reflect WorkOS auth + Convex sync as applicable |
 | Icon | `store/AppIcon-1024.png` |
 | Screenshots | Capture on Simulator into `store/screenshots/` |
 
-**Privacy URL:** `https://dimo-silk.vercel.app/privacy` (paste into App Store Connect). Redeploy after privacy-page edits (`npm run build` → host `out/`).
+**Legal URLs:** privacy `https://dimo-silk.vercel.app/privacy`, terms `https://dimo-silk.vercel.app/terms`. Redeploy after edits (`npm run build` → host `out/`).
 
 ## 5. Submit for review
 
