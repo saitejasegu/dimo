@@ -30,11 +30,60 @@ Config comes from `ios-native/Config/*.xcconfig` (`ConvexURL`, `WorkOSClientID`)
 
 ## 3. TestFlight
 
-1. Product → Archive
-2. Organizer → Distribute App → App Store Connect → Upload
-3. In [App Store Connect](https://appstoreconnect.apple.com): create the app if needed (bundle ID must match)
-4. Open TestFlight → wait for processing → add internal testers
-5. Install via TestFlight and smoke-test: add expense, budgets, lending, account sync
+Every commit pushed to `main` is built, tested, signed, and uploaded by
+`.github/workflows/ios-testflight.yml`. It can also be run manually from GitHub
+Actions. Each workflow run gets a unique build number, including re-runs.
+
+### GitHub Actions signing setup (one-time)
+
+1. In App Store Connect, create the Dimo app record for bundle ID
+   `app.dimo.ios` if it does not already exist.
+2. In Apple Developer → Certificates, Identifiers & Profiles, create an
+   **Apple Distribution** certificate and an **App Store Connect** provisioning
+   profile for `app.dimo.ios` using that certificate.
+3. Import the certificate into Keychain Access. Under **My Certificates**, make
+   sure it has its private key, then export it as a password-protected `.p12`.
+4. In App Store Connect → Users and Access → Integrations → App Store
+   Connect API, create a **team API key** with the **App Manager** role. Download
+   the `AuthKey_*.p8` immediately; Apple only offers it once.
+5. Add these GitHub Actions variables in the repository's Settings → Secrets
+   and variables → Actions → Variables:
+
+   - `APPLE_TEAM_ID`: the 10-character Apple Developer team ID
+   - `APPSTORE_ISSUER_ID`: issuer ID shown beside the team API keys
+   - `APPSTORE_API_KEY_ID`: key ID for the downloaded `.p8`
+
+6. Add these GitHub Actions repository secrets:
+
+   - `APPSTORE_API_PRIVATE_KEY`: the complete text of `AuthKey_*.p8`
+   - `APPSTORE_CERTIFICATES_FILE_BASE64`: base64-encoded `.p12`
+   - `APPSTORE_CERTIFICATES_PASSWORD`: the `.p12` export password
+
+With GitHub CLI authenticated for this repository, steps 5–6 can be entered as:
+
+```bash
+gh variable set APPLE_TEAM_ID
+gh variable set APPSTORE_ISSUER_ID
+gh variable set APPSTORE_API_KEY_ID
+gh secret set APPSTORE_API_PRIVATE_KEY < /path/to/AuthKey_KEYID.p8
+base64 -i /path/to/ios_distribution.p12 | gh secret set APPSTORE_CERTIFICATES_FILE_BASE64
+gh secret set APPSTORE_CERTIFICATES_PASSWORD
+```
+
+Do not commit the `.p8`, `.p12`, or their passwords. After configuring the six
+values, run **iOS TestFlight** once with Actions → iOS TestFlight → Run
+workflow. A successful run waits until Apple finishes processing the upload.
+
+In App Store Connect → TestFlight, create an internal testing group, add the
+testers, and enable automatic distribution so each processed build becomes
+available without another CI step. Install via TestFlight and smoke-test: add
+expense, budgets, lending, and account sync.
+
+The workflow uploads builds to TestFlight; it does not submit every commit for
+public App Store review. App Store review requires a prepared store-version
+record and should be submitted only after choosing the TestFlight build to
+release. External TestFlight groups may also require an initial TestFlight App
+Review.
 
 ## 4. Store listing assets
 
