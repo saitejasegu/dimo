@@ -40,6 +40,7 @@ import app.dimo.android.data.model.ViewKey
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.design.FabButton
+import app.dimo.android.features.common.FabBottomPadding
 import app.dimo.android.design.ToastOverlay
 import app.dimo.android.features.budgets.BudgetsScreen
 import app.dimo.android.features.lending.LendingScreen
@@ -230,7 +231,7 @@ fun MainTabShell(
           modifier = Modifier
             .align(Alignment.BottomEnd)
             .navigationBarsPadding()
-            .padding(end = 22.dp, bottom = 16.dp),
+            .padding(end = 22.dp, bottom = FabBottomPadding),
         )
       }
     }

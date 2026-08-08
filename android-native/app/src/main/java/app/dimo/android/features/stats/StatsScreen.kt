@@ -45,6 +45,7 @@ import app.dimo.android.features.common.ScreenHeader
 import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.StatBarTrack
 import app.dimo.android.features.common.SyncErrorBanner
+import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.store.AppStore
 
 private const val COLLAPSED_LIMIT = 5
@@ -71,7 +72,7 @@ fun StatsScreen(
 
   LazyColumn(
     modifier = modifier.fillMaxWidth(),
-    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 120.dp),
+    contentPadding = PaddingValues(start = ScreenContentPadding, end = ScreenContentPadding, top = 12.dp, bottom = 110.dp),
     verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     item("header") {

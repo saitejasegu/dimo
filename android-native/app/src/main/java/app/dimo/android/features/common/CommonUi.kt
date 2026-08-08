@@ -19,15 +19,18 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DatePicker
@@ -54,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.Layout
@@ -68,6 +72,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.dimo.android.data.model.CategoryEntity
+import app.dimo.android.data.model.PaymentMethodOption
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.DateHelpers
@@ -76,6 +82,12 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/** Horizontal page gutter shared by tab screens — matches iOS `22`. */
+val ScreenContentPadding = 22.dp
+
+/** FAB clearance above the system tab bar — matches iOS overlay bottom `68`. */
+val FabBottomPadding = 68.dp
 
 /**
  * Shared building blocks for the Compose feature screens. These are the Android
@@ -136,8 +148,8 @@ fun HeroCard(
 @Composable
 fun HeroLabel(text: String, modifier: Modifier = Modifier) {
   Text(
-    text = text.uppercase(Locale.getDefault()),
-    style = DimoFont.body(11f, FontWeight.Medium).copy(letterSpacing = 0.9.sp),
+    text = text,
+    style = DimoFont.body(13f),
     color = DimoColors.sideMuted,
     modifier = modifier,
   )
@@ -147,7 +159,7 @@ fun HeroLabel(text: String, modifier: Modifier = Modifier) {
 fun HeroAmount(text: String, modifier: Modifier = Modifier, size: Float = 34f) {
   Text(
     text = text,
-    style = DimoFont.display(size, FontWeight.Bold),
+    style = DimoFont.display(size, FontWeight.SemiBold),
     color = DimoColors.sideText,
     modifier = modifier,
   )
@@ -168,8 +180,8 @@ fun HeroCaption(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
   Text(
-    text = text.uppercase(Locale.getDefault()),
-    style = DimoFont.body(11f, FontWeight.Medium).copy(letterSpacing = 0.9.sp),
+    text = text,
+    style = DimoFont.body(12f, FontWeight.Medium).copy(letterSpacing = 0.96.sp),
     color = DimoColors.muted,
     modifier = modifier,
   )
@@ -204,13 +216,13 @@ fun EmptyState(
   Column(
     modifier = modifier
       .fillMaxWidth()
-      .padding(vertical = 32.dp),
+      .padding(vertical = 46.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(6.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(
       text = title,
-      style = DimoFont.body(15f, FontWeight.Medium),
+      style = DimoFont.body(15f, FontWeight.SemiBold),
       color = DimoColors.ink,
       textAlign = TextAlign.Center,
     )
@@ -387,6 +399,10 @@ fun SettingsToggleRow(
 
 // MARK: - Controls
 
+/**
+ * Capsule dual/multi toggle matching iOS lending/frequency switchers
+ * (height 46, selected ink fill, unselected surface + stroke).
+ */
 @Composable
 fun <T> SegmentedControl(
   options: List<T>,
@@ -396,28 +412,37 @@ fun <T> SegmentedControl(
   modifier: Modifier = Modifier,
 ) {
   Row(
-    modifier = modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(12.dp))
-      .background(DimoColors.canvasDeep)
-      .padding(3.dp),
-    horizontalArrangement = Arrangement.spacedBy(3.dp),
+    modifier = modifier.fillMaxWidth(),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     options.forEach { option ->
       val isSelected = option == selected
-      Text(
-        text = label(option),
-        style = DimoFont.body(13f, if (isSelected) FontWeight.SemiBold else FontWeight.Medium),
-        color = if (isSelected) DimoColors.ink else DimoColors.muted,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
+      Box(
         modifier = Modifier
           .weight(1f)
-          .clip(RoundedCornerShape(10.dp))
-          .background(if (isSelected) DimoColors.surface else Color.Transparent)
+          .height(46.dp)
+          .clip(RoundedCornerShape(50))
+          .background(if (isSelected) DimoColors.ink else DimoColors.surface)
+          .then(
+            if (isSelected) {
+              Modifier
+            } else {
+              Modifier.border(1.dp, DimoColors.line, RoundedCornerShape(50))
+            },
+          )
           .clickable { onSelect(option) }
-          .padding(vertical = 9.dp),
-      )
+          .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+      ) {
+        Text(
+          text = label(option),
+          style = DimoFont.body(15f, FontWeight.SemiBold),
+          color = if (isSelected) DimoColors.canvas else DimoColors.muted,
+          textAlign = TextAlign.Center,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
   }
 }
@@ -431,14 +456,14 @@ fun PrimaryButton(
 ) {
   Text(
     text = title,
-    style = DimoFont.display(16f, FontWeight.SemiBold),
+    style = DimoFont.body(16f, FontWeight.SemiBold),
     color = if (enabled) DimoColors.onGreen else DimoColors.muted,
     textAlign = TextAlign.Center,
     modifier = modifier
       .fillMaxWidth()
-      .height(52.dp)
+      .height(54.dp)
       .clip(RoundedCornerShape(14.dp))
-      .background(if (enabled) DimoColors.green else DimoColors.canvasDeep)
+      .background(if (enabled) DimoColors.green else DimoColors.disabled)
       .clickable(enabled = enabled, onClick = onClick)
       .padding(vertical = 15.dp),
   )
@@ -506,7 +531,7 @@ fun ScreenHeader(
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
         text = title,
-        style = DimoFont.display(22f, FontWeight.Bold),
+        style = DimoFont.display(24f, FontWeight.SemiBold),
         color = DimoColors.ink,
       )
       if (subtitle != null) {
@@ -787,7 +812,7 @@ fun SheetHeader(
     modifier = modifier
       .fillMaxWidth()
       .padding(horizontal = 20.dp)
-      .padding(bottom = 6.dp),
+      .padding(top = 22.dp, bottom = 10.dp),
     contentAlignment = Alignment.Center,
   ) {
     Text(
@@ -800,6 +825,394 @@ fun SheetHeader(
       DangerIconButton(
         onClick = onDelete,
         modifier = Modifier.align(Alignment.CenterEnd),
+      )
+    }
+  }
+}
+
+// MARK: - Category / filter dropdowns (iOS CategoryDropdown + Filter*Dropdown)
+
+/**
+ * Searchable category flyout used by Add Expense and Recurring — port of iOS
+ * `CategoryDropdown` in `Features/AddExpense/Sheets.swift`.
+ */
+@Composable
+fun CategoryDropdown(
+  categories: List<CategoryEntity>,
+  selected: String,
+  onSelect: (String) -> Unit,
+  onAdd: () -> Unit,
+  modifier: Modifier = Modifier,
+  label: String = "Category",
+) {
+  var isOpen by remember { mutableStateOf(false) }
+  var query by remember { mutableStateOf("") }
+  val selectedCategory = categories.firstOrNull { it.name == selected }
+  val filtered = remember(categories, query) {
+    val search = query.trim()
+    val sorted = categories.sortedBy { it.sortOrder }
+    if (search.isEmpty()) sorted
+    else sorted.filter { it.name.contains(search, ignoreCase = true) }
+  }
+  val triggerLabel = when {
+    selected.isEmpty() -> "Select category"
+    selectedCategory != null -> "${selectedCategory.emoji} ${selectedCategory.name}"
+    else -> selected
+  }
+
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    if (label.isNotEmpty()) FieldLabel(label)
+    DropdownTrigger(
+      label = triggerLabel,
+      isOpen = isOpen,
+      placeholder = selected.isEmpty(),
+      onClick = {
+        query = ""
+        isOpen = !isOpen
+      },
+    )
+    if (isOpen) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .shadow(18.dp, RoundedCornerShape(12.dp), ambientColor = Color.Black.copy(alpha = 0.14f))
+          .cardSurface(12.dp, DimoColors.popup)
+          .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        SearchField(
+          value = query,
+          onValueChange = { query = it },
+          placeholder = "Search categories",
+          height = 44.dp,
+        )
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 210.dp)
+            .verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+          if (filtered.isEmpty()) {
+            Text(
+              text = "No categories found",
+              style = DimoFont.body(13f),
+              color = DimoColors.faint,
+              textAlign = TextAlign.Center,
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            )
+          } else {
+            filtered.forEach { category ->
+              val isSelected = category.name == selected
+              DropdownOptionRow(
+                label = "${category.emoji} ${category.name}",
+                selected = isSelected,
+                height = 42.dp,
+                onClick = {
+                  onSelect(category.name)
+                  isOpen = false
+                },
+              )
+            }
+          }
+        }
+        DimoDivider()
+        Text(
+          text = "+ Add category",
+          style = DimoFont.body(14f, FontWeight.Medium),
+          color = DimoColors.green,
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .clickable {
+              isOpen = false
+              onAdd()
+            }
+            .padding(horizontal = 12.dp)
+            .padding(vertical = 8.dp),
+        )
+      }
+    }
+  }
+}
+
+/** Multi-select searchable category filter — port of iOS `FilterCategoryDropdown`. */
+@Composable
+fun FilterCategoryDropdown(
+  categories: List<CategoryEntity>,
+  selected: Set<String>,
+  onChange: (Set<String>) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  var isOpen by remember { mutableStateOf(false) }
+  var query by remember { mutableStateOf("") }
+  val filtered = remember(categories, query) {
+    val search = query.trim()
+    if (search.isEmpty()) categories
+    else categories.filter { it.name.contains(search, ignoreCase = true) }
+  }
+  val triggerLabel = when {
+    selected.isEmpty() -> "All categories"
+    selected.size == 1 -> {
+      val name = selected.first()
+      val emoji = categories.firstOrNull { it.name == name }?.emoji
+      listOfNotNull(emoji, name).joinToString(" ")
+    }
+    else -> "${selected.size} categories"
+  }
+
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DropdownTrigger(
+      label = triggerLabel,
+      isOpen = isOpen,
+      onClick = {
+        query = ""
+        isOpen = !isOpen
+      },
+    )
+    if (isOpen) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .shadow(18.dp, RoundedCornerShape(12.dp), ambientColor = Color.Black.copy(alpha = 0.14f))
+          .cardSurface(12.dp, DimoColors.popup)
+          .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        SearchField(
+          value = query,
+          onValueChange = { query = it },
+          placeholder = "Search categories",
+          height = 42.dp,
+        )
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 160.dp)
+            .verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+          filtered.forEach { category ->
+            val checked = selected.contains(category.name)
+            DropdownOptionRow(
+              label = "${category.emoji} ${category.name}",
+              selected = checked,
+              height = 40.dp,
+              onClick = {
+                onChange(
+                  if (checked) selected - category.name else selected + category.name,
+                )
+              },
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+/** Single-select payment method filter — port of iOS `FilterPaymentDropdown`. */
+@Composable
+fun FilterPaymentDropdown(
+  methods: List<PaymentMethodOption>,
+  selection: String,
+  onSelect: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  var isOpen by remember { mutableStateOf(false) }
+  val selectedMethod = methods.firstOrNull { it.label == selection }
+  val triggerLabel = when {
+    selection == "All" || selection.isEmpty() -> "All payment methods"
+    selectedMethod != null -> selectedMethod.label
+    else -> selection
+  }
+
+  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    DropdownTrigger(
+      label = triggerLabel,
+      isOpen = isOpen,
+      onClick = { isOpen = !isOpen },
+    )
+    if (isOpen) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .shadow(18.dp, RoundedCornerShape(12.dp), ambientColor = Color.Black.copy(alpha = 0.14f))
+          .cardSurface(12.dp, DimoColors.popup)
+          .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        DropdownOptionRow(
+          label = "All payment methods",
+          selected = selection == "All" || selection.isEmpty(),
+          height = 42.dp,
+          onClick = {
+            onSelect("All")
+            isOpen = false
+          },
+        )
+        methods.forEach { method ->
+          val detail = listOf(method.type.wire, method.detail)
+            .filter { it.isNotEmpty() }
+            .joinToString(" · ")
+          val checked = selection == method.label
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .height(if (detail.isEmpty()) 42.dp else 54.dp)
+              .clip(RoundedCornerShape(8.dp))
+              .background(if (checked) DimoColors.greenSoft else Color.Transparent)
+              .clickable {
+                onSelect(method.label)
+                isOpen = false
+              }
+              .padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.Center,
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                  text = method.name,
+                  style = DimoFont.body(14f, if (checked) FontWeight.SemiBold else FontWeight.Normal),
+                  color = if (checked) DimoColors.greenDeep else DimoColors.ink,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+                if (detail.isNotEmpty()) {
+                  Text(text = detail, style = DimoFont.body(12f), color = DimoColors.muted)
+                }
+              }
+              if (checked) {
+                Icon(
+                  imageVector = Icons.Filled.Check,
+                  contentDescription = null,
+                  tint = DimoColors.green,
+                  modifier = Modifier.size(16.dp),
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun DropdownTrigger(
+  label: String,
+  isOpen: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  placeholder: Boolean = false,
+) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .height(50.dp)
+      .cardSurface(12.dp, DimoColors.canvas, if (isOpen) DimoColors.green else DimoColors.line)
+      .clickable(onClick = onClick)
+      .padding(horizontal = 14.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = label,
+      style = DimoFont.body(15f, FontWeight.SemiBold),
+      color = if (placeholder) DimoColors.muted else DimoColors.ink,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
+    Icon(
+      imageVector = Icons.Filled.KeyboardArrowDown,
+      contentDescription = null,
+      tint = DimoColors.muted,
+      modifier = Modifier
+        .size(18.dp)
+        .rotate(if (isOpen) 180f else 0f),
+    )
+  }
+}
+
+@Composable
+private fun SearchField(
+  value: String,
+  onValueChange: (String) -> Unit,
+  placeholder: String,
+  height: Dp,
+  modifier: Modifier = Modifier,
+) {
+  BasicTextField(
+    value = value,
+    onValueChange = onValueChange,
+    singleLine = true,
+    textStyle = DimoFont.body(16f).copy(color = DimoColors.ink),
+    cursorBrush = SolidColor(DimoColors.green),
+    modifier = modifier
+      .fillMaxWidth()
+      .height(height)
+      .cardSurface(10.dp, DimoColors.surface)
+      .padding(horizontal = 12.dp),
+    decorationBox = { inner ->
+      Row(
+        modifier = Modifier.fillMaxWidth().height(height),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Icon(
+          imageVector = Icons.Filled.Search,
+          contentDescription = null,
+          tint = DimoColors.faint,
+          modifier = Modifier.size(16.dp),
+        )
+        Box(modifier = Modifier.weight(1f)) {
+          if (value.isEmpty()) {
+            Text(text = placeholder, style = DimoFont.body(16f), color = DimoColors.faint)
+          }
+          inner()
+        }
+      }
+    },
+  )
+}
+
+@Composable
+private fun DropdownOptionRow(
+  label: String,
+  selected: Boolean,
+  height: Dp,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .height(height)
+      .clip(RoundedCornerShape(9.dp))
+      .background(if (selected) DimoColors.greenSoft else Color.Transparent)
+      .clickable(onClick = onClick)
+      .padding(horizontal = 12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = label,
+      style = DimoFont.body(14f, if (selected) FontWeight.SemiBold else FontWeight.Normal),
+      color = if (selected) DimoColors.greenDeep else DimoColors.ink,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
+    if (selected) {
+      Icon(
+        imageVector = Icons.Filled.Check,
+        contentDescription = null,
+        tint = DimoColors.green,
+        modifier = Modifier.size(16.dp),
       )
     }
   }

@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.Recurring
 import app.dimo.android.data.model.Transaction
 import app.dimo.android.design.AvatarView
-import app.dimo.android.design.Chip
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.design.StatusBadge
@@ -64,14 +63,20 @@ import app.dimo.android.features.common.HeroCaption
 import app.dimo.android.features.common.HeroCard
 import app.dimo.android.features.common.HeroLabel
 import app.dimo.android.features.common.OptionalDateField
+import app.dimo.android.features.common.FilterCategoryDropdown
+import app.dimo.android.features.common.FilterPaymentDropdown
 import app.dimo.android.features.common.PrimaryButton
+import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SectionTitle
+import app.dimo.android.features.common.SettingsToggleRow
 import app.dimo.android.features.common.SheetHeader
 import app.dimo.android.features.common.SyncErrorBanner
-import app.dimo.android.features.common.WrapRow
 import app.dimo.android.features.common.cardSurface
 import app.dimo.android.store.AppStore
+import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
  * Home / Activity. Port of `ios-native/Dimo/Features/Home/HomeScreen.swift`:
@@ -106,10 +111,10 @@ fun HomeScreen(
     LazyColumn(
       modifier = Modifier.fillMaxWidth(),
       contentPadding = PaddingValues(
-        start = 18.dp,
-        end = 18.dp,
-        top = 8.dp,
-        bottom = 120.dp,
+        start = ScreenContentPadding,
+        end = ScreenContentPadding,
+        top = 12.dp,
+        bottom = 110.dp,
       ),
       verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -127,7 +132,11 @@ fun HomeScreen(
 
       item("hero") {
         HeroCard {
-          HeroLabel("Spent this month")
+          HeroLabel(
+            "Spent in ${
+              LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+            }",
+          )
           HeroAmount(Formatting.money(totals.totalSpent, store.currency))
           HeroCaption(
             if (totals.totalLimit > 0) {
@@ -272,7 +281,7 @@ fun HomeScreen(
         modifier = Modifier
           .align(Alignment.BottomCenter)
           .navigationBarsPadding()
-          .padding(horizontal = 18.dp, vertical = 14.dp),
+          .padding(horizontal = ScreenContentPadding, vertical = 14.dp),
       )
     }
   }
@@ -316,7 +325,7 @@ private fun HomeHeader(
       )
       Text(
         text = store.profileName.ifEmpty { "Dimo" },
-        style = DimoFont.display(24f, FontWeight.Bold),
+        style = DimoFont.display(22f, FontWeight.SemiBold),
         color = DimoColors.ink,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -450,7 +459,7 @@ private fun TransactionRow(
         borderColor = if (selected) DimoColors.green else DimoColors.line,
       )
       .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-      .padding(horizontal = 14.dp, vertical = 12.dp),
+      .padding(horizontal = 12.dp, vertical = 11.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
@@ -547,101 +556,117 @@ private fun FilterSheet(
   onClose: () -> Unit,
 ) {
   val filter = store.filter
-  val categories = TransactionSelectors.categoryNames(store.limits)
-  val paymentOptions = listOf("All") + TransactionSelectors.paymentMethodFilterOptions(store.transactions)
+  var dateFilterEnabled by remember(filter.startDate, filter.endDate) {
+    mutableStateOf(filter.startDate != null || filter.endDate != null)
+  }
+  val matchCount = remember(filter, store.transactions) {
+    TransactionSelectors.filterTransactions(store.transactions, filter).size
+  }
 
   DimoBottomSheet(onDismiss = onClose) {
-    SheetHeader(title = "Filters")
+    SheetHeader(title = "Filter transactions")
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 20.dp)
-        .padding(bottom = 24.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+        .padding(horizontal = 22.dp)
+        .padding(bottom = 22.dp),
+      verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-      DimoTextField(
-        value = filter.query,
-        onValueChange = { store.filter = filter.copy(query = it) },
-        placeholder = "Search merchant or category",
-        imeAction = ImeAction.Search,
-        leading = {
-          Icon(
-            imageVector = Icons.Filled.Search,
-            contentDescription = null,
-            tint = DimoColors.muted,
-            modifier = Modifier.size(18.dp),
-          )
-        },
-      )
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel("Search")
+        DimoTextField(
+          value = filter.query,
+          onValueChange = { store.filter = filter.copy(query = it) },
+          placeholder = "Search merchant or category",
+          imeAction = ImeAction.Search,
+          textStyle = DimoFont.body(16f),
+          leading = {
+            Icon(
+              imageVector = Icons.Filled.Search,
+              contentDescription = null,
+              tint = DimoColors.faint,
+              modifier = Modifier.size(17.dp),
+            )
+          },
+        )
+      }
 
-      if (categories.isNotEmpty()) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsToggleRow(
+          label = "Date range",
+          checked = dateFilterEnabled,
+          onCheckedChange = { enabled ->
+            dateFilterEnabled = enabled
+            if (!enabled) {
+              store.filter = store.filter.copy(startDate = null, endDate = null)
+            }
+          },
+        )
+        if (dateFilterEnabled) {
+          Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OptionalDateField(
+              label = "From",
+              date = filter.startDate,
+              onChange = { store.filter = store.filter.copy(startDate = it) },
+              modifier = Modifier.weight(1f),
+            )
+            OptionalDateField(
+              label = "To",
+              date = filter.endDate,
+              onChange = { store.filter = store.filter.copy(endDate = it) },
+              modifier = Modifier.weight(1f),
+            )
+          }
+        }
+      }
+
+      if (store.categories.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
           SectionLabel("Categories")
-          WrapRow {
-            categories.forEach { category ->
-              val selected = filter.categories.contains(category)
-              Chip(
-                label = category,
-                selected = selected,
-                onClick = {
-                  store.filter = filter.copy(
-                    categories = if (selected) {
-                      filter.categories - category
-                    } else {
-                      filter.categories + category
-                    },
-                  )
-                },
-              )
-            }
-          }
+          FilterCategoryDropdown(
+            categories = store.categories,
+            selected = filter.categories.toSet(),
+            onChange = { store.filter = filter.copy(categories = it.toList()) },
+          )
         }
       }
 
-      if (paymentOptions.size > 1) {
+      if (store.paymentMethods.any { !it.archived }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          SectionLabel("Paid with")
-          WrapRow {
-            paymentOptions.forEach { option ->
-              Chip(
-                label = option,
-                selected = filter.paymentMethod == option,
-                onClick = { store.filter = filter.copy(paymentMethod = option) },
-              )
-            }
-          }
+          SectionLabel("Payment methods")
+          FilterPaymentDropdown(
+            methods = store.paymentMethods.filter { !it.archived },
+            selection = filter.paymentMethod,
+            onSelect = { store.filter = filter.copy(paymentMethod = it) },
+          )
         }
       }
 
-      Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OptionalDateField(
-          label = "From",
-          date = filter.startDate,
-          onChange = { store.filter = store.filter.copy(startDate = it) },
-          modifier = Modifier.weight(1f),
-        )
-        OptionalDateField(
-          label = "To",
-          date = filter.endDate,
-          onChange = { store.filter = store.filter.copy(endDate = it) },
-          modifier = Modifier.weight(1f),
-        )
-      }
+      Text(
+        text = "$matchCount transaction${if (matchCount == 1) "" else "s"} match",
+        style = DimoFont.body(13f),
+        color = DimoColors.muted,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+      )
 
       Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-          text = "Reset",
+          text = "Clear",
           style = DimoFont.body(15f, FontWeight.SemiBold),
           color = DimoColors.ink,
           modifier = Modifier
             .weight(1f)
             .cardSurface(14.dp, DimoColors.canvas)
-            .clickable { store.filter = TransactionFilter() }
+            .clickable {
+              store.filter = TransactionFilter()
+              dateFilterEnabled = false
+            }
             .padding(vertical = 15.dp),
           textAlign = TextAlign.Center,
         )
         Box(modifier = Modifier.weight(1f)) {
-          PrimaryButton(title = "Done", onClick = onClose)
+          PrimaryButton(title = "Apply", onClick = onClose)
         }
       }
       Spacer(modifier = Modifier.height(4.dp))

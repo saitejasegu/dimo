@@ -1,11 +1,15 @@
 package app.dimo.android.features.settings
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,7 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,9 +57,12 @@ import app.dimo.android.features.common.SectionTitle
 import app.dimo.android.features.common.SettingsToggleRow
 import app.dimo.android.features.common.SyncErrorBanner
 import app.dimo.android.features.common.cardSurface
+import app.dimo.android.notifications.ExpenseReminderAuthorization
+import app.dimo.android.notifications.ExpenseReminderScheduler
 import app.dimo.android.store.AppStore
-import kotlinx.coroutines.launch
 import java.io.File
+import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * Preferences, reminders, payment methods and transaction data. Port of
@@ -167,15 +179,7 @@ fun SettingsScreen(
     }
 
     item {
-      DimoCard(verticalSpacing = 6.dp) {
-        SectionTitle("Reminders")
-        Text(
-          text = "Notification preferences sync across your devices.",
-          style = DimoFont.body(12f),
-          color = DimoColors.muted,
-        )
-        NotificationToggles(store = store)
-      }
+      RemindersCard(store = store)
     }
 
     item { PaymentMethodsCard(store = store) }
@@ -232,6 +236,153 @@ fun SettingsScreen(
   }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RemindersCard(store: AppStore) {
+  val context = LocalContext.current
+  var showTimePicker by remember { mutableStateOf(false) }
+  val reminder = store.expenseReminder
+
+  val permissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestPermission(),
+  ) { granted ->
+    store.refreshExpenseReminderAuthorization()
+    if (granted) {
+      store.updateExpenseReminder { it.copy(enabled = true) }
+    } else {
+      store.updateExpenseReminder { it.copy(enabled = false) }
+    }
+  }
+
+  fun setReminderEnabled(enabled: Boolean) {
+    if (!enabled) {
+      store.updateExpenseReminder { it.copy(enabled = false) }
+      return
+    }
+    store.refreshExpenseReminderAuthorization()
+    when (store.expenseReminderAuthorization) {
+      ExpenseReminderAuthorization.Authorized ->
+        store.updateExpenseReminder { it.copy(enabled = true) }
+      ExpenseReminderAuthorization.NotDetermined -> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+          !ExpenseReminderScheduler.hasRuntimePermission(context)
+        ) {
+          permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+          store.updateExpenseReminder { it.copy(enabled = true) }
+        }
+      }
+      ExpenseReminderAuthorization.Denied ->
+        store.updateExpenseReminder { it.copy(enabled = true) }
+    }
+  }
+
+  DimoCard(verticalSpacing = 6.dp) {
+    SectionTitle("Reminders")
+
+    SettingsToggleRow(
+      label = "Daily expense reminder",
+      caption = "Remind me to log expenses each day.",
+      checked = reminder.enabled,
+      onCheckedChange = { setReminderEnabled(it) },
+    )
+
+    if (reminder.enabled) {
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable { showTimePicker = true }
+          .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        Text(
+          text = "Reminder time",
+          style = DimoFont.body(15f, FontWeight.Medium),
+          color = DimoColors.ink,
+          modifier = Modifier.weight(1f),
+        )
+        Text(
+          text = formatReminderTime(reminder.hour, reminder.minute),
+          style = DimoFont.body(15f, FontWeight.Medium),
+          color = DimoColors.green,
+        )
+      }
+
+      if (store.expenseReminderAuthorization == ExpenseReminderAuthorization.Denied) {
+        Text(
+          text = "Notifications are off. Open Settings to allow reminders.",
+          style = DimoFont.body(12f, FontWeight.Medium),
+          color = DimoColors.warn,
+          modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+              context.startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                  putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                },
+              )
+            }
+            .padding(vertical = 6.dp),
+        )
+      }
+    }
+
+    DimoDivider(modifier = Modifier.padding(vertical = 8.dp))
+    Text(
+      text = "These preferences sync across your devices. Delivery is not scheduled yet.",
+      style = DimoFont.body(12f),
+      color = DimoColors.muted,
+    )
+    NotificationToggles(store = store)
+  }
+
+  if (showTimePicker) {
+    val timeState = rememberTimePickerState(
+      initialHour = reminder.hour,
+      initialMinute = reminder.minute,
+      is24Hour = false,
+    )
+    AlertDialog(
+      onDismissRequest = { showTimePicker = false },
+      containerColor = DimoColors.surface,
+      title = {
+        Text(
+          text = "Reminder time",
+          style = DimoFont.display(18f, FontWeight.SemiBold),
+          color = DimoColors.ink,
+        )
+      },
+      text = {
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+          TimePicker(state = timeState)
+        }
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showTimePicker = false
+            store.updateExpenseReminder {
+              it.copy(hour = timeState.hour, minute = timeState.minute)
+            }
+          },
+        ) {
+          Text(
+            text = "Done",
+            style = DimoFont.body(15f, FontWeight.SemiBold),
+            color = DimoColors.green,
+          )
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showTimePicker = false }) {
+          Text(text = "Cancel", style = DimoFont.body(15f), color = DimoColors.muted)
+        }
+      },
+    )
+  }
+}
+
 @Composable
 private fun NotificationToggles(store: AppStore) {
   val settings = store.notifications
@@ -264,6 +415,16 @@ private fun NotificationToggles(store: AppStore) {
     checked = settings.large,
     onCheckedChange = { next -> update { it.copy(large = next) } },
   )
+}
+
+private fun formatReminderTime(hour: Int, minute: Int): String {
+  val h12 = when {
+    hour == 0 -> 12
+    hour > 12 -> hour - 12
+    else -> hour
+  }
+  val amPm = if (hour < 12) "AM" else "PM"
+  return String.format(Locale.US, "%d:%02d %s", h12, minute, amPm)
 }
 
 @Composable

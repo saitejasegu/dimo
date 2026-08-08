@@ -21,7 +21,7 @@ enum class SessionPhase {
 
 /**
  * Port of `ios-native/Dimo/Auth/SessionController.swift` without Gmail /
- * OpenRouter / ExpenseReminder vault cleanup (those surfaces are not on Android).
+ * OpenRouter cleanup (those surfaces are not on Android).
  */
 class SessionController(context: Context) {
   private val appContext = context.applicationContext

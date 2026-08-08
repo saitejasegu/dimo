@@ -35,6 +35,7 @@ import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.LendContactSummary
+import app.dimo.android.domain.LendDirection
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.features.common.ContactAvatar
 import app.dimo.android.features.common.DimoCard
@@ -48,10 +49,12 @@ import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.features.common.SyncErrorBanner
 import app.dimo.android.features.common.cardSurface
+import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.store.AppStore
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
 private enum class LendingSection(val title: String) {
   Summary("Summary"),
   Transactions("Transactions"),
@@ -70,11 +73,11 @@ fun LendingScreen(
 ) {
   var section by remember { mutableStateOf(LendingSection.Summary) }
   val summaries = LendSelectors.contactSummaries(store.lends)
-  val outstanding = LendSelectors.totalLent(store.lends)
+  val totals = LendSelectors.totals(summaries)
 
   LazyColumn(
     modifier = modifier.fillMaxWidth(),
-    contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 120.dp),
+    contentPadding = PaddingValues(start = ScreenContentPadding, end = ScreenContentPadding, top = 12.dp, bottom = 110.dp),
     verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     item("header") {
@@ -87,13 +90,27 @@ fun LendingScreen(
 
     item("hero") {
       HeroCard {
-        HeroLabel("Outstanding")
-        HeroAmount(Formatting.money(outstanding, store.currency))
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HeroLabel("Owed to me")
+            HeroAmount(Formatting.money(totals.owedToMe, store.currency), size = 26f)
+          }
+          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HeroLabel("I owe")
+            HeroAmount(Formatting.money(totals.iOwe, store.currency), size = 26f)
+          }
+        }
         HeroCaption(
           when {
-            summaries.isEmpty() -> "Everyone is settled up"
-            summaries.size == 1 -> "1 person owes you"
-            else -> "${summaries.size} people owe you"
+            store.lends.isEmpty() -> "Nothing recorded yet"
+            else -> {
+              val contactWord = if (summaries.size == 1) "contact" else "contacts"
+              val entryWord = if (store.lends.size == 1) "entry" else "entries"
+              "${summaries.size} $contactWord · ${store.lends.size} $entryWord"
+            }
           },
         )
       }
@@ -110,12 +127,21 @@ fun LendingScreen(
 
     when (section) {
       LendingSection.Summary -> {
-        if (summaries.isEmpty()) {
+        if (store.lends.isEmpty()) {
           item("summary-empty") {
             DimoCard {
               EmptyState(
-                title = "Nothing outstanding",
-                message = "Tap + to record money you lent someone.",
+                title = "Nothing recorded yet",
+                message = "Tap + to record money you lend or borrow.",
+              )
+            }
+          }
+        } else if (summaries.isEmpty()) {
+          item("summary-settled") {
+            DimoCard {
+              EmptyState(
+                title = "All settled",
+                message = "Nothing outstanding either way.",
               )
             }
           }
@@ -167,6 +193,11 @@ private fun ContactSummaryRow(
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
+  val owedToMe = summary.direction == LendDirection.OWED_TO_ME
+  val directionLabel = if (owedToMe) "Owes you" else "You owe"
+  val entryWord = if (summary.count == 1) "entry" else "entries"
+  val lastDay = DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercase(Locale.getDefault())
+
   Row(
     modifier = modifier
       .fillMaxWidth()
@@ -177,9 +208,10 @@ private fun ContactSummaryRow(
       modifier = Modifier
         .weight(1f)
         .clickable {
-          store.openAddRepayment(
+          store.openAddSettlement(
             contactName = summary.contactName,
             contactId = summary.contactId,
+            direction = summary.direction,
           )
         }
         .padding(start = 14.dp, top = 12.dp, bottom = 12.dp),
@@ -196,15 +228,17 @@ private fun ContactSummaryRow(
           overflow = TextOverflow.Ellipsis,
         )
         Text(
-          text = if (summary.count == 1) "1 entry" else "${summary.count} entries",
+          text = "$directionLabel · ${summary.count} $entryWord · last $lastDay",
           style = DimoFont.body(12f),
           color = DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
       }
       Text(
-        text = Formatting.money(summary.total, store.currency),
+        text = Formatting.money(summary.magnitude, store.currency),
         style = DimoFont.display(15f, FontWeight.SemiBold),
-        color = DimoColors.ink,
+        color = if (owedToMe) DimoColors.ink else DimoColors.danger,
       )
     }
     Box(
@@ -236,13 +270,18 @@ private fun LendRow(
   lend: Lend,
   modifier: Modifier = Modifier,
 ) {
-  val repaid = lend.kind == LendKind.REPAID
+  val detailBase = lend.comment.ifEmpty { fallbackDetail(lend.kind).orEmpty() }
+  val detail = listOfNotNull(
+    detailBase.takeIf { it.isNotEmpty() },
+    lend.time.takeIf { it.isNotEmpty() },
+  ).joinToString(" · ")
+
   Row(
     modifier = modifier
       .fillMaxWidth()
       .cardSurface(14.dp)
       .clickable { store.openEditLend(lend.id) }
-      .padding(horizontal = 14.dp, vertical = 12.dp),
+      .padding(horizontal = 12.dp, vertical = 11.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
@@ -255,23 +294,30 @@ private fun LendRow(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
-      Text(
-        text = listOfNotNull(
-          lend.comment.ifEmpty { if (repaid) "Got back" else "" }.takeIf { it.isNotEmpty() },
-          lend.time.takeIf { it.isNotEmpty() },
-        ).joinToString(" · "),
-        style = DimoFont.body(12f),
-        color = DimoColors.muted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
+      if (detail.isNotEmpty()) {
+        Text(
+          text = detail,
+          style = DimoFont.body(12f),
+          color = DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
     Text(
       text = Formatting.money(lend.signedAmount, store.currency),
       style = DimoFont.display(15f, FontWeight.SemiBold),
-      color = if (repaid) DimoColors.green else DimoColors.ink,
+      color = if (lend.isIncoming) DimoColors.green else DimoColors.ink,
     )
   }
+}
+
+/** Stands in for an empty comment so a row still says what it was. */
+private fun fallbackDetail(kind: LendKind): String? = when (kind) {
+  LendKind.LENT -> null
+  LendKind.REPAID -> "Got back"
+  LendKind.BORROWED -> "Borrowed"
+  LendKind.RETURNED -> "Paid back"
 }
 
 /**
@@ -283,14 +329,20 @@ private fun shareText(store: AppStore, summary: LendContactSummary): String {
   val formatter = DateTimeFormatter.ofPattern("dd-MMM-yyyy", Locale.US)
   val zone = DateHelpers.zone()
   val lines = LendSelectors.unsettledTransactions(summary.contactId, store.lends).map { lend ->
-    val sign = if (lend.kind == LendKind.REPAID) "-" else "+"
+    val sign = if (lend.isIncoming) "-" else "+"
     val amount = Formatting.money(lend.amount, store.currency)
     val date = Instant.ofEpochMilli(lend.occurredAt).atZone(zone).format(formatter)
     "• $date · $sign$amount"
   }
+  val balance = Formatting.money(summary.magnitude, store.currency)
+  val headline = if (summary.direction == LendDirection.OWED_TO_ME) {
+    "Outstanding: $balance"
+  } else {
+    "I owe you: $balance"
+  }
   return buildString {
     append("Hi ${summary.contactName}, here\u2019s our lending summary:\n\n")
-    append("Outstanding: ${Formatting.money(summary.total, store.currency)}\n\n")
+    append("$headline\n\n")
     append(lines.joinToString("\n"))
   }
 }

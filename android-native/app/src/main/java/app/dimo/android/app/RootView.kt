@@ -21,6 +21,7 @@ import app.dimo.android.auth.SessionPhase
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.features.home.MainTabShell
+import app.dimo.android.features.onboarding.OnboardingFlow
 import app.dimo.android.features.signin.SignInScreen
 import kotlinx.coroutines.launch
 
@@ -45,6 +46,10 @@ fun RootView(
         when {
           !AppConfig.isConfigured -> ConfigRequiredView()
           environment.session.phase == SessionPhase.Loading -> LaunchLoadingView()
+          environment.session.phase == SessionPhase.SignedOut &&
+            !environment.onboardingCompleted -> {
+            OnboardingFlow(onFinish = { environment.completeOnboarding() })
+          }
           environment.session.phase == SessionPhase.SignedOut -> SignInScreen()
           else -> {
             val store = environment.session.appStore
