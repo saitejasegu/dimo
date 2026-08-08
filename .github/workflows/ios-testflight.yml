@@ -64,7 +64,11 @@ jobs:
           xcodebuild -version
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          if brew tap | grep -qx "aws/tap"; then
+            brew untap aws/tap
+          fi
+          brew install xcodegen
 
       - name: Generate Xcode project
         working-directory: ios-native
@@ -94,7 +98,7 @@ jobs:
           p12-password: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
 
       - name: Download App Store provisioning profile
-        uses: apple-actions/download-provisioning-profiles@c0047984c626d0c444c6b6018b92fcbe74eaf7b5 # v4
+        uses: apple-actions/download-provisioning-profiles@2126b5f86a0e2863cbf4d2d312112b22b943a594 # v6.1.0
         with:
           bundle-id: ${{ env.APP_BUNDLE_ID }}
           profile-type: IOS_APP_STORE
@@ -134,7 +138,8 @@ jobs:
           test -f "$EXPORT_PATH/Dimo.ipa"
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@94c406fd91f8b13b4c1fb078f1de09a76910513a # v5
+        # Fork of v5.2.1 that logs expected processing retries as info.
+        uses: saitejasegu/upload-testflight-build@922046f9089499121e2b7baf3356ee9129c8bf93
         with:
           app-path: ${{ env.EXPORT_PATH }}/Dimo.ipa
           issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}

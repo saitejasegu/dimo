@@ -472,7 +472,7 @@ final class RepositoryBootstrapTests: XCTestCase {
     let expiredKey = entityKey(type: .transaction, id: expired.id)
     try queue.write { db in
       try OutboxRecord.deleteOne(db, key: expiredKey)
-      guard var record = try EntityRecord.fetchOne(db, key: expiredKey) else {
+      guard let record = try EntityRecord.fetchOne(db, key: expiredKey) else {
         return XCTFail("missing expired")
       }
       var stored = try record.toStoredEntity()
