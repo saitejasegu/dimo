@@ -2,6 +2,7 @@ package app.dimo.android.features.sheets
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,10 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.dimo.android.data.model.CategoryEntity
-import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.RecurringFrequency
 import app.dimo.android.design.AmountKeypad
 import app.dimo.android.design.Chip
@@ -40,7 +38,7 @@ import app.dimo.android.domain.ExchangeRates
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.RecurringOccurrenceSelection
 import app.dimo.android.domain.TransactionSelectors
-import app.dimo.android.features.common.CategoryTintView
+import app.dimo.android.features.common.CategoryDropdown
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.DateField
 import app.dimo.android.features.common.DimoBottomSheet
@@ -48,11 +46,10 @@ import app.dimo.android.features.common.DimoTextField
 import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.LabeledDropdown
 import app.dimo.android.features.common.PrimaryButton
-import app.dimo.android.features.common.SectionLabel
+import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.features.common.SheetHeader
-import app.dimo.android.features.common.WrapRow
-import app.dimo.android.features.common.cardSurface
 import app.dimo.android.store.AppStore
+import app.dimo.android.store.OverlayKey
 import java.time.Instant
 import java.util.Locale
 
@@ -60,11 +57,8 @@ import java.util.Locale
 enum class ExpenseEditorMode { Add, Detail }
 
 /**
- * Add-expense and transaction-detail editor. Port of `AddExpenseSheet` /
+ * Add-expense and transaction-detail editor. Port of `ExpenseEditorSheet` /
  * `TxDetailSheet` in `ios-native/Dimo/Features/AddExpense/Sheets.swift`.
- *
- * `Add` writes through `saveExpense(...)` (optionally creating a recurring bill),
- * `Detail` writes through `saveTransactionEdits(...)`.
  */
 @Composable
 fun ExpenseEditorSheet(
@@ -76,7 +70,6 @@ fun ExpenseEditorSheet(
 ) {
   val existing = transactionId?.let { id -> store.transactions.firstOrNull { it.id == id } }
   if (mode == ExpenseEditorMode.Detail && existing == null) {
-    // The row disappeared underneath us (remote delete); close instead of editing.
     onClose()
     return
   }
@@ -108,6 +101,7 @@ fun ExpenseEditorSheet(
   var frequency by remember(transactionId) { mutableStateOf<RecurringFrequency?>(null) }
   var includeHistory by remember(transactionId) { mutableStateOf(false) }
   var confirmDelete by remember { mutableStateOf(false) }
+  var merchantFocused by remember { mutableStateOf(false) }
 
   val parsedAmount = amount.toDoubleOrNull() ?: 0.0
   val categoryExists = store.categories.any { it.name == categoryName }
@@ -132,8 +126,8 @@ fun ExpenseEditorSheet(
         .heightIn(max = 620.dp)
         .verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp)
-        .padding(bottom = 24.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+        .padding(top = 10.dp, bottom = 12.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
       AmountDisplay(
         amount = amount,
@@ -146,102 +140,84 @@ fun ExpenseEditorSheet(
         ),
       )
 
-      if (mode == ExpenseEditorMode.Add) {
-        AmountKeypad(
-          onPress = { key ->
-            store.pressAmountKey(key)
-            amount = store.expenseDraft.amount
-          },
-        )
-      } else {
-        DimoTextField(
-          value = amount,
-          onValueChange = { next -> amount = sanitizeDecimal(next) },
-          placeholder = "0",
-          keyboardType = KeyboardType.Decimal,
-        )
-      }
-
       Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        FieldLabel("Merchant")
         DimoTextField(
           value = name,
           onValueChange = { next ->
             name = next
+            merchantFocused = true
             if (mode == ExpenseEditorMode.Add) {
               store.expenseDraft = store.expenseDraft.copy(name = next)
             }
           },
-          placeholder = "Where did you spend?",
+          placeholder = "Merchant",
+          textStyle = DimoFont.body(16f),
         )
-        if (suggestions.isNotEmpty() && name.trim().isNotEmpty()) {
-          Column(
+        if (merchantFocused && suggestions.isNotEmpty()) {
+          Row(
             modifier = Modifier
               .fillMaxWidth()
-              .cardSurface(12.dp, DimoColors.popup)
-              .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+              .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             suggestions.forEach { suggestion ->
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .clip(RoundedCornerShape(10.dp))
-                  .clickable {
-                    name = suggestion.name
-                    if (store.categories.any { it.name == suggestion.category }) {
-                      categoryName = suggestion.category
-                    }
-                    val method = store.paymentMethods.firstOrNull {
-                      it.name == suggestion.paymentMethod || it.label == suggestion.paymentMethod
-                    }
-                    if (method != null) paymentMethodId = method.id
+              Chip(
+                label = suggestion.name,
+                selected = false,
+                onClick = {
+                  merchantFocused = false
+                  name = suggestion.name
+                  if (store.categories.any { it.name == suggestion.category }) {
+                    categoryName = suggestion.category
                   }
-                  .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-              ) {
-                Text(
-                  text = suggestion.name,
-                  style = DimoFont.body(14f, FontWeight.Medium),
-                  color = DimoColors.ink,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                  modifier = Modifier.weight(1f),
-                )
-                Text(
-                  text = suggestion.category,
-                  style = DimoFont.body(12f),
-                  color = DimoColors.muted,
-                )
-              }
+                  val method = store.paymentMethods.firstOrNull {
+                    it.name == suggestion.paymentMethod || it.label == suggestion.paymentMethod
+                  }
+                  if (method != null) paymentMethodId = method.id
+                  if (mode == ExpenseEditorMode.Add) {
+                    store.expenseDraft = store.expenseDraft.copy(
+                      name = suggestion.name,
+                      category = categoryName,
+                      paymentMethodId = paymentMethodId,
+                    )
+                  }
+                },
+              )
             }
           }
         }
       }
 
-      CategoryPicker(
-        store = store,
-        selectedName = categoryName,
-        onSelect = { next ->
-          categoryName = next
-          if (mode == ExpenseEditorMode.Add) {
-            store.expenseDraft = store.expenseDraft.copy(category = next)
-          }
-        },
-      )
-
-      PaymentMethodField(
-        methods = store.paymentMethods.filter { !it.archived || it.id == paymentMethodId },
-        selectedId = paymentMethodId,
-        onSelect = { next ->
-          paymentMethodId = next
-          if (mode == ExpenseEditorMode.Add) {
-            store.expenseDraft = store.expenseDraft.copy(paymentMethodId = next)
-          }
-        },
-        onManage = onManagePaymentMethods,
-      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top,
+      ) {
+        CategoryDropdown(
+          categories = store.categories,
+          selected = categoryName,
+          onSelect = { next ->
+            categoryName = next
+            if (mode == ExpenseEditorMode.Add) {
+              store.expenseDraft = store.expenseDraft.copy(category = next)
+            }
+          },
+          onAdd = { store.openOverlay(OverlayKey.Category) },
+          modifier = Modifier.weight(1f),
+        )
+        PaymentMethodField(
+          methods = store.paymentMethods.filter { !it.archived || it.id == paymentMethodId },
+          selectedId = paymentMethodId,
+          onSelect = { next ->
+            paymentMethodId = next
+            if (mode == ExpenseEditorMode.Add) {
+              store.expenseDraft = store.expenseDraft.copy(paymentMethodId = next)
+            }
+          },
+          onManage = onManagePaymentMethods,
+          modifier = Modifier.weight(1f),
+        )
+      }
 
       LabeledDropdown(
         label = "Currency",
@@ -265,44 +241,53 @@ fun ExpenseEditorSheet(
 
       if (mode == ExpenseEditorMode.Add) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-          SectionLabel("Repeat")
-          WrapRow {
-            Chip(
-              label = "One-off",
-              selected = frequency == null,
-              onClick = { frequency = null },
-            )
-            Chip(
-              label = "Monthly",
-              selected = frequency == RecurringFrequency.MONTHLY,
-              onClick = { frequency = RecurringFrequency.MONTHLY },
-            )
-            Chip(
-              label = "Yearly",
-              selected = frequency == RecurringFrequency.YEARLY,
-              onClick = { frequency = RecurringFrequency.YEARLY },
-            )
-          }
+          FieldLabel("Repeat")
+          SegmentedControl(
+            options = listOf<RecurringFrequency?>(
+              null,
+              RecurringFrequency.MONTHLY,
+              RecurringFrequency.YEARLY,
+            ),
+            selected = frequency,
+            label = { option ->
+              when (option) {
+                null -> "One-off"
+                RecurringFrequency.MONTHLY -> "Monthly"
+                RecurringFrequency.YEARLY -> "Yearly"
+              }
+            },
+            onSelect = { frequency = it },
+          )
           if (frequency != null) {
             Text(
               text = "Recurring bills need a name.",
               style = DimoFont.body(12f),
               color = if (recurringNeedsName) DimoColors.danger else DimoColors.muted,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-              Chip(
-                label = "This occurrence",
-                selected = !includeHistory,
-                onClick = { includeHistory = false },
-              )
-              Chip(
-                label = "Backfill history",
-                selected = includeHistory,
-                onClick = { includeHistory = true },
-              )
-            }
+            SegmentedControl(
+              options = listOf(false, true),
+              selected = includeHistory,
+              label = { if (it) "Backfill history" else "This occurrence" },
+              onSelect = { includeHistory = it },
+            )
           }
         }
+      }
+
+      if (mode == ExpenseEditorMode.Add) {
+        AmountKeypad(
+          onPress = { key ->
+            store.pressAmountKey(key)
+            amount = store.expenseDraft.amount
+          },
+        )
+      } else {
+        DimoTextField(
+          value = amount,
+          onValueChange = { next -> amount = sanitizeDecimal(next) },
+          placeholder = "0",
+          keyboardType = KeyboardType.Decimal,
+        )
       }
 
       PrimaryButton(
@@ -362,89 +347,22 @@ private fun AmountDisplay(
   Column(
     modifier = modifier
       .fillMaxWidth()
-      .clip(RoundedCornerShape(16.dp))
-      .background(DimoColors.canvas)
-      .padding(vertical = 18.dp),
+      .padding(vertical = 4.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
     Text(
       text = CurrencyMeta.symbol(currencyCode) + amount.ifEmpty { "0" },
-      style = DimoFont.display(36f, FontWeight.Bold),
-      color = DimoColors.ink,
+      style = DimoFont.display(44f, FontWeight.Bold),
+      color = if (amount.isEmpty()) DimoColors.faint else DimoColors.ink,
       textAlign = TextAlign.Center,
     )
-    if (convertedCaption != null) {
-      Text(
-        text = convertedCaption,
-        style = DimoFont.body(12f),
-        color = DimoColors.muted,
-        textAlign = TextAlign.Center,
-      )
-    }
-  }
-}
-
-@Composable
-private fun CategoryPicker(
-  store: AppStore,
-  selectedName: String,
-  onSelect: (String) -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    FieldLabel("Category")
-    if (store.categories.isEmpty()) {
-      Text(
-        text = "Create a category first — open Budgets and tap +.",
-        style = DimoFont.body(13f),
-        color = DimoColors.muted,
-      )
-    } else {
-      WrapRow {
-        store.categories.forEach { category ->
-          CategoryChip(
-            category = category,
-            selected = category.name == selectedName,
-            onClick = { onSelect(category.name) },
-          )
-        }
-      }
-    }
-  }
-}
-
-@Composable
-private fun CategoryChip(
-  category: CategoryEntity,
-  selected: Boolean,
-  onClick: () -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  Row(
-    modifier = modifier
-      .cardSurface(
-        radius = 50.dp,
-        background = if (selected) DimoColors.greenSoft else DimoColors.canvas,
-        borderColor = if (selected) DimoColors.green else DimoColors.line,
-      )
-      .clickable(onClick = onClick)
-      .padding(horizontal = 12.dp, vertical = 8.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    CategoryTintView(
-      emoji = category.emoji,
-      green = category.tint == CategoryTint.GREEN,
-      size = 22.dp,
-      radius = 7.dp,
-      fontSize = 12f,
-    )
     Text(
-      text = category.name,
-      style = DimoFont.body(13f, if (selected) FontWeight.SemiBold else FontWeight.Medium),
-      color = if (selected) DimoColors.greenDeep else DimoColors.ink,
-      maxLines = 1,
+      text = convertedCaption.orEmpty(),
+      style = DimoFont.body(12f),
+      color = DimoColors.muted,
+      textAlign = TextAlign.Center,
+      modifier = Modifier.height(16.dp),
     )
   }
 }

@@ -2,7 +2,6 @@ package app.dimo.android.features.sheets
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,22 +19,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.RecurringFrequency
-import app.dimo.android.design.Chip
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.design.PaymentMethodField
 import app.dimo.android.domain.CurrencyMeta
 import app.dimo.android.domain.DateHelpers
+import app.dimo.android.features.common.CategoryDropdown
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.DateField
 import app.dimo.android.features.common.DimoBottomSheet
+import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.LabeledDropdown
 import app.dimo.android.features.common.LabeledTextField
 import app.dimo.android.features.common.PrimaryButton
-import app.dimo.android.features.common.SectionLabel
+import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.features.common.SettingsToggleRow
 import app.dimo.android.features.common.SheetHeader
 import app.dimo.android.store.AppStore
+import app.dimo.android.store.OverlayKey
 
 /**
  * Create / edit recurring bill. Port of `AddRecurringSheet` in
@@ -98,13 +99,11 @@ fun RecurringSheet(
         onSelect = { store.recurringDraft = draft.copy(currency = it) },
       )
 
-      LabeledDropdown(
-        label = "Category",
-        options = store.categories.map { it.name },
-        selected = draft.category.takeIf { name -> store.categories.any { it.name == name } },
-        optionLabel = { it },
+      CategoryDropdown(
+        categories = store.categories,
+        selected = draft.category.takeIf { name -> store.categories.any { it.name == name } }.orEmpty(),
         onSelect = { store.recurringDraft = draft.copy(category = it) },
-        placeholder = if (store.categories.isEmpty()) "Create a category first" else "Select",
+        onAdd = { store.openOverlay(OverlayKey.Category) },
       )
 
       PaymentMethodField(
@@ -114,23 +113,13 @@ fun RecurringSheet(
       )
 
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionLabel("Frequency")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Chip(
-            label = "Monthly",
-            selected = draft.frequency == RecurringFrequency.MONTHLY,
-            onClick = {
-              store.recurringDraft = draft.copy(frequency = RecurringFrequency.MONTHLY)
-            },
-          )
-          Chip(
-            label = "Yearly",
-            selected = draft.frequency == RecurringFrequency.YEARLY,
-            onClick = {
-              store.recurringDraft = draft.copy(frequency = RecurringFrequency.YEARLY)
-            },
-          )
-        }
+        FieldLabel("Repeats")
+        SegmentedControl(
+          options = listOf(RecurringFrequency.MONTHLY, RecurringFrequency.YEARLY),
+          selected = draft.frequency,
+          label = { if (it == RecurringFrequency.MONTHLY) "Monthly" else "Yearly" },
+          onSelect = { store.recurringDraft = draft.copy(frequency = it) },
+        )
       }
 
       DateField(
