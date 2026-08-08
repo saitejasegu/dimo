@@ -20,7 +20,7 @@ const plexSans = IBM_Plex_Sans({
 const googleSiteVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION;
 
 export const metadata: Metadata = {
-  title: "Dimo — Personal expense tracker",
+  title: "Dimo — Personal expense tracker.",
   description:
     "Dimo is a personal spending tracker for expenses, budgets, recurring bills, and stats. Local-first, with private sync when you sign in.",
   applicationName: "Dimo",
