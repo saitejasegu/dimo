@@ -138,5 +138,4 @@ jobs:
           api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
           release-notes: Commit ${{ github.sha }}
-          uses-non-exempt-encryption: "false"
           wait-for-processing: "true"
