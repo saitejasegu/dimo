@@ -9,19 +9,29 @@ import androidx.compose.runtime.setValue
 import app.dimo.android.auth.SessionController
 import app.dimo.android.data.model.ThemePreference
 import app.dimo.android.design.DimoTheme
+import app.dimo.android.domain.OnboardingStore
 
 /**
  * Port of `ios-native/Dimo/App/AppEnvironment.swift`.
  *
- * Holds the session controller and the dark-theme override driven by the synced
- * theme preference (`null` follows the system).
+ * Holds the session controller, onboarding completion gate, and the dark-theme
+ * override driven by the synced theme preference (`null` follows the system).
  */
 class AppEnvironment(context: Context) {
-  val session = SessionController(context.applicationContext)
+  private val appContext = context.applicationContext
+  val session = SessionController(appContext)
 
   /** `true` → dark, `false` → light, `null` → follow system. */
   var preferredDarkTheme by mutableStateOf<Boolean?>(null)
     private set
+
+  var onboardingCompleted by mutableStateOf(OnboardingStore.hasCompleted(appContext))
+    private set
+
+  fun completeOnboarding() {
+    OnboardingStore.markCompleted(appContext)
+    onboardingCompleted = true
+  }
 
   fun applyTheme(preference: ThemePreference) {
     preferredDarkTheme = when (preference) {

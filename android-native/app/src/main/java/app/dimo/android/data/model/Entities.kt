@@ -200,8 +200,21 @@ data class RecurringEntity(
 )
 
 enum class LendKind(val wire: String) {
+  /** The user gave the contact money. */
   LENT("lent"),
-  REPAID("repaid");
+  /** The contact gave it back. */
+  REPAID("repaid"),
+  /** The user took money from the contact. */
+  BORROWED("borrowed"),
+  /** The user paid the contact back. */
+  RETURNED("returned");
+
+  /** Money flowed towards the user rather than away from them. */
+  val isIncoming: Boolean
+    get() = when (this) {
+      REPAID, BORROWED -> true
+      LENT, RETURNED -> false
+    }
 
   companion object {
     fun fromWire(value: String?): LendKind? = entries.firstOrNull { it.wire == value }
@@ -397,8 +410,14 @@ data class Lend(
   val occurredAt: Long,
   val kind: LendKind,
 ) {
-  /** Positive for money lent out, negative for money received back. */
-  val signedAmount: Double get() = if (kind == LendKind.REPAID) -amount else amount
+  /**
+   * Positive for money that left the user's pocket (lent out, or paid back to
+   * someone they borrowed from), negative for money that came in.
+   */
+  val signedAmount: Double get() = if (kind.isIncoming) -amount else amount
+
+  /** Money came towards the user, so the row reads as a credit. */
+  val isIncoming: Boolean get() = kind.isIncoming
 }
 
 /** Category display name to optional monthly limit in major units. */

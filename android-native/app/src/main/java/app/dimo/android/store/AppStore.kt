@@ -42,13 +42,20 @@ import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.ExchangeRates
+import app.dimo.android.domain.ExpenseReminderSettings
+import app.dimo.android.domain.ExpenseReminderStore
+import app.dimo.android.domain.LendDirection
 import app.dimo.android.domain.LendSelectors
+import app.dimo.android.domain.OnboardingStore
 import app.dimo.android.domain.RateTable
 import app.dimo.android.domain.RatesService
 import app.dimo.android.domain.RecurringOccurrenceSelection
 import app.dimo.android.domain.StatsConstants
 import app.dimo.android.domain.TransactionCSV
 import app.dimo.android.domain.TransactionFilter
+import app.dimo.android.notifications.ExpenseReminderAuthorization
+import app.dimo.android.notifications.ExpenseReminderRouter
+import app.dimo.android.notifications.ExpenseReminderScheduler
 import app.dimo.android.sync.ConvexSyncTransport
 import app.dimo.android.sync.NetworkMonitor
 import app.dimo.android.sync.SyncCoordinator
@@ -67,8 +74,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Port of `ios-native/Dimo/Store/AppStore.swift` without email / expense-reminder
- * surfaces (Android v1 excludes those).
+ * Port of `ios-native/Dimo/Store/AppStore.swift` without the Email / Gmail
+ * suggestions subsystem (Android excludes that surface).
  */
 class AppStore(
   application: Application,
@@ -138,6 +145,9 @@ class AppStore(
   var deletingHistory by mutableStateOf(false)
     private set
 
+  var expenseReminder by mutableStateOf(ExpenseReminderSettings.DEFAULT)
+  var expenseReminderAuthorization by mutableStateOf(ExpenseReminderAuthorization.NotDetermined)
+
   var expenseDraft by mutableStateOf(ExpenseDraft())
   var recurringDraft by mutableStateOf(RecurringDraft())
   var categoryDraft by mutableStateOf(CategoryDraft())
@@ -194,6 +204,19 @@ class AppStore(
 
       hydrate(repo.allEntities())
       dataReady = true
+
+      expenseReminder = ExpenseReminderStore.load(getApplication(), userId)
+      ExpenseReminderRouter.store = this
+      refreshExpenseReminderAuthorization()
+      // Redeem a notification opt-in taken during onboarding, before any user
+      // existed to scope the setting to.
+      if (OnboardingStore.consumePendingReminderOptIn(getApplication()) &&
+        !expenseReminder.enabled
+      ) {
+        updateExpenseReminder { it.copy(enabled = true) }
+      } else {
+        refreshExpenseReminderSchedule()
+      }
 
       remoteStartJob?.cancel()
       remoteStartJob = viewModelScope.launch {
@@ -257,6 +280,11 @@ class AppStore(
     networkMonitor = null
     repository = null
     convexClient = null
+    if (ExpenseReminderRouter.store === this) {
+      ExpenseReminderRouter.store = null
+    }
+    ExpenseReminderScheduler.cancel(getApplication())
+    ExpenseReminderStore.clear(getApplication(), userId)
     toastJob?.cancel()
     toast = null
   }
@@ -265,7 +293,42 @@ class AppStore(
     viewModelScope.launch {
       coordinator?.request()
       refreshExchangeRates()
+      refreshExpenseReminderAuthorization()
+      refreshExpenseReminderSchedule()
     }
+  }
+
+  fun updateExpenseReminder(mutate: (ExpenseReminderSettings) -> ExpenseReminderSettings) {
+    var next = mutate(expenseReminder).clamped
+    if (next.enabled && expenseReminderAuthorization != ExpenseReminderAuthorization.Authorized) {
+      // Caller is expected to request runtime permission first when needed.
+      // If still unauthorized after that attempt, force disabled.
+      refreshExpenseReminderAuthorization()
+      if (expenseReminderAuthorization != ExpenseReminderAuthorization.Authorized) {
+        next = next.copy(enabled = false)
+        expenseReminder = next
+        ExpenseReminderStore.save(getApplication(), next, userId)
+        ExpenseReminderScheduler.cancel(getApplication())
+        showToast("Enable notifications for Dimo in Settings to get reminders.")
+        return
+      }
+    }
+    expenseReminder = next
+    ExpenseReminderStore.save(getApplication(), next, userId)
+    refreshExpenseReminderSchedule()
+  }
+
+  fun refreshExpenseReminderSchedule() {
+    ExpenseReminderScheduler.apply(
+      context = getApplication(),
+      settings = expenseReminder,
+      pendingPurchaseCount = 0,
+    )
+  }
+
+  fun refreshExpenseReminderAuthorization() {
+    expenseReminderAuthorization =
+      ExpenseReminderScheduler.authorizationStatus(getApplication())
   }
 
   private suspend fun refreshExchangeRates() {
@@ -519,15 +582,15 @@ class AppStore(
     if (contact.isEmpty()) return
     val existing = lendDraft.editingId?.let { id -> lends.firstOrNull { it.id == id } }
     val contactId = lendDraft.contactId ?: existing?.contactId ?: return
+    // Editing never flips direction; the saved row's kind wins.
     val kind = existing?.kind ?: lendDraft.kind
-    if (kind == LendKind.REPAID) {
-      val outstanding = LendSelectors.outstandingAmount(
-        contactId = contactId,
-        lends = lends,
-        excludingLendId = existing?.id,
-      )
-      if (amount > outstanding + 0.000_001) return
-    }
+    val limit = LendSelectors.settlementLimit(
+      kind = kind,
+      contactId = contactId,
+      lends = lends,
+      excludingLendId = existing?.id,
+    )
+    if (limit != null && amount > limit + 0.000_001) return
     val zone = DateHelpers.zone()
     val occurredAt = if (
       existing != null &&
@@ -545,12 +608,12 @@ class AppStore(
       amountMinor = (amount * 100).roundToLong(),
       occurredAt = occurredAt,
       comment = lendDraft.comment.trim(),
-      kind = existing?.kind ?: lendDraft.kind,
+      kind = kind,
     )
     viewModelScope.launch {
       repository?.saveEntity(EntityPayload.Lend(entity))
       closeOverlay()
-      val noun = if (kind == LendKind.REPAID) "Repayment" else "Lend"
+      val noun = lendNoun(kind)
       showToast(if (existing == null) "$noun saved" else "$noun updated")
     }
   }
@@ -573,17 +636,33 @@ class AppStore(
     overlay = OverlayKey.Lend
   }
 
-  fun openAddRepayment(contactName: String, contactId: String) {
-    lendDraft = LendDraft(kind = LendKind.REPAID, contactName = contactName, contactId = contactId)
+  /**
+   * Opens the sheet pre-set to whichever entry closes this contact's balance:
+   * a repayment when they owe the user, a payment back when the user owes them.
+   */
+  fun openAddSettlement(contactName: String, contactId: String, direction: LendDirection) {
+    lendDraft = LendDraft(
+      kind = direction.settlementKind,
+      contactName = contactName,
+      contactId = contactId,
+    )
     overlay = OverlayKey.Lend
   }
 
   fun deleteLend(id: String) {
+    val kind = lends.firstOrNull { it.id == id }?.kind ?: LendKind.LENT
     viewModelScope.launch {
       repository?.removeEntity(EntityType.LEND, id)
       closeOverlay()
-      showToast("Lend deleted")
+      showToast("${lendNoun(kind)} deleted")
     }
+  }
+
+  private fun lendNoun(kind: LendKind): String = when (kind) {
+    LendKind.LENT -> "Lend"
+    LendKind.REPAID -> "Repayment"
+    LendKind.BORROWED -> "Borrowing"
+    LendKind.RETURNED -> "Payment"
   }
 
   /** Today keeps the current time so entries order naturally; past dates pin to noon. */

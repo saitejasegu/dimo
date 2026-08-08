@@ -4,6 +4,9 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.READ_CONTACTS" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
   <application
     android:name=".app.DimoApplication"
@@ -32,6 +35,27 @@
         <data android:scheme="dimo" android:host="callback" />
       </intent-filter>
     </activity>
+
+    <!-- Explicit PendingIntents from AlarmManager; keep non-exported. -->
+    <receiver
+      android:name=".notifications.ExpenseReminderReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="app.dimo.android.action.EXPENSE_REMINDER_FIRE" />
+        <action android:name="app.dimo.android.action.EXPENSE_REMINDER_RESCHEDULE" />
+      </intent-filter>
+    </receiver>
+
+    <!-- System broadcasts require an exported receiver. -->
+    <receiver
+      android:name=".notifications.ExpenseReminderBootReceiver"
+      android:exported="true"
+      android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+      </intent-filter>
+    </receiver>
 
     <!-- Grants read access to the CSV files written into cache/exports when sharing. -->
     <provider

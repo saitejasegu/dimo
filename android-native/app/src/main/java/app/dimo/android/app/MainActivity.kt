@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.remember
 import app.dimo.android.auth.AuthRedirectBus
+import app.dimo.android.notifications.ExpenseReminderRouter
+import app.dimo.android.notifications.ExpenseReminderScheduler
 
 class MainActivity : ComponentActivity() {
   /** Set when `dimo://callback` was delivered this resume cycle. */
@@ -37,14 +39,25 @@ class MainActivity : ComponentActivity() {
       AuthRedirectBus.cancelPending()
     }
     consumedRedirect = false
+    // Cold-start notification taps may arrive before AppStore is ready; retry
+    // once the session has hydrated.
+    if (intent?.hasExtra(app.dimo.android.domain.ExpenseReminderCopy.USER_INFO_TYPE_KEY) == true &&
+      ExpenseReminderRouter.store != null
+    ) {
+      if (ExpenseReminderScheduler.handleNotificationTap(this, intent)) {
+        intent.removeExtra(app.dimo.android.domain.ExpenseReminderCopy.USER_INFO_TYPE_KEY)
+      }
+    }
   }
 
   private fun handleIntent(intent: Intent?) {
-    val uri = intent?.data ?: return
-    if (uri.scheme == "dimo" && uri.host == "callback") {
+    val uri = intent?.data
+    if (uri?.scheme == "dimo" && uri.host == "callback") {
       AuthRedirectBus.publish(uri)
       intent.data = null
       consumedRedirect = true
+      return
     }
+    ExpenseReminderScheduler.handleNotificationTap(this, intent)
   }
 }

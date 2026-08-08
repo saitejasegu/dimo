@@ -26,6 +26,7 @@ import java.util.Locale
 import java.util.TimeZone
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -838,5 +839,170 @@ class LendSelectorsTests {
       LendSelectors.unsettledTransactions("cn-a", lends).map { it.id },
     )
     assertNotNull(LendSelectors.unsettledTransactions("cn-r", lends))
+  }
+
+  @Test
+  fun borrowingNetsNegativeAndStaysInSummaries() {
+    val summaries = LendSelectors.contactSummaries(
+      listOf(
+        lend("1", "Anil", "cn-n", 100.0, LendKind.BORROWED),
+        lend("2", "Anil", "cn-n", 40.0, LendKind.RETURNED),
+      ),
+    )
+
+    assertEquals(1, summaries.size)
+    assertEquals(-60.0, summaries[0].total, 0.0001)
+    assertEquals(60.0, summaries[0].magnitude, 0.0001)
+    assertEquals(LendDirection.I_OWE, summaries[0].direction)
+  }
+
+  @Test
+  fun summariesOmitContactsThatNetToZeroInEitherDirection() {
+    val summaries = LendSelectors.contactSummaries(
+      listOf(
+        lend("1", "Anil", "cn-n", 100.0, LendKind.BORROWED),
+        lend("2", "Anil", "cn-n", 100.0, LendKind.RETURNED),
+        lend("3", "Ravi", "cn-r", 50.0),
+        lend("4", "Ravi", "cn-r", 50.0, LendKind.REPAID),
+      ),
+    )
+
+    assertTrue(summaries.isEmpty())
+  }
+
+  @Test
+  fun summariesSortByBalanceSizeRegardlessOfDirection() {
+    val summaries = LendSelectors.contactSummaries(
+      listOf(
+        lend("1", "Ravi", "cn-r", 20.0),
+        lend("2", "Anil", "cn-n", 90.0, LendKind.BORROWED),
+        lend("3", "Priya", "cn-p", 50.0),
+      ),
+    )
+
+    assertEquals(listOf("cn-n", "cn-p", "cn-r"), summaries.map { it.contactId })
+  }
+
+  @Test
+  fun settlementLimitCapsEachDirectionAndLeavesOpeningEntriesFree() {
+    val lends = listOf(
+      lend("lent", "Ravi", "cn-r", 100.0),
+      lend("borrowed", "Anil", "cn-n", 80.0, LendKind.BORROWED),
+    )
+
+    assertEquals(
+      100.0,
+      LendSelectors.settlementLimit(LendKind.REPAID, "cn-r", lends)!!,
+      0.0001,
+    )
+    assertEquals(
+      80.0,
+      LendSelectors.settlementLimit(LendKind.RETURNED, "cn-n", lends)!!,
+      0.0001,
+    )
+    // A contact who owes the user cannot be paid back, and vice versa.
+    assertEquals(
+      0.0,
+      LendSelectors.settlementLimit(LendKind.RETURNED, "cn-r", lends)!!,
+      0.0001,
+    )
+    assertEquals(
+      0.0,
+      LendSelectors.settlementLimit(LendKind.REPAID, "cn-n", lends)!!,
+      0.0001,
+    )
+    assertNull(LendSelectors.settlementLimit(LendKind.LENT, "cn-r", lends))
+    assertNull(LendSelectors.settlementLimit(LendKind.BORROWED, "cn-n", lends))
+  }
+
+  @Test
+  fun borrowedBalanceExcludesThePaymentBeingEdited() {
+    val lends = listOf(
+      lend("borrowed", "Anil", "cn-n", 100.0, LendKind.BORROWED),
+      lend("returned", "Anil", "cn-n", 30.0, LendKind.RETURNED),
+    )
+
+    assertEquals(-70.0, LendSelectors.netBalance("cn-n", lends), 0.0001)
+    assertEquals(70.0, LendSelectors.borrowedBalance("cn-n", lends), 0.0001)
+    assertEquals(
+      100.0,
+      LendSelectors.borrowedBalance("cn-n", lends, excludingLendId = "returned"),
+      0.0001,
+    )
+  }
+
+  @Test
+  fun totalsNetPerContactSoOneContactLandsOnOneSide() {
+    // Lent 100 and borrowed 30 from the same person: 70 owed to the user, and
+    // nothing on the other side.
+    val summaries = LendSelectors.contactSummaries(
+      listOf(
+        lend("1", "Ravi", "cn-r", 100.0),
+        lend("2", "Ravi", "cn-r", 30.0, LendKind.BORROWED),
+        lend("3", "Anil", "cn-n", 45.0, LendKind.BORROWED),
+      ),
+    )
+
+    assertEquals(LendTotals(owedToMe = 70.0, iOwe = 45.0), LendSelectors.totals(summaries))
+    assertEquals(25.0, LendSelectors.totals(summaries).net, 0.0001)
+  }
+
+  @Test
+  fun unsettledTransactionsRestartAfterABorrowingIsCleared() {
+    val lends = listOf(
+      lend("old-borrow", "Anil", "cn-n", 100.0, LendKind.BORROWED, occurredAt = 1_000),
+      lend("old-payment", "Anil", "cn-n", 100.0, LendKind.RETURNED, occurredAt = 2_000),
+      lend("current-borrow", "Anil", "cn-n", 60.0, LendKind.BORROWED, occurredAt = 3_000),
+      lend("partial-payment", "Anil", "cn-n", 25.0, LendKind.RETURNED, occurredAt = 4_000),
+    )
+
+    assertEquals(
+      listOf("current-borrow", "partial-payment"),
+      LendSelectors.unsettledTransactions("cn-n", lends).map { it.id },
+    )
+  }
+
+  @Test
+  fun signedAmountDirectionPerKind() {
+    assertEquals(10.0, lend("1", "R", "c", 10.0, LendKind.LENT).signedAmount, 0.0001)
+    assertEquals(-10.0, lend("2", "R", "c", 10.0, LendKind.REPAID).signedAmount, 0.0001)
+    assertEquals(-10.0, lend("3", "R", "c", 10.0, LendKind.BORROWED).signedAmount, 0.0001)
+    assertEquals(10.0, lend("4", "R", "c", 10.0, LendKind.RETURNED).signedAmount, 0.0001)
+
+    assertFalse(lend("1", "R", "c", 10.0, LendKind.LENT).isIncoming)
+    assertTrue(lend("2", "R", "c", 10.0, LendKind.REPAID).isIncoming)
+    assertTrue(lend("3", "R", "c", 10.0, LendKind.BORROWED).isIncoming)
+    assertFalse(lend("4", "R", "c", 10.0, LendKind.RETURNED).isIncoming)
+  }
+}
+
+class ExpenseReminderTests {
+  @Test
+  fun copyWithoutPendingPurchases() {
+    assertEquals("Log today's expenses", ExpenseReminderCopy.title(0))
+    assertEquals(
+      "Take a moment to add anything you spent today.",
+      ExpenseReminderCopy.body(0),
+    )
+  }
+
+  @Test
+  fun copyWithPendingPurchasesUsesSingularAndPlural() {
+    assertEquals("Expenses and reviews waiting", ExpenseReminderCopy.title(1))
+    assertEquals(
+      "Take a moment to add anything you spent today. You also have 1 purchase waiting for review.",
+      ExpenseReminderCopy.body(1),
+    )
+    assertEquals(
+      "Take a moment to add anything you spent today. You also have 3 purchases waiting for review.",
+      ExpenseReminderCopy.body(3),
+    )
+  }
+
+  @Test
+  fun settingsClampHourAndMinute() {
+    val settings = ExpenseReminderSettings(enabled = true, hour = 30, minute = 99).clamped
+    assertEquals(23, settings.hour)
+    assertEquals(59, settings.minute)
   }
 }
