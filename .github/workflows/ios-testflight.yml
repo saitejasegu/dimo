@@ -234,8 +234,8 @@ jobs:
         run: test -f "$EXPORT_PATH/Dimo.ipa"
 
       - name: Upload to TestFlight
-        # Fork of v5.2.1 with info-level, 30-second visibility retries.
-        uses: saitejasegu/upload-testflight-build@b3b641e34c6528e8fd6e54dad6459f833d82e51a
+        # Fork of v5.2.1 with info-level, fixed 30-second processing retries.
+        uses: saitejasegu/upload-testflight-build@b58d0d9a7fa738fd4a1040574993c00ac588283c
         with:
           app-path: ${{ env.EXPORT_PATH }}/Dimo.ipa
           issuer-id: ${{ vars.APPSTORE_ISSUER_ID }}
