@@ -32,8 +32,9 @@ Config comes from `ios-native/Config/*.xcconfig` (`ConvexURL`, `WorkOSClientID`)
 
 Every commit pushed to `main` that changes `ios-native/**` or
 `.github/workflows/ios-testflight.yml` starts the TestFlight workflow. Tests and
-the signed archive run in parallel with Swift package caches; upload starts only
-after both succeed. A newer qualifying push cancels an older in-progress run.
+the signed archive run in parallel with Swift package caches. The test job also
+caches Xcode build intermediates for faster incremental builds; upload starts
+only after both succeed. A newer qualifying push cancels an older in-progress run.
 The workflow can also be run manually from GitHub Actions, and every run gets a
 unique build number, including re-runs.
 

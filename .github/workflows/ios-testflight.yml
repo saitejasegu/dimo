@@ -23,6 +23,7 @@ env:
   PROJECT_PATH: ios-native/Dimo.xcodeproj
   SCHEME: Dimo
   SPM_CACHE_PATH: ${{ github.workspace }}/.spm-cache
+  TEST_DERIVED_DATA_PATH: ${{ github.workspace }}/.derived-data-tests
 
 jobs:
   test:
@@ -35,9 +36,13 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Select Xcode
+        id: xcode
         run: |
           sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
+          xcode_version="$(xcodebuild -version | awk 'NR == 1 { print $2 }')"
+          xcode_build="$(xcodebuild -version | awk 'NR == 2 { print $3 }')"
+          echo "cache-key=${xcode_version}-${xcode_build}" >> "$GITHUB_OUTPUT"
 
       - name: Install XcodeGen
         run: |
@@ -62,6 +67,16 @@ jobs:
             spm-${{ runner.os }}-${{ runner.arch }}-test-
             spm-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Restore test build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.TEST_DERIVED_DATA_PATH }}/Build
+            ${{ env.TEST_DERIVED_DATA_PATH }}/ModuleCache.noindex
+          key: test-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.cache-key }}-${{ hashFiles('ios-native/project.yml', 'ios-native/Config/*.xcconfig', 'ios-native/Dimo/**/*.swift', 'ios-native/DimoTests/**/*.swift', 'ios-native/Dimo/Resources/**') }}
+          restore-keys: |
+            test-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.cache-key }}-
+
       - name: Run iOS tests
         run: |
           set -o pipefail
@@ -70,7 +85,11 @@ jobs:
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=iPhone 17,OS=latest" \
             -clonedSourcePackagesDirPath "$SPM_CACHE_PATH" \
+            -derivedDataPath "$TEST_DERIVED_DATA_PATH" \
             CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
             | xcbeautify
 
   archive:
