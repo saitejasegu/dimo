@@ -2,6 +2,9 @@
 
 Bundle ID: `app.dimo.ios` · native SwiftUI app in `ios-native/`
 
+For Android CI builds on a physical Pixel via Firebase App Distribution, see
+[ANDROID_FIREBASE.md](./ANDROID_FIREBASE.md).
+
 ## 1. Prerequisites (one-time)
 
 - [ ] Apple Developer Program membership ($99/year)

@@ -34,6 +34,13 @@ cd android-native
 ./gradlew :app:assembleProdDebug
 ```
 
+## CI → Pixel (Firebase App Distribution)
+
+Pushes to `main` that touch `android-native/**` run
+`.github/workflows/android-firebase.yml`: unit tests, `prodDebug` APK, upload to
+Firebase App Distribution. One-time Firebase + GitHub secrets setup:
+[store/ANDROID_FIREBASE.md](../store/ANDROID_FIREBASE.md).
+
 Product flavors mirror iOS xcconfigs:
 
 | Flavor | Convex URL | WorkOS client |

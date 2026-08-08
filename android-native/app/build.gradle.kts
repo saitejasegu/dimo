@@ -15,8 +15,9 @@ android {
     applicationId = "app.dimo.android"
     minSdk = 26
     targetSdk = 37
-    versionCode = 1
-    versionName = "1.0.0"
+    // CI passes -PversionCode / -PversionName so each Firebase build is unique.
+    versionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
+    versionName = (findProperty("versionName") as String?) ?: "1.0.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     // Mirrors ios-native AppConfig: Convex URL and the public WorkOS client id

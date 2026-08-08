@@ -1,0 +1,138 @@
+name: Android Firebase
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/android-firebase.yml
+      - android-native/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-firebase-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "21"
+
+jobs:
+  test:
+    name: Test Dimo Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up JDK
+        uses: actions/setup-java@f2beeb24e81205c732202ba85f1b5fac21764264 # v5.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3fc1e95aa09 # v5.0.0
+
+      - name: Run unit tests
+        working-directory: android-native
+        run: ./gradlew :app:testProdDebugUnitTest --stacktrace
+
+  build:
+    name: Build prodDebug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify Firebase distribution configuration
+        env:
+          FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            FIREBASE_ANDROID_APP_ID \
+            FIREBASE_TESTER_GROUPS \
+            FIREBASE_SERVICE_ACCOUNT
+          do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing GitHub Actions configuration: ${missing[*]}" >&2
+            echo "Follow the one-time setup in store/ANDROID_FIREBASE.md." >&2
+            exit 1
+          fi
+
+      - name: Set up JDK
+        uses: actions/setup-java@f2beeb24e81205c732202ba85f1b5fac21764264 # v5.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3fc1e95aa09 # v5.0.0
+
+      - name: Set unique build number
+        run: |
+          build_number=$((1000 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          echo "BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
+          echo "Building Dimo Android 1.0.0 ($build_number)"
+
+      - name: Assemble prodDebug APK
+        working-directory: android-native
+        run: |
+          ./gradlew :app:assembleProdDebug \
+            -PversionCode="$BUILD_NUMBER" \
+            -PversionName="1.0.0+$BUILD_NUMBER" \
+            --stacktrace
+          test -f app/build/outputs/apk/prod/debug/app-prod-debug.apk
+
+      - name: Store APK for upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Dimo-android-apk
+          path: android-native/app/build/outputs/apk/prod/debug/app-prod-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  distribute:
+    name: Upload to Firebase App Distribution
+    needs:
+      - test
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Dimo-android-apk
+          path: dist
+
+      - name: Verify APK
+        run: test -f dist/app-prod-debug.apk
+
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@e923031bec4a0aead58b31e5e5dde1884df1cb0e # v1.7.1
+        with:
+          appId: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ vars.FIREBASE_TESTER_GROUPS }}
+          file: dist/app-prod-debug.apk
+          releaseNotes: |
+            Commit ${{ github.sha }}
+            ${{ github.event.head_commit.message }}
