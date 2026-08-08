@@ -1,6 +1,13 @@
 "use client";
 
-import { lazy, Suspense, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuthKit } from "@convex-dev/workos";
 import {
@@ -8,6 +15,7 @@ import {
   AuthLoading,
   ConvexReactClient,
   Unauthenticated,
+  useConvexAuth,
 } from "convex/react";
 import { AppStoreProvider } from "@/store/app-store";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -64,10 +72,22 @@ function ConfigurationRequired({ children }: { children?: ReactNode }) {
   );
 }
 
+/** Drop the pre-hydration cover once AuthKit/Convex know signed-in vs signed-out. */
+function AuthPendingCleanup() {
+  const { isLoading } = useConvexAuth();
+  useEffect(() => {
+    if (!isLoading) {
+      delete document.documentElement.dataset.authPending;
+      document.getElementById("auth-pending-style")?.remove();
+    }
+  }, [isLoading]);
+  return null;
+}
+
 /**
- * Shows the server-rendered public homepage until the user is authenticated,
- * then mounts the signed-in app. Keeps marketing HTML in the static export for
- * Google OAuth brand verification crawlers.
+ * Public homepage stays in the static HTML for OAuth brand-verification crawlers.
+ * While auth is resolving, returning sessions see a blank canvas (see layout bootstrap
+ * + `[data-auth-pending]` CSS) instead of a sign-in flash.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const clientId = process.env.NEXT_PUBLIC_WORKOS_CLIENT_ID;
@@ -92,7 +112,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
       onRedirectCallback={() => window.history.replaceState({}, "", "/")}
     >
       <ConvexProviderWithAuthKit client={convex} useAuth={useAuth}>
-        <AuthLoading>{children}</AuthLoading>
+        <AuthPendingCleanup />
+        <AuthLoading>
+          <div data-public-home>{children}</div>
+          <div data-auth-loading aria-hidden className="hidden">
+            <LoadingScreen />
+          </div>
+        </AuthLoading>
         <Authenticated>
           <SignedInApp />
         </Authenticated>

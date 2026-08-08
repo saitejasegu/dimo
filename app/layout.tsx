@@ -73,6 +73,13 @@ export const viewport: Viewport = {
 /** iOS standalone under-reports 100dvh on cold start; 100vh fills the screen. */
 const STANDALONE_VH_BOOTSTRAP = `(function(){try{var n=window.navigator;var standalone=!!n.standalone||window.matchMedia("(display-mode: standalone)").matches||window.matchMedia("(display-mode: fullscreen)").matches;if(standalone){document.documentElement.style.setProperty("--app-height","100vh");}}catch(e){}})();`;
 
+/**
+ * Synchronous body script (not next/script): runs before the public homepage HTML
+ * is parsed. If a WorkOS session exists, hide sign-in and show a blank canvas so
+ * refresh never flashes the marketing buttons.
+ */
+const AUTH_PENDING_BOOTSTRAP = `(function(){try{var id=${JSON.stringify(process.env.NEXT_PUBLIC_WORKOS_CLIENT_ID ?? "")};if(!id)return;var has=!!(localStorage.getItem("workos:refresh-token:"+id)||localStorage.getItem("workos:refresh-token"));if(!has){var m=document.cookie.match(/(?:^|;\\s*)workos-has-session=([^;]*)/);if(m){var v=decodeURIComponent(m[1]);has=v==="1"||v.split(".").indexOf(id)!==-1;}}if(!has)return;document.documentElement.dataset.authPending="1";var s=document.createElement("style");s.id="auth-pending-style";s.textContent="html[data-auth-pending] [data-public-home]{display:none!important}html[data-auth-pending] [data-auth-loading]{display:block!important}";document.head.appendChild(s);}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -87,6 +94,10 @@ export default function RootLayout({
           id="ios-standalone-app-height"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: STANDALONE_VH_BOOTSTRAP }}
+        />
+        <script
+          id="auth-pending-bootstrap"
+          dangerouslySetInnerHTML={{ __html: AUTH_PENDING_BOOTSTRAP }}
         />
         {children}
         <Analytics />

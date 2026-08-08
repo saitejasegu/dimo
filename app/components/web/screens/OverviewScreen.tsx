@@ -1,21 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { money } from "@/lib/format";
 import { greetingFor } from "@/lib/greeting";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { useOverview } from "@/features/overview/hooks";
-import { recurringAmountInDefault } from "@/features/currency/rates";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { UpcomingBillsPanel } from "@/components/common/UpcomingBillsPanel";
 import { CategoryBar } from "@/components/common/CategoryBar";
-import { ChevronIcon } from "@/components/ui/icons";
-import { Modal } from "@/components/ui/Modal";
 import { WebScreen } from "@/components/web/WebScreen";
 import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
-  const [upcomingDialogOpen, setUpcomingDialogOpen] = useState(false);
   const { profile, currency, rates } = useAppState();
   const actions = useAppActions();
   const {
@@ -29,10 +24,6 @@ export function OverviewScreen() {
   const firstName = profile.name.split(" ")[0];
   const monthSub = `${transactionCount} transactions`;
   const showUpcomingSection = allUpcoming.length > 0;
-  const thisMonthTotal = upcoming.reduce(
-    (total, item) => total + (item.paused ? 0 : recurringAmountInDefault(item, currency, rates)),
-    0,
-  );
 
   return (
     <WebScreen>
@@ -76,19 +67,15 @@ export function OverviewScreen() {
       >
         {showUpcomingSection && (
           <Card className="h-full p-[22px]">
-            <button
-              type="button"
-              onClick={() => setUpcomingDialogOpen(true)}
-              className="flex w-full items-center gap-3 text-left"
-            >
-              <span className="font-display text-[17px] font-semibold text-ink">
-                Upcoming this month
-              </span>
-              <span className="ml-auto text-[13px] font-medium text-muted">
-                {money(thisMonthTotal, currency)}
-              </span>
-              <ChevronIcon direction="right" size={12} className="text-faint" />
-            </button>
+            <UpcomingBillsPanel
+              upcoming={upcoming}
+              allUpcoming={allUpcoming}
+              currency={currency}
+              rates={rates}
+              onOpenRecurring={actions.openEditRecurring}
+              size="web"
+              embedded
+            />
           </Card>
         )}
 
@@ -111,25 +98,6 @@ export function OverviewScreen() {
       </div>
 
       <ActivityScreen embedded />
-      {upcomingDialogOpen ? (
-        <Modal
-          onClose={() => setUpcomingDialogOpen(false)}
-          width={520}
-          className="max-h-[85vh]"
-        >
-          <UpcomingBillsPanel
-            upcoming={upcoming}
-            allUpcoming={allUpcoming}
-            currency={currency}
-            rates={rates}
-            onOpenRecurring={(id) => {
-              setUpcomingDialogOpen(false);
-              actions.openEditRecurring(id);
-            }}
-            size="web"
-          />
-        </Modal>
-      ) : null}
     </WebScreen>
   );
 }
