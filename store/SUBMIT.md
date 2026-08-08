@@ -2,8 +2,8 @@
 
 Bundle ID: `app.dimo.ios` · native SwiftUI app in `ios-native/`
 
-For Android CI builds on a physical Pixel via Firebase App Distribution, see
-[ANDROID_FIREBASE.md](./ANDROID_FIREBASE.md).
+For Android CI builds on a physical Pixel via Play Internal testing, see
+[ANDROID_PLAY_INTERNAL.md](./ANDROID_PLAY_INTERNAL.md).
 
 ## 1. Prerequisites (one-time)
 

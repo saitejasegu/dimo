@@ -34,12 +34,13 @@ cd android-native
 ./gradlew :app:assembleProdDebug
 ```
 
-## CI → Pixel (Firebase App Distribution)
+## CI → Pixel (Play Internal testing)
 
 Pushes to `main` that touch `android-native/**` run
-`.github/workflows/android-firebase.yml`: unit tests, `prodDebug` APK, upload to
-Firebase App Distribution. One-time Firebase + GitHub secrets setup:
-[store/ANDROID_FIREBASE.md](../store/ANDROID_FIREBASE.md).
+`.github/workflows/android-play-internal.yml`: unit tests, signed
+`prodRelease` AAB, upload to the Play Console Internal testing track. One-time
+Play Console + keystore + GitHub secrets setup:
+[store/ANDROID_PLAY_INTERNAL.md](../store/ANDROID_PLAY_INTERNAL.md).
 
 Product flavors mirror iOS xcconfigs:
 

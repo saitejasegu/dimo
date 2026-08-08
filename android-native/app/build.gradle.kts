@@ -15,7 +15,7 @@ android {
     applicationId = "app.dimo.android"
     minSdk = 26
     targetSdk = 37
-    // CI passes -PversionCode / -PversionName so each Firebase build is unique.
+    // CI passes -PversionCode / -PversionName so each Play upload is unique.
     versionCode = (findProperty("versionCode") as String?)?.toIntOrNull() ?: 1
     versionName = (findProperty("versionName") as String?) ?: "1.0.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -45,6 +45,25 @@ android {
     }
   }
 
+  // CI (and local Play builds) set ANDROID_KEYSTORE_* env vars. Debug builds
+  // ignore this and keep using the default debug keystore.
+  val uploadKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+  val uploadSigningConfigured = !uploadKeystorePath.isNullOrBlank() &&
+    !System.getenv("ANDROID_KEYSTORE_PASSWORD").isNullOrBlank() &&
+    !System.getenv("ANDROID_KEY_ALIAS").isNullOrBlank() &&
+    !System.getenv("ANDROID_KEY_PASSWORD").isNullOrBlank()
+
+  signingConfigs {
+    if (uploadSigningConfigured) {
+      create("upload") {
+        storeFile = file(uploadKeystorePath!!)
+        storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+        keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+      }
+    }
+  }
+
   buildTypes {
     release {
       isMinifyEnabled = false
@@ -52,6 +71,9 @@ android {
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro",
       )
+      if (uploadSigningConfigured) {
+        signingConfig = signingConfigs.getByName("upload")
+      }
     }
   }
 
