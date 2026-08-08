@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - .github/workflows/ios-testflight.yml
+      - ios-native/**
   workflow_dispatch:
 
 permissions:
@@ -11,7 +14,7 @@ permissions:
 
 jobs:
   build-and-upload:
-    name: Build and upload Dimo
+    name: Build and upload Dimo to Testflight
     runs-on: macos-26
     timeout-minutes: 60
     env:
