@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Dimo">
   <rect width="64" height="64" rx="15" fill="#1f9d63"/>
   <g transform="scale(.0625)">
-    <path fill="#f5f8f6" d="M256 208h244c179 0 300 118 300 304S679 816 500 816H256V208Z"/>
-    <path fill="#1f9d63" d="M416 360h90c97 0 150 58 150 152s-53 152-150 152h-90V360Z"/>
-    <g fill="#f5f8f6">
-      <rect x="456" y="420" width="136" height="28" rx="14"/>
-      <rect x="456" y="498" width="108" height="28" rx="14"/>
-      <rect x="456" y="576" width="76" height="28" rx="14"/>
+    <path
+      fill="#f5f8f6"
+      d="M288 272a48 48 0 0 1 48-48h352a48 48 0 0 1 48 48v448l-32 64-32-64-32 64-32-64-32 64-32-64-32 64-32-64-32 64-32-64-32 64-32-64-32 64-32-64Z"
+    />
+    <g fill="#1f9d63">
+      <rect x="368" y="352" width="192" height="48" rx="24"/>
+      <rect x="600" y="352" width="56" height="48" rx="24"/>
+      <rect x="368" y="464" width="144" height="48" rx="24"/>
+      <rect x="600" y="464" width="56" height="48" rx="24"/>
+      <rect x="368" y="576" width="96" height="48" rx="24"/>
+      <rect x="600" y="576" width="56" height="48" rx="24"/>
     </g>
   </g>
 </svg>

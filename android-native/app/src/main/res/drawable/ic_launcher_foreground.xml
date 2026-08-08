@@ -1,3 +1,8 @@
+<!--
+  Dimo mark: torn receipt with three ledger rows. Mirrors
+  public/brand/dimo-logo.svg; keep the two in sync. Drawn inside the 66dp
+  adaptive-icon safe zone, over the @color/dimo_green background.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -5,11 +10,8 @@
     android:viewportHeight="108">
   <path
       android:fillColor="#FFF5F8F6"
-      android:pathData="M34,30h24a24,24 0,0 1,0 48h-24z" />
+      android:pathData="M36,36a4,4 0,0 1,4 -4h28a4,4 0,0 1,4 4v30l-3,8 -3,-8 -3,8 -3,-8 -3,8 -3,-8 -3,8 -3,-8 -3,8 -3,-8 -3,8 -3,-8z" />
   <path
       android:fillColor="#FF1F9D63"
-      android:pathData="M44,42h13a12,12 0,0 1,0 24h-13z" />
-  <path
-      android:fillColor="#FFF5F8F6"
-      android:pathData="M47,47h10a1.5,1.5 0,0 1,0 3h-10a1.5,1.5 0,0 1,0 -3z M47,52.5h8a1.5,1.5 0,0 1,0 3h-8a1.5,1.5 0,0 1,0 -3z M47,58h5.5a1.5,1.5 0,0 1,0 3h-5.5a1.5,1.5 0,0 1,0 -3z" />
+      android:pathData="M42.4,41.5h15.4a1.8,1.8 0,0 1,0 3.6h-15.4a1.8,1.8 0,0 1,0 -3.6z M42.4,50h11.6a1.8,1.8 0,0 1,0 3.6h-11.6a1.8,1.8 0,0 1,0 -3.6z M42.4,58.5h7.7a1.8,1.8 0,0 1,0 3.6h-7.7a1.8,1.8 0,0 1,0 -3.6z M61.1,41.5h4.5a1.8,1.8 0,0 1,0 3.6h-4.5a1.8,1.8 0,0 1,0 -3.6z M61.1,50h4.5a1.8,1.8 0,0 1,0 3.6h-4.5a1.8,1.8 0,0 1,0 -3.6z M61.1,58.5h4.5a1.8,1.8 0,0 1,0 3.6h-4.5a1.8,1.8 0,0 1,0 -3.6z" />
 </vector>

@@ -1,95 +1,95 @@
-# Google OAuth homepage + brand verification — Dimo
+# Google OAuth brand verification — Dimo
 
-## If branding still fails on `/` (stale Google cache)
+Status as of Aug 8, 2026: the domain and pages are done. The two open items are
+both **Branding guidelines** failures from the Aug 7, 2026 review, and both are
+fixed by re-uploading assets and correcting console fields — no new hosting work.
 
-Google often caches a failed verdict **per homepage URL**. A common fix:
+## The two failures and what fixes them
 
-1. Deploy the plain page at `https://dimoapp.xyz/about/`
-2. In Google Cloud → OAuth Branding, set **Application home page** to:
+### 1. "The app name shown on your OAuth consent screen does not match the app name on your home page"
 
-   `https://dimoapp.xyz/about/`
+The homepage brands itself as exactly **Dimo** — `<h1>Dimo</h1>`, plus an
+explicit `Application name: Dimo` line, in server-rendered HTML.
 
-   (keep privacy/terms on the same domain)
-3. App name must stay exactly: `Dimo`
-4. Resubmit: **I have fixed the issues** → Proceed
+So the mismatch is the **console field**, not the site. In Google Cloud →
+APIs & Services → OAuth consent screen → Branding:
 
-That `/about/` page is static HTML (no React/auth) with H1 **Dimo** and an
-explicit purpose section.
+- **App name** must be exactly `Dimo`
 
-## Critical: you need a domain you own
+Not `Dimo — Personal expense tracker`, not `Dimo App`, not the Cloud project
+name (`dimo-ios`, `My First Project`, etc.). Google compares this string against
+the name on the homepage literally, so any suffix fails the check.
 
-Google’s homepage rules require the site to be hosted on a **verified domain you
-own**. A `*.vercel.app` URL does **not** qualify for ownership the way a custom
-domain does:
+Keep `<h1>Dimo</h1>` in `app/components/marketing/PublicHome.tsx` as the bare
+app name. The `<title>` may stay descriptive; the visible H1 is what must match.
 
-- Homepage today: `https://dimo-silk.vercel.app`
-- Top private domain of that host is `vercel.app` (owned by Vercel, not you)
+### 2. "Your logo does not uniquely identify your brand and identity"
 
-That is why Cloud keeps saying: *“The website of your home page URL is not
-registered to you.”* Search Console HTML-tag checks on a Vercel subdomain are
-not enough for OAuth brand verification.
+The old logo was a bare letter **D** monogram. A plain letterform reads as
+generic to reviewers, which is what this rejection means.
 
-### What to do
+Replaced with a distinct symbol mark: a **torn paper receipt** holding three
+ledger rows. Source of truth is `public/brand/dimo-logo.svg`; every raster icon
+is regenerated from it with:
 
-1. **Buy a domain** you control (examples: `dimo.app`, `getdimo.com`, `dimo.finance`).
-2. In **Vercel** → Project → Settings → Domains → add that domain and finish DNS.
-3. Redeploy so these URLs work on your domain:
-   - `https://YOURDOMAIN/`
-   - `https://YOURDOMAIN/privacy`
-   - `https://YOURDOMAIN/terms`
-4. In **Google Search Console**, add a **Domain** property for `YOURDOMAIN`
-   (DNS TXT verification — preferred) or URL prefix `https://YOURDOMAIN`.
-5. Use the **same Google account** that owns the Cloud OAuth project; that
-   account must be a Search Console **Owner**.
-6. In Google Cloud → OAuth Branding / Authorized domains:
-   - Authorized domain: `YOURDOMAIN` (not `vercel.app`)
-   - Home page: `https://YOURDOMAIN`
-   - Privacy: `https://YOURDOMAIN/privacy`
-   - Terms: `https://YOURDOMAIN/terms`
-7. Update App Store listing URLs in `store/listing.json` to the same domain.
-8. Re-submit branding verification.
+```sh
+node scripts/render-icons.mjs
+```
 
-Until the homepage/privacy URLs use **your** domain, Google will keep failing
-ownership no matter how complete the page content is.
+**You must re-upload the logo** — the console keeps the old image until you
+replace it:
 
-## Fix apex ↔ www redirect (common branding fail)
+- Upload file: `store/oauth-logo.png` (120×120, required size)
+- The same artwork is served on the homepage at `/brand/dimo-logo-512.png`,
+  in the header and footer, so the site logo and consent-screen logo match.
 
-Right now `https://dimoapp.xyz` **308-redirects** to `https://www.dimoapp.xyz`.
-Google’s branding crawler often fails purpose/name checks on redirecting
-homepages.
+## Console fields to set
 
-**Pick one canonical URL and use it everywhere:**
+In Google Cloud → OAuth consent screen → Branding:
 
-### Recommended: apex primary
-1. Vercel → Project → Settings → **Domains**
-2. Make **`dimoapp.xyz`** the primary domain
-3. Set **`www.dimoapp.xyz` → redirect to `dimoapp.xyz`** (not the other way)
-4. Confirm `curl -sI https://dimoapp.xyz` returns **200** (not 308)
-5. Google Cloud OAuth homepage = `https://dimoapp.xyz` (no www)
-6. Privacy / terms on the same host
-
-### Or: www primary
-Set OAuth homepage / privacy / terms all to `https://www.dimoapp.xyz/...`
-and keep WorkOS redirect `https://www.dimoapp.xyz/callback`.
-
-Do not mix apex in Google Cloud with a site that only serves content on www.
-
-## Homepage content checklist (already in the app)
-
-After you point a custom domain at this deploy, the public `/` page should show:
-
-| Google requirement | On Dimo homepage |
+| Field | Value |
 | --- | --- |
-| Identify the app/brand | App name **Dimo**, logo, H1 |
-| Describe functionality | “What Dimo does” feature list |
-| Explain why user data is requested | “Why Dimo requests Google user data” (sign-in + optional Gmail readonly) |
+| App name | `Dimo` |
+| App logo | upload `store/oauth-logo.png` |
+| Application home page | `https://dimoapp.xyz` |
+| Privacy policy link | `https://dimoapp.xyz/privacy` |
+| Terms of service link | `https://dimoapp.xyz/terms` |
+| Authorized domain | `dimoapp.xyz` |
+
+**Use the bare apex `https://dimoapp.xyz`.** The previous config pointed at
+`https://dimoapp.xyz/about/`, which **308-redirects** to `/about`; branding
+crawls fail on redirecting homepages. The apex now returns 200 with the full
+server-rendered public page, so `/about` is no longer needed as the homepage
+(it stays published as a plain-HTML fallback).
+
+Verify before resubmitting:
+
+```sh
+curl -sI https://dimoapp.xyz | head -1     # expect: HTTP/2 200 (not 308)
+curl -s  https://dimoapp.xyz | grep -o '<h1[^>]*>[^<]*</h1>'   # expect: Dimo
+```
+
+Then: **I have fixed the issues** → Proceed.
+
+## Homepage content checklist (already satisfied)
+
+`/` is server-rendered public HTML — not behind auth, not client-only.
+
+| Google requirement | On the Dimo homepage |
+| --- | --- |
+| Identify the app/brand | H1 `Dimo`, logo in header and footer |
+| Describe functionality | "What Dimo does" feature list |
+| Explain why user data is requested | "Why Dimo requests Google user data" (sign-in + optional `gmail.readonly`) |
 | Privacy policy link matching consent screen | `/privacy` on the same domain |
-| Visible without login | Server-rendered public page (not behind auth) |
-| Not only a login wall | Marketing + purpose above/beside sign-in |
+| Visible without login | Content is in the initial HTML response |
+| Not only a login wall | Marketing and purpose copy surround the sign-in buttons |
 
-Logo upload file: `store/oauth-logo.png`
+## Notes
 
-## Temporary note about dimo-silk.vercel.app
-
-Keep using it for development. For **Google OAuth brand / restricted Gmail
-verification**, switch homepage + privacy + terms to the custom domain first.
+- `dimo-silk.vercel.app` is fine for development, but never as an OAuth
+  homepage or authorized domain — the top private domain there is `vercel.app`,
+  which you do not own, so ownership checks fail regardless of page content.
+- Both `dimoapp.xyz` and `www.dimoapp.xyz` currently return 200. Keep every
+  console URL on the apex so the crawler never crosses hosts.
+- The Google account that owns the Cloud project must be a Search Console
+  **Owner** of the `dimoapp.xyz` property.
