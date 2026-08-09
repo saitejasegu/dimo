@@ -15,6 +15,7 @@ export function OverviewScreen() {
   const actions = useAppActions();
   const {
     totals,
+    dailyAllowance,
     upcoming,
     allUpcoming,
     topCategories,
@@ -57,6 +58,22 @@ export function OverviewScreen() {
               <div className="text-[11px] text-side-sub">{totals.pct}% used</div>
             </div>
           </div>
+          {dailyAllowance ? (
+            <div className="mt-4 flex items-center justify-between gap-6 border-t border-white/10 pt-4">
+              <div>
+                <div className="text-xs text-side-muted">Available to spend per day</div>
+                <div className="mt-0.5 text-[11px] text-side-sub">
+                  {dailyAllowance.daysRemaining === 1
+                    ? "Today"
+                    : `${dailyAllowance.daysRemaining} days left, including today`}
+                </div>
+              </div>
+              <div className="shrink-0 text-right font-display text-2xl font-semibold text-green-bright">
+                {money(dailyAllowance.amount, currency)}
+                <span className="ml-1 text-xs font-medium text-side-muted">/ day</span>
+              </div>
+            </div>
+          ) : null}
         </HeroCard>
       </div>
 

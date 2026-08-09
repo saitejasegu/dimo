@@ -19,6 +19,11 @@ export interface BudgetTotals {
   over: boolean;
 }
 
+export interface DailyBudgetAllowance {
+  amount: number;
+  daysRemaining: number;
+}
+
 /**
  * Epoch bounds of the current local calendar month, so month membership is an integer
  * comparison instead of a `new Date()` plus two getters per transaction.
@@ -85,10 +90,187 @@ export function budgetTotals(
   };
 }
 
+/**
+ * Average available spend for each remaining local calendar day, including today.
+ * A missing budget or an already-exceeded budget has no useful daily allowance.
+ */
+export function dailyBudgetAllowance(
+  totals: BudgetTotals,
+  now = new Date(),
+): DailyBudgetAllowance | null {
+  if (totals.totalLimit <= 0 || totals.left < 0) return null;
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysRemaining = lastDay - now.getDate() + 1;
+  return {
+    amount: totals.left / daysRemaining,
+    daysRemaining,
+  };
+}
+
 export interface CategoryLookbackSpend {
   total: number;
   monthlyAverage: number;
   monthCount: number;
+}
+
+export interface GlobalBudgetCategoryInput {
+  id: string;
+  name: CategoryName;
+  sortOrder: number;
+  monthlyBudgetMinor: number | null;
+}
+
+export interface GlobalBudgetLookbackWindow {
+  /** Inclusive start of the first completed local calendar month. */
+  start: number;
+  /** Exclusive start of the current local calendar month. */
+  end: number;
+  monthCount: number;
+}
+
+export interface GlobalBudgetCategoryAllocation {
+  id: string;
+  name: CategoryName;
+  sortOrder: number;
+  sixMonthSpend: number;
+  monthlyAverage: number;
+  /** Rounded percentage of all eligible lookback spending. */
+  share: number;
+  /** Whole major currency units, or null when the category has no history. */
+  allocatedLimit: number | null;
+  currentLimit: number | null;
+  changed: boolean;
+}
+
+export type GlobalBudgetAllocationIssue =
+  | "invalid-total"
+  | "no-categories"
+  | "no-history"
+  | null;
+
+export interface GlobalBudgetAllocation {
+  window: GlobalBudgetLookbackWindow;
+  totalBudget: number;
+  totalAllocated: number;
+  sixMonthSpend: number;
+  monthlyAverage: number;
+  allocations: GlobalBudgetCategoryAllocation[];
+  issue: GlobalBudgetAllocationIssue;
+  canApply: boolean;
+}
+
+function completedMonthBounds(now: Date, monthCount: number): GlobalBudgetLookbackWindow {
+  const end = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const start = new Date(now.getFullYear(), now.getMonth() - monthCount, 1).getTime();
+  return { start, end, monthCount };
+}
+
+/**
+ * Split one monthly total across categories according to their spending share in
+ * the previous completed calendar months. The largest-remainder pass keeps every
+ * persisted budget in whole major units while making the final sum exact.
+ */
+export function globalBudgetAllocation(
+  transactions: Transaction[],
+  categories: GlobalBudgetCategoryInput[],
+  totalBudget: number,
+  monthCount = 6,
+  now = new Date(),
+): GlobalBudgetAllocation {
+  const safeMonthCount = Number.isSafeInteger(monthCount) && monthCount > 0 ? monthCount : 6;
+  const window = completedMonthBounds(now, safeMonthCount);
+  const spendByCategoryId = new Map<string, number>();
+
+  for (const transaction of transactions) {
+    const occurredAt = transaction.occurredAt ?? 0;
+    const categoryId = transaction.categoryId;
+    if (!categoryId || occurredAt < window.start || occurredAt >= window.end) continue;
+    spendByCategoryId.set(
+      categoryId,
+      (spendByCategoryId.get(categoryId) ?? 0) + transaction.amount,
+    );
+  }
+
+  const eligibleSpend = categories.reduce(
+    (sum, category) => sum + Math.max(0, spendByCategoryId.get(category.id) ?? 0),
+    0,
+  );
+  const validTotal = Number.isSafeInteger(totalBudget) && totalBudget > 0;
+  const issue: GlobalBudgetAllocationIssue =
+    categories.length === 0
+      ? "no-categories"
+      : eligibleSpend <= 0
+        ? "no-history"
+        : !validTotal
+          ? "invalid-total"
+          : null;
+
+  const drafts = categories.map((category) => {
+    const sixMonthSpend = Math.max(0, spendByCategoryId.get(category.id) ?? 0);
+    const rawAllocation = validTotal && eligibleSpend > 0
+      ? (totalBudget * sixMonthSpend) / eligibleSpend
+      : 0;
+    return {
+      category,
+      sixMonthSpend,
+      rawAllocation,
+      allocatedLimit: sixMonthSpend > 0 && validTotal ? Math.floor(rawAllocation) : null,
+    };
+  });
+
+  if (issue === null) {
+    const allocatedFloor = drafts.reduce(
+      (sum, draft) => sum + (draft.allocatedLimit ?? 0),
+      0,
+    );
+    const remainderOrder = drafts
+      .filter((draft) => draft.sixMonthSpend > 0)
+      .sort((a, b) => {
+        const fractionalDifference =
+          (b.rawAllocation - Math.floor(b.rawAllocation))
+          - (a.rawAllocation - Math.floor(a.rawAllocation));
+        if (Math.abs(fractionalDifference) > Number.EPSILON) return fractionalDifference;
+        if (a.category.sortOrder !== b.category.sortOrder) {
+          return a.category.sortOrder - b.category.sortOrder;
+        }
+        return a.category.id.localeCompare(b.category.id);
+      });
+    const unitsLeft = totalBudget - allocatedFloor;
+    for (let index = 0; index < unitsLeft; index += 1) {
+      const draft = remainderOrder[index % remainderOrder.length];
+      draft.allocatedLimit = (draft.allocatedLimit ?? 0) + 1;
+    }
+  }
+
+  const allocations = drafts.map(({ category, sixMonthSpend, allocatedLimit }) => {
+    const currentLimit =
+      category.monthlyBudgetMinor == null ? null : category.monthlyBudgetMinor / 100;
+    return {
+      id: category.id,
+      name: category.name,
+      sortOrder: category.sortOrder,
+      sixMonthSpend,
+      monthlyAverage: sixMonthSpend / safeMonthCount,
+      share: eligibleSpend > 0 ? percent(sixMonthSpend, eligibleSpend) : 0,
+      allocatedLimit,
+      currentLimit,
+      changed: currentLimit !== allocatedLimit,
+    };
+  });
+
+  return {
+    window,
+    totalBudget,
+    totalAllocated: allocations.reduce(
+      (sum, allocation) => sum + (allocation.allocatedLimit ?? 0),
+      0,
+    ),
+    sixMonthSpend: eligibleSpend,
+    monthlyAverage: eligibleSpend / safeMonthCount,
+    allocations,
+    issue,
+    canApply: issue === null,
+  };
 }
 
 /** Rolling calendar-month spend for a category — useful when setting a monthly budget. */

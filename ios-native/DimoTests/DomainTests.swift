@@ -1005,6 +1005,179 @@ final class BudgetSelectorTests: XCTestCase {
       ]
     )
   }
+
+  func testDailyBudgetAllowanceIncludesTodayAndHidesWhenOverBudget() {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 22, hour: 23))!
+    let totals = BudgetTotals(
+      totalSpent: 700,
+      totalLimit: 1_000,
+      pct: 70,
+      left: 300,
+      over: false,
+      transactionCount: 4
+    )
+
+    XCTAssertEqual(
+      BudgetSelectors.dailyBudgetAllowance(totals, now: now, calendar: cal),
+      DailyBudgetAllowance(amount: 30, daysRemaining: 10)
+    )
+    XCTAssertEqual(
+      BudgetSelectors.dailyBudgetAllowance(
+        BudgetTotals(
+          totalSpent: 1_000, totalLimit: 1_000, pct: 100, left: 0,
+          over: true, transactionCount: 4
+        ),
+        now: now,
+        calendar: cal
+      )?.amount,
+      0
+    )
+    XCTAssertNil(
+      BudgetSelectors.dailyBudgetAllowance(
+        BudgetTotals(
+          totalSpent: 1_001, totalLimit: 1_000, pct: 100, left: -1,
+          over: true, transactionCount: 4
+        ),
+        now: now,
+        calendar: cal
+      )
+    )
+    XCTAssertNil(
+      BudgetSelectors.dailyBudgetAllowance(
+        BudgetTotals(
+          totalSpent: 0, totalLimit: 0, pct: 0, left: 0,
+          over: false, transactionCount: 0
+        ),
+        now: now,
+        calendar: cal
+      )
+    )
+  }
+
+  func testGlobalBudgetUsesSixCompletedMonthsAndStableCategoryIds() {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12))!
+    func stamp(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0) -> Int {
+      Int(cal.date(from: DateComponents(
+        year: year, month: month, day: day, hour: hour
+      ))!.timeIntervalSince1970 * 1000)
+    }
+    func row(_ id: String, _ categoryId: String, _ amount: Double, _ at: Int, _ name: String) -> Transaction {
+      Transaction(
+        id: id, name: "Item", category: name, time: "", day: "", amount: amount,
+        occurredAt: at, categoryId: categoryId
+      )
+    }
+    let categories = [
+      GlobalBudgetCategoryInput(
+        id: "dining", name: "Dining", sortOrder: 0, monthlyBudgetMinor: nil
+      ),
+      GlobalBudgetCategoryInput(
+        id: "bills", name: "Bills", sortOrder: 1, monthlyBudgetMinor: 50_000
+      ),
+      GlobalBudgetCategoryInput(
+        id: "empty", name: "Groceries", sortOrder: 2, monthlyBudgetMinor: 20_000
+      ),
+    ]
+    let result = BudgetSelectors.globalBudgetAllocation(
+      [
+        row("start", "dining", 200, stamp(2026, 2, 1), "Old dining name"),
+        row("end", "dining", 200, stamp(2026, 7, 31, 23), "Dining"),
+        row("bills", "bills", 200, stamp(2026, 7, 1), "Bills"),
+        row("previous", "dining", 9_999, stamp(2026, 1, 28, 23), "Dining"),
+        row("current", "dining", 9_999, stamp(2026, 8, 1), "Dining"),
+      ],
+      categories: categories,
+      totalBudget: 100,
+      now: now,
+      calendar: cal
+    )
+
+    XCTAssertEqual(result.window.start, stamp(2026, 2, 1))
+    XCTAssertEqual(result.window.end, stamp(2026, 8, 1))
+    XCTAssertEqual(result.sixMonthSpend, 600)
+    XCTAssertEqual(result.totalAllocated, 100)
+    XCTAssertEqual(result.allocations.map(\.allocatedLimit), [67, 33, nil])
+    XCTAssertEqual(result.allocations.map(\.share), [67, 33, 0])
+  }
+
+  func testGlobalBudgetRoundingTiesAreDeterministicAndZeroHistoryIsNil() {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = cal.date(from: DateComponents(year: 2026, month: 8, day: 10))!
+    let at = Int(cal.date(from: DateComponents(
+      year: 2026, month: 7, day: 1
+    ))!.timeIntervalSince1970 * 1000)
+    func row(_ id: String) -> Transaction {
+      Transaction(
+        id: id, name: "Item", category: id, time: "", day: "", amount: 1,
+        occurredAt: at, categoryId: id
+      )
+    }
+    let result = BudgetSelectors.globalBudgetAllocation(
+      [row("a"), row("b"), row("c")],
+      categories: [
+        GlobalBudgetCategoryInput(id: "b", name: "B", sortOrder: 1, monthlyBudgetMinor: nil),
+        GlobalBudgetCategoryInput(id: "a", name: "A", sortOrder: 1, monthlyBudgetMinor: nil),
+        GlobalBudgetCategoryInput(id: "c", name: "C", sortOrder: 0, monthlyBudgetMinor: nil),
+        GlobalBudgetCategoryInput(id: "empty", name: "Empty", sortOrder: 2, monthlyBudgetMinor: 100),
+      ],
+      totalBudget: 2,
+      now: now,
+      calendar: cal
+    )
+    let byId = Dictionary(uniqueKeysWithValues: result.allocations.map { ($0.id, $0.allocatedLimit) })
+    XCTAssertEqual(byId["a"]!, 1)
+    XCTAssertEqual(byId["b"]!, 0)
+    XCTAssertEqual(byId["c"]!, 1)
+    XCTAssertNil(byId["empty"]!)
+  }
+
+  func testGlobalBudgetRejectsUnavailableInputsAndHandlesLeapYearBoundary() {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(secondsFromGMT: 0)!
+    let now = cal.date(from: DateComponents(year: 2024, month: 3, day: 15))!
+    let leap = Int(cal.date(from: DateComponents(
+      year: 2024, month: 2, day: 29, hour: 23
+    ))!.timeIntervalSince1970 * 1000)
+    let categories = [
+      GlobalBudgetCategoryInput(id: "dining", name: "Dining", sortOrder: 0, monthlyBudgetMinor: nil),
+    ]
+    let row = Transaction(
+      id: "leap", name: "Item", category: "Dining", time: "", day: "", amount: 290,
+      occurredAt: leap, categoryId: "dining"
+    )
+
+    let valid = BudgetSelectors.globalBudgetAllocation(
+      [row], categories: categories, totalBudget: 290, now: now, calendar: cal
+    )
+    XCTAssertEqual(
+      valid.window.start,
+      Int(cal.date(from: DateComponents(year: 2023, month: 9, day: 1))!.timeIntervalSince1970 * 1000)
+    )
+    XCTAssertEqual(valid.allocations.first?.allocatedLimit, 290)
+    XCTAssertEqual(
+      BudgetSelectors.globalBudgetAllocation(
+        [row], categories: categories, totalBudget: 0, now: now, calendar: cal
+      ).issue,
+      .invalidTotal
+    )
+    XCTAssertEqual(
+      BudgetSelectors.globalBudgetAllocation(
+        [], categories: categories, totalBudget: 100, now: now, calendar: cal
+      ).issue,
+      .noHistory
+    )
+    XCTAssertEqual(
+      BudgetSelectors.globalBudgetAllocation(
+        [], categories: [], totalBudget: 100, now: now, calendar: cal
+      ).issue,
+      .noCategories
+    )
+  }
 }
 
 final class LendSelectorsTests: XCTestCase {
@@ -2362,6 +2535,21 @@ final class BulkEntityWriteTests: XCTestCase {
     )
   }
 
+  private func category(_ id: String, budgetMinor: Int?) -> (EntityType, EntityPayload) {
+    (
+      .category,
+      .category(CategoryEntity(
+        id: id,
+        name: id,
+        emoji: "🙂",
+        monthlyBudgetMinor: budgetMinor,
+        tint: .neutral,
+        sortOrder: id == "dining" ? 0 : 1,
+        system: false
+      ))
+    )
+  }
+
   func testBatchSaveIssuesDistinctIncreasingVersions() throws {
     let (repository, _) = try makeRepository()
     defer { try? AppDatabase.deleteAllLocalDatabases() }
@@ -2378,6 +2566,40 @@ final class BulkEntityWriteTests: XCTestCase {
       .first { $0.entityId == "tx-later" }
     XCTAssertNotNil(later)
     XCTAssertTrue(later!.version > stored.last!.version)
+  }
+
+  func testBudgetBatchStaysLocalAndQueuesEachChangedCategory() throws {
+    let (repository, _) = try makeRepository()
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+
+    try repository.saveEntities([
+      category("dining", budgetMinor: 10_000),
+      category("empty", budgetMinor: 20_000),
+    ])
+    try repository.acknowledgeOperations(
+      try repository.pendingOutbox(limit: 50).map(\.operationId)
+    )
+
+    try repository.saveEntities([
+      category("dining", budgetMinor: 50_000),
+      category("empty", budgetMinor: nil),
+    ])
+
+    let stored = try repository.activeEntities(type: .category)
+    let dining = stored.first { $0.entityId == "dining" }
+    let empty = stored.first { $0.entityId == "empty" }
+    guard case .category(let diningValue) = dining?.payload,
+          case .category(let emptyValue) = empty?.payload else {
+      return XCTFail("missing category batch")
+    }
+    XCTAssertEqual(diningValue.monthlyBudgetMinor, 50_000)
+    XCTAssertNil(emptyValue.monthlyBudgetMinor)
+    XCTAssertEqual(dining?.version.timestamp, empty?.version.timestamp)
+    XCTAssertNotEqual(dining?.version.counter, empty?.version.counter)
+    XCTAssertEqual(
+      Set(try repository.pendingOutbox(limit: 50).map(\.entityId)),
+      Set(["dining", "empty"])
+    )
   }
 
   func testRemoveEntitiesTombstonesEveryIdWithOneNotification() throws {

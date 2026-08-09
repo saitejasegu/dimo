@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,9 +44,13 @@ import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
+import app.dimo.android.domain.GlobalBudgetAllocationIssue
+import app.dimo.android.domain.GlobalBudgetCategoryInput
 import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoCard
+import app.dimo.android.features.common.DimoTextField
 import app.dimo.android.features.common.EmptyState
+import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.PrimaryButton
 import app.dimo.android.features.common.ScreenHeader
 import app.dimo.android.features.common.SheetHeader
@@ -53,6 +59,9 @@ import app.dimo.android.features.common.cardSurface
 import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.store.AppStore
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import kotlin.math.roundToLong
 
 /**
  * Budgets. Port of `BudgetsScreen` in
@@ -65,6 +74,7 @@ fun BudgetsScreen(
   modifier: Modifier = Modifier,
 ) {
   var showSuggestions by remember { mutableStateOf(false) }
+  var showGlobalBudget by remember { mutableStateOf(false) }
 
   val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
   val budgets = BudgetSelectors.categoryBudgets(store.transactions, store.limits)
@@ -87,18 +97,33 @@ fun BudgetsScreen(
         title = "Budgets",
         modifier = Modifier.statusBarsPadding(),
         trailing = {
-          Box(
-            modifier = Modifier
-              .size(36.dp)
-              .clickable(enabled = suggestions.isNotEmpty()) { showSuggestions = true },
-            contentAlignment = Alignment.Center,
-          ) {
-            Icon(
-              imageVector = Icons.Filled.AutoAwesome,
-              contentDescription = "Suggested budgets",
-              tint = if (suggestions.isEmpty()) DimoColors.faint else DimoColors.green,
-              modifier = Modifier.size(20.dp),
-            )
+          Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Box(
+              modifier = Modifier
+                .size(36.dp)
+                .clickable { showGlobalBudget = true },
+              contentAlignment = Alignment.Center,
+            ) {
+              Icon(
+                imageVector = Icons.Filled.TrackChanges,
+                contentDescription = "Set monthly budget",
+                tint = DimoColors.green,
+                modifier = Modifier.size(20.dp),
+              )
+            }
+            Box(
+              modifier = Modifier
+                .size(36.dp)
+                .clickable(enabled = suggestions.isNotEmpty()) { showSuggestions = true },
+              contentAlignment = Alignment.Center,
+            ) {
+              Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = "Suggested budgets",
+                tint = if (suggestions.isEmpty()) DimoColors.faint else DimoColors.green,
+                modifier = Modifier.size(20.dp),
+              )
+            }
           }
         },
       )
@@ -159,6 +184,13 @@ fun BudgetsScreen(
     SuggestedBudgetsSheet(
       store = store,
       onClose = { showSuggestions = false },
+    )
+  }
+
+  if (showGlobalBudget) {
+    GlobalBudgetSheet(
+      store = store,
+      onClose = { showGlobalBudget = false },
     )
   }
 
@@ -265,6 +297,217 @@ private fun BudgetCard(
     }
     if (hasLimit) {
       ProgressBar(progress = pct / 100.0, over = over)
+    }
+  }
+}
+
+@Composable
+private fun GlobalBudgetSheet(
+  store: AppStore,
+  onClose: () -> Unit,
+) {
+  val currentMinor = store.categories.sumOf { it.monthlyBudgetMinor ?: 0 }
+  var amount by remember {
+    mutableStateOf(
+      if (currentMinor > 0) (currentMinor.toDouble() / 100).roundToLong().toString() else "",
+    )
+  }
+  val parsedAmount = amount.toLongOrNull()?.takeIf {
+    amount.isNotEmpty() && amount.all(Char::isDigit) && it > 0 && it <= Long.MAX_VALUE / 100
+  }
+  val allocation = remember(store.transactions, store.categories, parsedAmount) {
+    BudgetSelectors.globalBudgetAllocation(
+      store.transactions,
+      categories = store.categories.map {
+        GlobalBudgetCategoryInput(it.id, it.name, it.sortOrder, it.monthlyBudgetMinor)
+      },
+      totalBudget = parsedAmount ?: 0,
+    )
+  }
+  val changedCount = allocation.allocations.count { it.changed }
+  val canApply = parsedAmount != null && allocation.canApply && changedCount > 0
+  val validationMessage = when {
+    store.categories.isEmpty() -> "Create a category before setting a total budget."
+    allocation.issue == GlobalBudgetAllocationIssue.NO_HISTORY ->
+      "No spending was found in the last 6 completed months. Set category budgets manually until there is enough history."
+    amount.isNotEmpty() && parsedAmount == null -> "Enter a whole monthly amount greater than zero."
+    parsedAmount != null && changedCount == 0 -> "Your category budgets already match this split."
+    else -> null
+  }
+  val firstMonth = DateHelpers.localDate(allocation.window.start)
+  val lastMonth = DateHelpers.localDate(allocation.window.end).minusMonths(1)
+  val monthFormatter = DateTimeFormatter.ofPattern("MMM", Locale.getDefault())
+  val monthYearFormatter = DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault())
+  val lookbackLabel = if (firstMonth.year == lastMonth.year) {
+    "${firstMonth.format(monthFormatter)}–${lastMonth.format(monthYearFormatter)}"
+  } else {
+    "${firstMonth.format(monthYearFormatter)}–${lastMonth.format(monthYearFormatter)}"
+  }
+
+  DimoBottomSheet(onDismiss = onClose, compactDragHandle = true) {
+    SheetHeader(title = "Set monthly budget", compact = true)
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(max = 760.dp)
+        .padding(horizontal = 20.dp)
+        .padding(bottom = 24.dp),
+      verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+      Text(
+        text = "Set one monthly total and split it using average spending from $lookbackLabel.",
+        style = DimoFont.body(13f),
+        color = DimoColors.muted,
+      )
+
+      Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        FieldLabel("Monthly total")
+        DimoTextField(
+          value = amount,
+          onValueChange = { next -> amount = next.filter(Char::isDigit).take(15) },
+          placeholder = "Amount",
+          keyboardType = KeyboardType.Number,
+          leading = {
+            Text(
+              text = Formatting.currencySymbol(store.currency),
+              style = DimoFont.body(16f),
+              color = DimoColors.muted,
+            )
+          },
+        )
+        if (validationMessage != null) {
+          Text(
+            text = validationMessage,
+            style = DimoFont.body(12f),
+            color = DimoColors.muted,
+          )
+        }
+      }
+
+      LazyColumn(
+        modifier = Modifier
+          .weight(1f)
+          .cardSurface(16.dp, DimoColors.canvas),
+      ) {
+        items(allocation.allocations, key = { "global-${it.id}" }) { item ->
+          val category = store.categories.firstOrNull { it.id == item.id }
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            Box(
+              modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(DimoColors.canvasDeep),
+              contentAlignment = Alignment.Center,
+            ) {
+              Text(
+                text = store.categoryEmoji(category?.emoji, category?.id, item.name),
+                style = DimoFont.body(18f),
+              )
+            }
+            Column(
+              modifier = Modifier.weight(1f),
+              verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+              Text(
+                text = item.name,
+                style = DimoFont.body(14f, FontWeight.Medium),
+                color = DimoColors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+              Text(
+                text = if (item.sixMonthSpend > 0) {
+                  "${Formatting.money(item.monthlyAverage, store.currency)} monthly average · ${item.share}%"
+                } else {
+                  "No spending history · no allocation"
+                },
+                style = DimoFont.body(11f),
+                color = DimoColors.faint,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
+            Column(
+              horizontalAlignment = Alignment.End,
+              verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+              Text(
+                text = if (parsedAmount != null && item.allocatedLimit != null) {
+                  Formatting.money(item.allocatedLimit.toDouble(), store.currency)
+                } else {
+                  "—"
+                },
+                style = DimoFont.display(14f, FontWeight.SemiBold),
+                color = if (item.sixMonthSpend > 0) DimoColors.ink else DimoColors.faint,
+              )
+              if (item.sixMonthSpend > 0) {
+                Text(
+                  text = "PROPOSED",
+                  style = DimoFont.body(9f, FontWeight.SemiBold),
+                  color = DimoColors.green,
+                )
+              }
+            }
+          }
+        }
+        if (allocation.allocations.isEmpty()) {
+          item("global-empty") {
+            Text(
+              text = "No categories yet.",
+              style = DimoFont.body(14f),
+              color = DimoColors.muted,
+              textAlign = TextAlign.Center,
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 28.dp),
+            )
+          }
+        }
+      }
+
+      Text(
+        text = "Applying this split replaces every category budget. You can still edit individual categories afterward; the total will follow their new sum.",
+        style = DimoFont.body(12f),
+        color = DimoColors.muted,
+        modifier = Modifier
+          .fillMaxWidth()
+          .clip(RoundedCornerShape(12.dp))
+          .background(DimoColors.canvasDeep)
+          .padding(13.dp),
+      )
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Text(
+          text = "Cancel",
+          style = DimoFont.body(15f, FontWeight.SemiBold),
+          color = DimoColors.ink,
+          textAlign = TextAlign.Center,
+          modifier = Modifier
+            .weight(0.28f)
+            .height(54.dp)
+            .cardSurface(14.dp, DimoColors.canvas)
+            .clickable(onClick = onClose)
+            .padding(vertical = 15.dp),
+        )
+        PrimaryButton(
+          title = if (parsedAmount != null && changedCount == 0) "Already applied" else "Apply split",
+          enabled = canApply,
+          onClick = {
+            parsedAmount?.let(store::applyGlobalBudget)
+            onClose()
+          },
+          modifier = Modifier.weight(0.72f),
+        )
+      }
     }
   }
 }

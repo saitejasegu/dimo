@@ -105,6 +105,37 @@ class RepositoryTests {
   }
 
   @Test
+  fun budgetBatchStaysLocalAndQueuesEachChangedCategory() = runTest {
+    repo.initializeLocalDatabase()
+    fun category(id: String, budgetMinor: Long?) = EntityPayload.Category(
+      CategoryEntity(
+        id = id,
+        name = id,
+        emoji = "🙂",
+        monthlyBudgetMinor = budgetMinor,
+        tint = CategoryTint.NEUTRAL,
+        sortOrder = if (id == "dining") 0 else 1,
+        system = false,
+      ),
+    )
+    repo.saveEntities(listOf(category("dining", 10_000), category("empty", 20_000)))
+    repo.acknowledgeOperations(repo.pendingOutbox(limit = 50).map { it.operationId })
+
+    repo.saveEntities(listOf(category("dining", 50_000), category("empty", null)))
+
+    val stored = repo.activeEntities(EntityType.CATEGORY)
+    val dining = stored.first { it.entityId == "dining" }
+    val empty = stored.first { it.entityId == "empty" }
+    assertEquals(50_000L, (dining.payload as EntityPayload.Category).value.monthlyBudgetMinor)
+    assertNull((empty.payload as EntityPayload.Category).value.monthlyBudgetMinor)
+    assertTrue(dining.version != empty.version)
+    assertEquals(
+      setOf("dining", "empty"),
+      repo.pendingOutbox(limit = 50).map { it.entityId }.toSet(),
+    )
+  }
+
+  @Test
   fun purgeExpiredTombstones() = runTest {
     repo.initializeLocalDatabase()
 

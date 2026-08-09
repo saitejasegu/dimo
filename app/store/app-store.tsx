@@ -69,7 +69,10 @@ import {
   defaultPaymentMethodIdForImport,
   type TransactionCsvRow,
 } from "@/features/transactions/csv";
-import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
+import {
+  globalBudgetAllocation,
+  suggestedCategoryBudgetUpdates,
+} from "@/features/budgets/selectors";
 import {
   cacheRates,
   convertMinor,
@@ -131,6 +134,7 @@ export interface AppActions {
   openEditCategory: (id: ID) => void;
   saveCategory: () => void;
   applySuggestedBudgets: (categoryIds: string[]) => void;
+  applyGlobalBudget: (totalBudget: number) => void;
   deleteCategory: () => void;
   setProfileName: (name: string) => void;
   setProfileEmail: (email: string) => void; saveProfile: () => void;
@@ -602,6 +606,62 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
           });
         },
       );
+    },
+    applyGlobalBudget: (totalBudget) => {
+      const state = getState();
+      const allocation = globalBudgetAllocation(
+        state.transactions,
+        state.categories,
+        totalBudget,
+      );
+      if (allocation.issue === "invalid-total") {
+        dispatch({
+          type: "SHOW_TOAST",
+          message: "Enter a whole monthly budget greater than zero",
+        });
+        return;
+      }
+      if (allocation.issue === "no-categories") {
+        dispatch({
+          type: "SHOW_TOAST",
+          message: "Create a category before setting a total budget",
+        });
+        return;
+      }
+      if (allocation.issue === "no-history") {
+        dispatch({
+          type: "SHOW_TOAST",
+          message: "No spending history in the last 6 completed months",
+        });
+        return;
+      }
+
+      const byId = new Map(state.categories.map((category) => [category.id, category]));
+      const updates = allocation.allocations.flatMap((item) => {
+        if (!item.changed) return [];
+        const current = byId.get(item.id);
+        if (!current) return [];
+        const monthlyBudgetMinor =
+          item.allocatedLimit == null ? null : item.allocatedLimit * 100;
+        return [{
+          entityType: "category" as const,
+          payload: { ...current, monthlyBudgetMinor },
+        }];
+      });
+
+      if (updates.length === 0) {
+        dispatch({ type: "SHOW_TOAST", message: "Budgets already match this split" });
+        return;
+      }
+
+      persist(saveEntities(updates), () => {
+        dispatch({
+          type: "SHOW_TOAST",
+          message: updates.length === 1
+            ? "Updated 1 budget from the total"
+            : `Updated ${updates.length} budgets from the total`,
+        });
+      });
     },
     deleteCategory: () => {
       const state = getState();

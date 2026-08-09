@@ -111,6 +111,9 @@ struct HomeScreen: View {
   }
 
   private var totals: BudgetTotals { entities.monthBudgetTotals }
+  private var dailyAllowance: DailyBudgetAllowance? {
+    BudgetSelectors.dailyBudgetAllowance(totals)
+  }
 
   private var homeList: (groups: [DayGroup], hasMore: Bool, filteredCount: Int) {
     entities.homeList(filter: activeFilter, limit: visibleLimit)
@@ -158,6 +161,35 @@ struct HomeScreen: View {
           Text(Formatting.money(totals.left, currency: entities.currency))
             .font(DimoFont.display(18, weight: .semibold))
             .foregroundStyle(totals.left < 0 ? Theme.danger : Theme.greenBright)
+        }
+      }
+      if let dailyAllowance {
+        Divider()
+          .overlay(Theme.sideText.opacity(0.12))
+          .padding(.vertical, 16)
+        HStack(alignment: .center, spacing: 12) {
+          VStack(alignment: .leading, spacing: 3) {
+            Text("Available to spend per day")
+              .font(DimoFont.body(11))
+              .foregroundStyle(Theme.sideMuted)
+            Text(
+              dailyAllowance.daysRemaining == 1
+                ? "Today"
+                : "\(dailyAllowance.daysRemaining) days left, including today"
+            )
+              .font(DimoFont.body(10))
+              .foregroundStyle(Theme.sideSub)
+          }
+          Spacer(minLength: 8)
+          HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(Formatting.money(dailyAllowance.amount, currency: entities.currency))
+              .font(DimoFont.display(18, weight: .semibold))
+              .foregroundStyle(Theme.greenBright)
+            Text("/ day")
+              .font(DimoFont.body(10, weight: .medium))
+              .foregroundStyle(Theme.sideMuted)
+          }
+          .fixedSize(horizontal: true, vertical: false)
         }
       }
     }

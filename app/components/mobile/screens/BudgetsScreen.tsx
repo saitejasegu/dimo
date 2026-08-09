@@ -6,10 +6,11 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useBudgets } from "@/features/budgets/hooks";
 import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
 import { ApplySuggestedBudgetsForm } from "@/components/forms/ApplySuggestedBudgetsForm";
+import { SetGlobalBudgetForm } from "@/components/forms/SetGlobalBudgetForm";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Sheet } from "@/components/ui/Sheet";
-import { SparklesIcon } from "@/components/ui/icons";
+import { BudgetsIcon, SparklesIcon } from "@/components/ui/icons";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function BudgetsScreen() {
@@ -17,6 +18,7 @@ export function BudgetsScreen() {
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [totalOpen, setTotalOpen] = useState(false);
   const suggestedUpdates = useMemo(
     () => suggestedCategoryBudgetUpdates(transactions, categories),
     [transactions, categories],
@@ -30,18 +32,28 @@ export function BudgetsScreen() {
             <MobileTopBar
               title="Budgets"
               trailing={
-                <button
-                  type="button"
-                  aria-label="Update budgets"
-                  onClick={suggestedUpdates.length > 0 ? () => setReviewOpen(true) : undefined}
-                  className={
-                    suggestedUpdates.length > 0
-                      ? "flex h-9 w-9 items-center justify-center rounded-xl text-green"
-                      : "pointer-events-none flex h-9 w-9 items-center justify-center rounded-xl text-faint"
-                  }
-                >
-                  <SparklesIcon size={20} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Set monthly budget"
+                    onClick={() => setTotalOpen(true)}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl text-green"
+                  >
+                    <BudgetsIcon size={20} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Update budgets"
+                    onClick={suggestedUpdates.length > 0 ? () => setReviewOpen(true) : undefined}
+                    className={
+                      suggestedUpdates.length > 0
+                        ? "flex h-9 w-9 items-center justify-center rounded-xl text-green"
+                        : "pointer-events-none flex h-9 w-9 items-center justify-center rounded-xl text-faint"
+                    }
+                  >
+                    <SparklesIcon size={20} />
+                  </button>
+                </div>
               }
             />
             <HeroCard className="mt-4 p-5">
@@ -108,6 +120,12 @@ export function BudgetsScreen() {
             updates={suggestedUpdates}
             onDone={() => setReviewOpen(false)}
           />
+        </Sheet>
+      ) : null}
+
+      {totalOpen ? (
+        <Sheet onClose={() => setTotalOpen(false)} title="Set monthly budget">
+          <SetGlobalBudgetForm onDone={() => setTotalOpen(false)} />
         </Sheet>
       ) : null}
     </>

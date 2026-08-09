@@ -927,6 +927,52 @@ final class AppStore {
     showToast("Budgets updated")
   }
 
+  func applyGlobalBudget(_ totalBudget: Int) {
+    let allocation = BudgetSelectors.globalBudgetAllocation(
+      transactions,
+      categories: categories.map {
+        GlobalBudgetCategoryInput(
+          id: $0.id,
+          name: $0.name,
+          sortOrder: $0.sortOrder,
+          monthlyBudgetMinor: $0.monthlyBudgetMinor
+        )
+      },
+      totalBudget: totalBudget
+    )
+    switch allocation.issue {
+    case .invalidTotal:
+      showToast("Enter a whole monthly budget greater than zero")
+      return
+    case .noCategories:
+      showToast("Create a category before setting a total budget")
+      return
+    case .noHistory:
+      showToast("No spending history in the last 6 completed months")
+      return
+    case nil:
+      break
+    }
+
+    var batch: [(EntityType, EntityPayload)] = []
+    for item in allocation.allocations where item.changed {
+      guard var category = categories.first(where: { $0.id == item.id }) else { continue }
+      category.monthlyBudgetMinor = item.allocatedLimit.map { $0 * 100 }
+      batch.append((.category, .category(category)))
+    }
+    guard !batch.isEmpty else {
+      showToast("Budgets already match this split")
+      return
+    }
+    let entitiesToSave = batch
+    write { try $0.saveEntities(entitiesToSave) }
+    showToast(
+      batch.count == 1
+        ? "Updated 1 budget from the total"
+        : "Updated \(batch.count) budgets from the total"
+    )
+  }
+
   func updatePreferences(mutate: (inout PreferencesEntity) -> Void) {
     var prefs = currentPreferences()
     mutate(&prefs)

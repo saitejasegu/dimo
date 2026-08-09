@@ -913,6 +913,145 @@ class BudgetSelectorTests : ZonedTest() {
       suggestions,
     )
   }
+
+  @Test
+  fun dailyBudgetAllowanceIncludesTodayAndHidesWhenOverBudget() {
+    val totals = BudgetTotals(
+      totalSpent = 700.0,
+      totalLimit = 1_000.0,
+      pct = 70,
+      left = 300.0,
+      over = false,
+      transactionCount = 4,
+    )
+
+    assertEquals(
+      DailyBudgetAllowance(amount = 30.0, daysRemaining = 10),
+      BudgetSelectors.dailyBudgetAllowance(totals, LocalDate.of(2026, 8, 22)),
+    )
+    assertEquals(
+      0.0,
+      BudgetSelectors.dailyBudgetAllowance(
+        totals.copy(totalSpent = 1_000.0, left = 0.0),
+        LocalDate.of(2026, 8, 31),
+      )!!.amount,
+      0.0001,
+    )
+    assertNull(
+      BudgetSelectors.dailyBudgetAllowance(
+        totals.copy(totalSpent = 1_001.0, left = -1.0),
+        LocalDate.of(2026, 8, 22),
+      ),
+    )
+    assertNull(
+      BudgetSelectors.dailyBudgetAllowance(
+        totals.copy(totalSpent = 0.0, totalLimit = 0.0, left = 0.0),
+        LocalDate.of(2026, 8, 22),
+      ),
+    )
+  }
+
+  @Test
+  fun globalBudgetUsesSixCompletedMonthsAndStableCategoryIds() {
+    fun row(id: String, categoryId: String, amount: Double, at: Long, name: String) = Transaction(
+      id = id,
+      name = "Item",
+      category = name,
+      time = "",
+      day = "",
+      amount = amount,
+      occurredAt = at,
+      categoryId = categoryId,
+    )
+    val categories = listOf(
+      GlobalBudgetCategoryInput("dining", "Dining", 0, null),
+      GlobalBudgetCategoryInput("bills", "Bills", 1, 50_000),
+      GlobalBudgetCategoryInput("empty", "Groceries", 2, 20_000),
+    )
+    val result = BudgetSelectors.globalBudgetAllocation(
+      transactions = listOf(
+        row("start", "dining", 200.0, stamp(2026, 2, 1), "Old dining name"),
+        row("end", "dining", 200.0, stamp(2026, 7, 31), "Dining"),
+        row("bills", "bills", 200.0, stamp(2026, 7, 1), "Bills"),
+        row("previous", "dining", 9_999.0, stamp(2026, 1, 31), "Dining"),
+        row("current", "dining", 9_999.0, stamp(2026, 8, 1), "Dining"),
+      ),
+      categories = categories,
+      totalBudget = 100,
+      now = LocalDate.of(2026, 8, 10),
+    )
+
+    assertEquals(DateHelpers.startOfDayMillis(LocalDate.of(2026, 2, 1)), result.window.start)
+    assertEquals(DateHelpers.startOfDayMillis(LocalDate.of(2026, 8, 1)), result.window.end)
+    assertEquals(600.0, result.sixMonthSpend, 0.0001)
+    assertEquals(100, result.totalAllocated)
+    assertEquals(listOf(67L, 33L, null), result.allocations.map { it.allocatedLimit })
+    assertEquals(listOf(67, 33, 0), result.allocations.map { it.share })
+  }
+
+  @Test
+  fun globalBudgetRoundingTiesAreDeterministicAndZeroHistoryIsNull() {
+    fun row(id: String) = Transaction(
+      id = id,
+      name = "Item",
+      category = id,
+      time = "",
+      day = "",
+      amount = 1.0,
+      occurredAt = stamp(2026, 7, 1),
+      categoryId = id,
+    )
+    val result = BudgetSelectors.globalBudgetAllocation(
+      transactions = listOf(row("a"), row("b"), row("c")),
+      categories = listOf(
+        GlobalBudgetCategoryInput("b", "B", 1, null),
+        GlobalBudgetCategoryInput("a", "A", 1, null),
+        GlobalBudgetCategoryInput("c", "C", 0, null),
+        GlobalBudgetCategoryInput("empty", "Empty", 2, 100),
+      ),
+      totalBudget = 2,
+      now = LocalDate.of(2026, 8, 10),
+    )
+    val byId = result.allocations.associate { it.id to it.allocatedLimit }
+    assertEquals(1L, byId["a"])
+    assertEquals(0L, byId["b"])
+    assertEquals(1L, byId["c"])
+    assertNull(byId["empty"])
+  }
+
+  @Test
+  fun globalBudgetRejectsUnavailableInputsAndHandlesLeapYearBoundary() {
+    val now = LocalDate.of(2024, 3, 15)
+    val categories = listOf(GlobalBudgetCategoryInput("dining", "Dining", 0, null))
+    val leap = Transaction(
+      id = "leap",
+      name = "Item",
+      category = "Dining",
+      time = "",
+      day = "",
+      amount = 290.0,
+      occurredAt = stamp(2024, 2, 29),
+      categoryId = "dining",
+    )
+    val valid = BudgetSelectors.globalBudgetAllocation(
+      listOf(leap), categories, 290, now = now,
+    )
+
+    assertEquals(DateHelpers.startOfDayMillis(LocalDate.of(2023, 9, 1)), valid.window.start)
+    assertEquals(290L, valid.allocations.first().allocatedLimit)
+    assertEquals(
+      GlobalBudgetAllocationIssue.INVALID_TOTAL,
+      BudgetSelectors.globalBudgetAllocation(listOf(leap), categories, 0, now = now).issue,
+    )
+    assertEquals(
+      GlobalBudgetAllocationIssue.NO_HISTORY,
+      BudgetSelectors.globalBudgetAllocation(emptyList(), categories, 100, now = now).issue,
+    )
+    assertEquals(
+      GlobalBudgetAllocationIssue.NO_CATEGORIES,
+      BudgetSelectors.globalBudgetAllocation(emptyList(), emptyList(), 100, now = now).issue,
+    )
+  }
 }
 
 class LendSelectorsTests {

@@ -153,6 +153,77 @@ describe("local repository", () => {
     expect(await totalEntityCount()).toBe(3);
   });
 
+  it("keeps an offline category-budget batch visible and queues every changed row", async () => {
+    await initializeLocalDatabase();
+    const base = {
+      emoji: "🙂",
+      tint: "neutral" as const,
+      system: false,
+    };
+    await saveEntities([
+      {
+        entityType: "category",
+        payload: {
+          ...base,
+          id: "category-dining",
+          name: "Dining",
+          monthlyBudgetMinor: 10_000,
+          sortOrder: 0,
+        },
+      },
+      {
+        entityType: "category",
+        payload: {
+          ...base,
+          id: "category-empty",
+          name: "Unused",
+          monthlyBudgetMinor: 20_000,
+          sortOrder: 1,
+        },
+      },
+    ]);
+    await db.outbox.clear();
+
+    await saveEntities([
+      {
+        entityType: "category",
+        payload: {
+          ...base,
+          id: "category-dining",
+          name: "Dining",
+          monthlyBudgetMinor: 50_000,
+          sortOrder: 0,
+        },
+      },
+      {
+        entityType: "category",
+        payload: {
+          ...base,
+          id: "category-empty",
+          name: "Unused",
+          monthlyBudgetMinor: null,
+          sortOrder: 1,
+        },
+      },
+    ]);
+
+    const dining = await getStoredRow("category", "category-dining");
+    const empty = await getStoredRow("category", "category-empty");
+    expect(dining).toMatchObject({
+      monthlyBudgetMinor: 50_000,
+    });
+    expect(empty).toMatchObject({
+      monthlyBudgetMinor: null,
+    });
+    const queued = await db.outbox.orderBy("entityId").toArray();
+    expect(queued.map(({ entityId, status }) => ({ entityId, status }))).toEqual([
+      { entityId: "category-dining", status: "pending" },
+      { entityId: "category-empty", status: "pending" },
+    ]);
+    expect(dining?.version.timestamp).toBe(empty?.version.timestamp);
+    expect(dining?.version.counter).not.toBe(empty?.version.counter);
+  });
+
   it("enqueues every local entity for a full cloud re-upload", async () => {
     await initializeLocalDatabase();
     await db.outbox.clear();

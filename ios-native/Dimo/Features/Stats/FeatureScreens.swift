@@ -703,6 +703,7 @@ struct BudgetsScreen: View {
   var store: AppStore
   @Bindable var entities: EntitiesStore
   @State private var suggestedOpen = false
+  @State private var totalOpen = false
 
   var body: some View {
     let totals = entities.monthBudgetTotals
@@ -716,6 +717,16 @@ struct BudgetsScreen: View {
             .font(DimoFont.display(24, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Spacer()
+          Button {
+            totalOpen = true
+          } label: {
+            Image(systemName: "target")
+              .font(.system(size: 18))
+              .foregroundStyle(Theme.green)
+              .frame(width: 36, height: 36)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Set monthly budget")
           Button {
             suggestedOpen = true
           } label: {
@@ -754,6 +765,9 @@ struct BudgetsScreen: View {
     .background(Theme.canvas.ignoresSafeArea())
     .sheet(isPresented: $suggestedOpen) {
       SuggestedBudgetsSheet(store: store, suggestions: suggestions)
+    }
+    .sheet(isPresented: $totalOpen) {
+      GlobalBudgetSheet(store: store)
     }
   }
 
@@ -841,6 +855,230 @@ struct BudgetsScreen: View {
     let now = Date()
     let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
     return daysInMonth - cal.component(.day, from: now)
+  }
+}
+
+private struct GlobalBudgetSheet: View {
+  @Bindable var store: AppStore
+  @State private var amount: String
+  @Environment(\.dismiss) private var dismiss
+
+  init(store: AppStore) {
+    self.store = store
+    let currentMinor = store.categories.reduce(0) { $0 + ($1.monthlyBudgetMinor ?? 0) }
+    _amount = State(
+      initialValue: currentMinor > 0
+        ? String(Int((Double(currentMinor) / 100).rounded()))
+        : ""
+    )
+  }
+
+  private var parsedAmount: Int? {
+    guard !amount.isEmpty,
+          amount.allSatisfy(\.isNumber),
+          let value = Int(amount),
+          value > 0,
+          value <= Int.max / 100 else { return nil }
+    return value
+  }
+
+  private var allocation: GlobalBudgetAllocation {
+    BudgetSelectors.globalBudgetAllocation(
+      store.transactions,
+      categories: store.categories.map {
+        GlobalBudgetCategoryInput(
+          id: $0.id,
+          name: $0.name,
+          sortOrder: $0.sortOrder,
+          monthlyBudgetMinor: $0.monthlyBudgetMinor
+        )
+      },
+      totalBudget: parsedAmount ?? 0
+    )
+  }
+
+  private var changedCount: Int {
+    allocation.allocations.filter(\.changed).count
+  }
+
+  private var canApply: Bool {
+    parsedAmount != nil && allocation.canApply && changedCount > 0
+  }
+
+  private var validationMessage: String? {
+    if store.categories.isEmpty {
+      return "Create a category before setting a total budget."
+    }
+    if allocation.issue == .noHistory {
+      return "No spending was found in the last 6 completed months. Set category budgets manually until there is enough history."
+    }
+    if !amount.isEmpty && parsedAmount == nil {
+      return "Enter a whole monthly amount greater than zero."
+    }
+    if parsedAmount != nil && changedCount == 0 {
+      return "Your category budgets already match this split."
+    }
+    return nil
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text("Set monthly budget")
+        .font(DimoFont.display(18, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+        .frame(maxWidth: .infinity, alignment: .center)
+
+      Text("Set one monthly total and split it using average spending from \(lookbackLabel).")
+        .font(DimoFont.body(13))
+        .foregroundStyle(Theme.muted)
+        .fixedSize(horizontal: false, vertical: true)
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Monthly total")
+          .font(DimoFont.body(12, weight: .medium))
+          .foregroundStyle(Theme.muted)
+        HStack(spacing: 8) {
+          Text(Formatting.currencySymbol(store.currency))
+            .font(DimoFont.body(16))
+            .foregroundStyle(Theme.muted)
+          TextField("Amount", text: Binding(
+            get: { amount },
+            set: { amount = String($0.filter(\.isNumber).prefix(15)) }
+          ))
+            .font(DimoFont.body(15))
+            .keyboardType(.numberPad)
+            .textFieldStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+
+        if let validationMessage {
+          Text(validationMessage)
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      ScrollView {
+        LazyVStack(spacing: 0) {
+          ForEach(Array(allocation.allocations.enumerated()), id: \.element.id) { index, item in
+            if index > 0 { Divider().overlay(Theme.line) }
+            HStack(spacing: 12) {
+              Text(store.categories.first(where: { $0.id == item.id })?.emoji ?? "🙂")
+                .font(.system(size: 18))
+                .frame(width: 36, height: 36)
+                .background(Theme.canvasDeep)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+              VStack(alignment: .leading, spacing: 3) {
+                Text(item.name)
+                  .font(DimoFont.body(14, weight: .medium))
+                  .foregroundStyle(Theme.ink)
+                  .lineLimit(1)
+                Text(
+                  item.sixMonthSpend > 0
+                    ? "\(Formatting.money(item.monthlyAverage, currency: store.currency)) monthly average · \(item.share)%"
+                    : "No spending history · no allocation"
+                )
+                  .font(DimoFont.body(11))
+                  .foregroundStyle(Theme.faint)
+                  .lineLimit(2)
+              }
+              Spacer(minLength: 8)
+              VStack(alignment: .trailing, spacing: 3) {
+                Text(
+                  parsedAmount != nil
+                    ? item.allocatedLimit.map {
+                      Formatting.money(Double($0), currency: store.currency)
+                    } ?? "—"
+                    : "—"
+                )
+                  .font(DimoFont.display(14, weight: .semibold))
+                  .foregroundStyle(item.sixMonthSpend > 0 ? Theme.ink : Theme.faint)
+                if item.sixMonthSpend > 0 {
+                  Text("PROPOSED")
+                    .font(DimoFont.body(9, weight: .semibold))
+                    .kerning(0.5)
+                    .foregroundStyle(Theme.green)
+                }
+              }
+              .fixedSize(horizontal: true, vertical: false)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+          }
+          if allocation.allocations.isEmpty {
+            Text("No categories yet.")
+              .font(DimoFont.body(14))
+              .foregroundStyle(Theme.muted)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 28)
+          }
+        }
+      }
+      .frame(maxHeight: 360)
+      .background(Theme.canvas)
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
+
+      Text("Applying this split replaces every category budget. You can still edit individual categories afterward; the total will follow their new sum.")
+        .font(DimoFont.body(12))
+        .foregroundStyle(Theme.muted)
+        .padding(13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.canvasDeep)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+      HStack(spacing: 12) {
+        Button("Cancel") { dismiss() }
+          .font(DimoFont.body(15, weight: .semibold))
+          .foregroundStyle(Theme.ink)
+          .frame(width: 90, height: 54)
+          .background(Theme.canvas)
+          .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
+          .buttonStyle(.plain)
+
+        Button(parsedAmount != nil && changedCount == 0 ? "Already applied" : "Apply split") {
+          guard let parsedAmount, canApply else { return }
+          store.applyGlobalBudget(parsedAmount)
+          dismiss()
+        }
+        .font(DimoFont.body(15, weight: .semibold))
+        .foregroundStyle(canApply ? Theme.onGreen : Theme.muted)
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .background(canApply ? Theme.green : Theme.disabled)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .buttonStyle(.plain)
+        .disabled(!canApply)
+      }
+    }
+    .padding(.horizontal, 22)
+    .padding(.top, 28)
+    .padding(.bottom, 22)
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
+    .presentationBackground(Theme.surface)
+  }
+
+  private var lookbackLabel: String {
+    let calendar = Calendar.current
+    let first = Date(timeIntervalSince1970: Double(allocation.window.start) / 1000)
+    let end = Date(timeIntervalSince1970: Double(allocation.window.end) / 1000)
+    let last = calendar.date(byAdding: .month, value: -1, to: end) ?? end
+    let month = DateFormatter()
+    month.dateFormat = "MMM"
+    let monthYear = DateFormatter()
+    monthYear.dateFormat = "MMM yyyy"
+    if calendar.component(.year, from: first) == calendar.component(.year, from: last) {
+      return "\(month.string(from: first))–\(monthYear.string(from: last))"
+    }
+    return "\(monthYear.string(from: first))–\(monthYear.string(from: last))"
   }
 }
 

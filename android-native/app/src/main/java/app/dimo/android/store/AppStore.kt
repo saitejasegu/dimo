@@ -40,6 +40,8 @@ import app.dimo.android.data.model.ViewKey
 import app.dimo.android.data.model.WeekStart
 import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
+import app.dimo.android.domain.GlobalBudgetAllocationIssue
+import app.dimo.android.domain.GlobalBudgetCategoryInput
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.ExchangeRates
 import app.dimo.android.domain.Formatting
@@ -971,6 +973,55 @@ class AppStore(
     viewModelScope.launch {
       repository?.saveEntities(batch)
       showToast("Budgets updated")
+    }
+  }
+
+  fun applyGlobalBudget(totalBudget: Long) {
+    val allocation = BudgetSelectors.globalBudgetAllocation(
+      transactions,
+      categories = categories.map {
+        GlobalBudgetCategoryInput(
+          id = it.id,
+          name = it.name,
+          sortOrder = it.sortOrder,
+          monthlyBudgetMinor = it.monthlyBudgetMinor,
+        )
+      },
+      totalBudget = totalBudget,
+    )
+    when (allocation.issue) {
+      GlobalBudgetAllocationIssue.INVALID_TOTAL -> {
+        showToast("Enter a whole monthly budget greater than zero")
+        return
+      }
+      GlobalBudgetAllocationIssue.NO_CATEGORIES -> {
+        showToast("Create a category before setting a total budget")
+        return
+      }
+      GlobalBudgetAllocationIssue.NO_HISTORY -> {
+        showToast("No spending history in the last 6 completed months")
+        return
+      }
+      null -> Unit
+    }
+
+    val batch = allocation.allocations.mapNotNull { item ->
+      if (!item.changed) return@mapNotNull null
+      val category = categories.firstOrNull { it.id == item.id } ?: return@mapNotNull null
+      EntityPayload.Category(
+        category.copy(monthlyBudgetMinor = item.allocatedLimit?.times(100)),
+      )
+    }
+    if (batch.isEmpty()) {
+      showToast("Budgets already match this split")
+      return
+    }
+    viewModelScope.launch {
+      repository?.saveEntities(batch)
+      showToast(
+        if (batch.size == 1) "Updated 1 budget from the total"
+        else "Updated ${batch.size} budgets from the total",
+      )
     }
   }
 

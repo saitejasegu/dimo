@@ -1,6 +1,10 @@
 import { useMemo } from "react";
 import { useAppState } from "@/store/app-store";
-import { budgetTotals, topCategories } from "@/features/budgets/selectors";
+import {
+  budgetTotals,
+  dailyBudgetAllowance,
+  topCategories,
+} from "@/features/budgets/selectors";
 import { recurringAmountInDefault } from "@/features/currency/rates";
 import {
   activeRecurring,
@@ -25,6 +29,7 @@ export function useOverview() {
     });
     return {
       totals,
+      dailyAllowance: dailyBudgetAllowance(totals, now),
       recurringTotal: monthlyRecurringTotal(recurring, (r) =>
         recurringAmountInDefault(r, currency, rates),
       ),

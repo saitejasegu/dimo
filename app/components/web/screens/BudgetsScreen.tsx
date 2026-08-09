@@ -6,12 +6,13 @@ import { useAppActions, useAppState } from "@/store/app-store";
 import { useBudgets } from "@/features/budgets/hooks";
 import { suggestedCategoryBudgetUpdates } from "@/features/budgets/selectors";
 import { ApplySuggestedBudgetsForm } from "@/components/forms/ApplySuggestedBudgetsForm";
+import { SetGlobalBudgetForm } from "@/components/forms/SetGlobalBudgetForm";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { PlusIcon, SparklesIcon } from "@/components/ui/icons";
+import { BudgetsIcon, PlusIcon, SparklesIcon } from "@/components/ui/icons";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function BudgetsScreen() {
@@ -19,6 +20,7 @@ export function BudgetsScreen() {
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [totalOpen, setTotalOpen] = useState(false);
   const suggestedUpdates = useMemo(
     () => suggestedCategoryBudgetUpdates(transactions, categories),
     [transactions, categories],
@@ -36,6 +38,14 @@ export function BudgetsScreen() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setTotalOpen(true)}
+            leftIcon={<BudgetsIcon size={16} />}
+          >
+            Set total
+          </Button>
           <button
             type="button"
             aria-label="Update budgets"
@@ -123,6 +133,12 @@ export function BudgetsScreen() {
             updates={suggestedUpdates}
             onDone={() => setReviewOpen(false)}
           />
+        </Modal>
+      ) : null}
+
+      {totalOpen ? (
+        <Modal onClose={() => setTotalOpen(false)} title="Set monthly budget" width={520}>
+          <SetGlobalBudgetForm onDone={() => setTotalOpen(false)} />
         </Modal>
       ) : null}
     </WebScreen>

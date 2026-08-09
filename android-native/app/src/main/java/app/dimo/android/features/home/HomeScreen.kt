@@ -57,6 +57,7 @@ import app.dimo.android.design.DimoFont
 import app.dimo.android.design.StatusBadge
 import app.dimo.android.design.StatusBadgeTone
 import app.dimo.android.domain.BudgetSelectors
+import app.dimo.android.domain.DailyBudgetAllowance
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.ExchangeRates
 import app.dimo.android.domain.Formatting
@@ -111,6 +112,7 @@ fun HomeScreen(
   val (paged, hasMore) = TransactionSelectors.paginateTransactionsByDay(filtered, pageSize)
   val groups = TransactionSelectors.groupByDay(paged)
   val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
+  val dailyAllowance = BudgetSelectors.dailyBudgetAllowance(totals)
   val upcomingThisMonth = RecurringSelectors.upcomingBills(store.recurring, store.transactions)
   val upcomingAll = RecurringSelectors.allUpcomingBills(store.recurring, store.transactions)
   val upcomingThisMonthTotal = upcomingTotal(upcomingThisMonth, store)
@@ -136,6 +138,7 @@ fun HomeScreen(
           monthName = LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
           totalSpent = totals.totalSpent,
           budgetLeft = totals.left,
+          dailyAllowance = dailyAllowance,
           transactionCount = totals.transactionCount,
           store = store,
         )
@@ -441,6 +444,7 @@ private fun HomeHero(
   monthName: String,
   totalSpent: Double,
   budgetLeft: Double,
+  dailyAllowance: DailyBudgetAllowance?,
   transactionCount: Int,
   store: AppStore,
   modifier: Modifier = Modifier,
@@ -489,6 +493,57 @@ private fun HomeHero(
           style = DimoFont.display(18f, FontWeight.SemiBold),
           color = if (budgetLeft < 0) DimoColors.danger else DimoColors.greenBright,
         )
+      }
+    }
+    if (dailyAllowance != null) {
+      Spacer(modifier = Modifier.height(16.dp))
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .height(1.dp)
+          .background(DimoColors.sideText.copy(alpha = 0.12f)),
+      )
+      Spacer(modifier = Modifier.height(16.dp))
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+          Text(
+            text = "Available to spend per day",
+            style = DimoFont.body(11f),
+            color = DimoColors.sideMuted,
+          )
+          Text(
+            text = if (dailyAllowance.daysRemaining == 1) {
+              "Today"
+            } else {
+              "${dailyAllowance.daysRemaining} days left, including today"
+            },
+            style = DimoFont.body(10f),
+            color = DimoColors.sideSub,
+          )
+        }
+        Row(
+          verticalAlignment = Alignment.Bottom,
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          Text(
+            text = Formatting.money(dailyAllowance.amount, store.currency),
+            style = DimoFont.display(18f, FontWeight.SemiBold),
+            color = DimoColors.greenBright,
+          )
+          Text(
+            text = "/ day",
+            style = DimoFont.body(10f, FontWeight.Medium),
+            color = DimoColors.sideMuted,
+            modifier = Modifier.padding(bottom = 2.dp),
+          )
+        }
       }
     }
   }

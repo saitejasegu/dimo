@@ -3,6 +3,8 @@ package app.dimo.android.domain
 import app.dimo.android.data.model.CategoryLimits
 import app.dimo.android.data.model.Transaction
 import java.time.LocalDate
+import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -27,6 +29,11 @@ data class BudgetTotals(
   val left: Double,
   val over: Boolean,
   val transactionCount: Int,
+)
+
+data class DailyBudgetAllowance(
+  val amount: Double,
+  val daysRemaining: Int,
 )
 
 data class CategoryLookbackSpend(
@@ -57,6 +64,50 @@ data class BudgetCategoryInput(
   val name: String,
   val monthlyBudgetMinor: Long?,
 )
+
+data class GlobalBudgetCategoryInput(
+  val id: String,
+  val name: String,
+  val sortOrder: Int,
+  val monthlyBudgetMinor: Long?,
+)
+
+data class GlobalBudgetLookbackWindow(
+  val start: Long,
+  val end: Long,
+  val monthCount: Int,
+)
+
+data class GlobalBudgetCategoryAllocation(
+  val id: String,
+  val name: String,
+  val sortOrder: Int,
+  val sixMonthSpend: Double,
+  val monthlyAverage: Double,
+  val share: Int,
+  /** Whole major currency units. Only categories without history receive null. */
+  val allocatedLimit: Long?,
+  val currentLimit: Double?,
+  val changed: Boolean,
+)
+
+enum class GlobalBudgetAllocationIssue {
+  INVALID_TOTAL,
+  NO_CATEGORIES,
+  NO_HISTORY,
+}
+
+data class GlobalBudgetAllocation(
+  val window: GlobalBudgetLookbackWindow,
+  val totalBudget: Long,
+  val totalAllocated: Long,
+  val sixMonthSpend: Double,
+  val monthlyAverage: Double,
+  val allocations: List<GlobalBudgetCategoryAllocation>,
+  val issue: GlobalBudgetAllocationIssue?,
+) {
+  val canApply: Boolean get() = issue == null
+}
 
 object BudgetSelectors {
   private fun isCurrentMonth(timestamp: Long?, now: LocalDate): Boolean {
@@ -111,6 +162,118 @@ object BudgetSelectors {
       left = totalLimit - totalSpent,
       over = totalLimit > 0 && totalSpent / totalLimit >= 0.9,
       transactionCount = current.size,
+    )
+  }
+
+  /** Average available spend for each remaining local calendar day, including today. */
+  fun dailyBudgetAllowance(
+    totals: BudgetTotals,
+    now: LocalDate = LocalDate.now(DateHelpers.zone()),
+  ): DailyBudgetAllowance? {
+    if (totals.totalLimit <= 0 || totals.left < 0) return null
+    val daysRemaining = now.lengthOfMonth() - now.dayOfMonth + 1
+    return DailyBudgetAllowance(
+      amount = totals.left / daysRemaining,
+      daysRemaining = daysRemaining,
+    )
+  }
+
+  /**
+   * Splits one monthly total using spending from the six completed local calendar
+   * months. Largest-remainder rounding makes the whole-unit allocations sum exactly.
+   */
+  fun globalBudgetAllocation(
+    transactions: List<Transaction>,
+    categories: List<GlobalBudgetCategoryInput>,
+    totalBudget: Long,
+    monthCount: Int = 6,
+    now: LocalDate = LocalDate.now(DateHelpers.zone()),
+  ): GlobalBudgetAllocation {
+    val safeMonthCount = if (monthCount > 0) monthCount else 6
+    val currentStart = now.withDayOfMonth(1)
+    val lookbackStart = currentStart.minusMonths(safeMonthCount.toLong())
+    val window = GlobalBudgetLookbackWindow(
+      start = DateHelpers.startOfDayMillis(lookbackStart),
+      end = DateHelpers.startOfDayMillis(currentStart),
+      monthCount = safeMonthCount,
+    )
+    val spendByCategoryId = mutableMapOf<String, Double>()
+    for (transaction in transactions) {
+      val categoryId = transaction.categoryId ?: continue
+      val occurredAt = transaction.occurredAt ?: continue
+      if (occurredAt < window.start || occurredAt >= window.end) continue
+      spendByCategoryId[categoryId] = (spendByCategoryId[categoryId] ?: 0.0) + transaction.amount
+    }
+    val eligibleSpend = categories.sumOf { max(0.0, spendByCategoryId[it.id] ?: 0.0) }
+    val validTotal = totalBudget > 0 && totalBudget <= Long.MAX_VALUE / 100
+    val issue = when {
+      categories.isEmpty() -> GlobalBudgetAllocationIssue.NO_CATEGORIES
+      eligibleSpend <= 0 -> GlobalBudgetAllocationIssue.NO_HISTORY
+      !validTotal -> GlobalBudgetAllocationIssue.INVALID_TOTAL
+      else -> null
+    }
+
+    data class Draft(
+      val category: GlobalBudgetCategoryInput,
+      val spend: Double,
+      val raw: Double,
+      var allocation: Long?,
+    )
+
+    val drafts = categories.map { category ->
+      val spend = max(0.0, spendByCategoryId[category.id] ?: 0.0)
+      val raw = if (validTotal && eligibleSpend > 0) totalBudget * spend / eligibleSpend else 0.0
+      Draft(
+        category = category,
+        spend = spend,
+        raw = raw,
+        allocation = if (spend > 0 && validTotal) floor(raw).toLong() else null,
+      )
+    }
+    if (issue == null) {
+      val floorTotal = drafts.sumOf { it.allocation ?: 0L }
+      val remainderOrder = drafts.indices.filter { drafts[it].spend > 0 }.sortedWith { left, right ->
+        val leftFraction = drafts[left].raw - floor(drafts[left].raw)
+        val rightFraction = drafts[right].raw - floor(drafts[right].raw)
+        val difference = rightFraction - leftFraction
+        when {
+          abs(difference) > 1e-12 -> if (difference > 0) 1 else -1
+          drafts[left].category.sortOrder != drafts[right].category.sortOrder ->
+            drafts[left].category.sortOrder.compareTo(drafts[right].category.sortOrder)
+          else -> drafts[left].category.id.compareTo(drafts[right].category.id)
+        }
+      }
+      val unitsLeft = totalBudget - floorTotal
+      if (remainderOrder.isNotEmpty() && unitsLeft > 0) {
+        for (position in 0 until unitsLeft) {
+          val index = remainderOrder[(position % remainderOrder.size).toInt()]
+          drafts[index].allocation = (drafts[index].allocation ?: 0) + 1
+        }
+      }
+    }
+
+    val allocations = drafts.map { draft ->
+      val current = draft.category.monthlyBudgetMinor?.toDouble()?.div(100)
+      GlobalBudgetCategoryAllocation(
+        id = draft.category.id,
+        name = draft.category.name,
+        sortOrder = draft.category.sortOrder,
+        sixMonthSpend = draft.spend,
+        monthlyAverage = draft.spend / safeMonthCount,
+        share = if (eligibleSpend > 0) Formatting.percent(draft.spend, eligibleSpend) else 0,
+        allocatedLimit = draft.allocation,
+        currentLimit = current,
+        changed = current != draft.allocation?.toDouble(),
+      )
+    }
+    return GlobalBudgetAllocation(
+      window = window,
+      totalBudget = totalBudget,
+      totalAllocated = allocations.sumOf { it.allocatedLimit ?: 0 },
+      sixMonthSpend = eligibleSpend,
+      monthlyAverage = eligibleSpend / safeMonthCount,
+      allocations = allocations,
+      issue = issue,
     )
   }
 
