@@ -185,14 +185,12 @@ from derived UI models.
   must still be listed.
 - Editing an entry never flips its direction; the saved row's `kind` wins over
   the draft.
-- iOS is currently the only client that can *record* a borrowing. Web reads all
-  four directions correctly (`app/features/lending/selectors.ts`) but stays
-  read-only, so it reports balances both ways without offering an entry form.
-- Android still coerces an unrecognized `kind` to `lent`
-  (`LendKind.fromWire`), so a borrowing displays there as a lend and inverts
-  that contact's balance. Android only rewrites a row the user edits, so this
-  is a display gap rather than data loss — port `LendKind`, `signedAmount`, and
-  the `LendSelectors` balance/summary changes before adding borrowing UI there.
+- Web reads all four directions correctly
+  (`app/features/lending/selectors.ts`) but stays read-only, so it reports
+  balances both ways without offering an entry form.
+- Android reads and writes all four directions: `LendKind.fromWire` returns
+  `null` for an unrecognized wire value rather than coercing to `lent`, and
+  `LendSheet` offers "I lent" / "I borrowed" alongside the settlement forms.
 - The current unsettled cycle starts after the most recent zero balance. Use
   `LendSelectors.unsettledTransactions(for:in:)` rather than duplicating it.
 - Native shared summaries use a plain-text share sheet

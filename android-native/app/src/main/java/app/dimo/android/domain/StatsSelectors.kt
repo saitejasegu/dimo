@@ -54,9 +54,17 @@ data class StatsScope(
   val scopeTotal: Double,
   val scopePast: Double,
   val spentLabel: String,
+  val periodLabel: String,
   val averageLabel: String,
   val transactions: List<Transaction>,
 )
+
+/**
+ * Effective "now" for a period offset. Swift carries this as a single `Date`;
+ * Kotlin needs both halves because the window bounds are compared in epoch
+ * millis while the label and bar cursors work in [LocalDate].
+ */
+data class StatsAnchor(val date: LocalDate, val millis: Long)
 
 data class MonthBar(
   val key: String,
@@ -112,6 +120,71 @@ object StatsSelectors {
     return monthStart(now, -(months - 1))
   }
 
+  /**
+   * Effective "now" for a period [offset] steps back — 0 is the current period,
+   * -1 is one full range back. Every window function already derives its bounds
+   * from "now", so shifting this one value moves the scope, the bars, and the
+   * average denominator together. Periods are contiguous and never overlap.
+   */
+  fun statsAnchor(
+    range: StatsRange,
+    offset: Int,
+    now: LocalDate = LocalDate.now(DateHelpers.zone()),
+    nowMillis: Long = System.currentTimeMillis(),
+  ): StatsAnchor {
+    // The current period stays partial: it ends at this instant, not month end.
+    if (offset == 0) return StatsAnchor(now, nowMillis)
+    if (range == StatsRange.ONE_WEEK) {
+      val shifted = now.plusDays(offset.toLong() * 7)
+      return StatsAnchor(shifted, DateHelpers.endOfDayMillis(shifted))
+    }
+    val months = StatsConstants.rangeMonths[range] ?: 1
+    val shifted = monthStart(now, offset * months)
+    val lastDay = shifted.withDayOfMonth(shifted.lengthOfMonth())
+    return StatsAnchor(lastDay, DateHelpers.endOfDayMillis(lastDay))
+  }
+
+  /** Human label for the window a given [offset] selects. */
+  fun periodLabel(
+    range: StatsRange,
+    offset: Int,
+    now: LocalDate = LocalDate.now(DateHelpers.zone()),
+    nowMillis: Long = System.currentTimeMillis(),
+    locale: Locale = Locale.getDefault(),
+  ): String {
+    if (offset == 0) {
+      return when (range) {
+        StatsRange.ONE_WEEK -> "This week"
+        StatsRange.MONTH -> "This month"
+        else -> "Last ${StatsConstants.rangeMonths[range] ?: 1} months"
+      }
+    }
+    val anchor = statsAnchor(range, offset, now, nowMillis)
+    val start = rangeStart(range, anchor.date)
+    val monthDay = DateTimeFormatter.ofPattern("MMM d", locale)
+    val monthYear = DateTimeFormatter.ofPattern("MMM y", locale)
+    if (range == StatsRange.ONE_WEEK) {
+      return "${start.format(monthDay)} – ${anchor.date.format(monthDay)}"
+    }
+    if ((StatsConstants.rangeMonths[range] ?: 1) == 1) {
+      return anchor.date.format(monthYear)
+    }
+    return "${start.format(monthYear)} – ${anchor.date.format(monthYear)}"
+  }
+
+  /** Whether anything predates the selected window, so "previous" can be disabled. */
+  fun hasEarlierData(
+    transactions: List<Transaction>,
+    range: StatsRange,
+    offset: Int,
+    now: LocalDate = LocalDate.now(DateHelpers.zone()),
+    nowMillis: Long = System.currentTimeMillis(),
+  ): Boolean {
+    val anchor = statsAnchor(range, offset, now, nowMillis)
+    val start = DateHelpers.startOfDayMillis(rangeStart(range, anchor.date))
+    return transactions.any { (it.occurredAt ?: 0L) < start }
+  }
+
   private fun inRange(
     transactions: List<Transaction>,
     range: StatsRange,
@@ -130,26 +203,36 @@ object StatsSelectors {
     transactions: List<Transaction>,
     now: LocalDate = LocalDate.now(DateHelpers.zone()),
     nowMillis: Long = System.currentTimeMillis(),
+    offset: Int = 0,
+    locale: Locale = Locale.getDefault(),
   ): StatsScope {
-    val scoped = inRange(transactions, range, now, nowMillis)
+    // Everything below is anchored here, so a past period shifts as one piece.
+    val anchor = statsAnchor(range, offset, now, nowMillis)
+    val scoped = inRange(transactions, range, anchor.date, anchor.millis)
     val scopeTotal = scoped.sumOf { it.amount }
     val oldestTimestamp = scoped.mapNotNull { it.occurredAt }.minOrNull()
     val days: Int = if (oldestTimestamp != null) {
       val oldestDay = DateHelpers.localDate(oldestTimestamp)
-      max(1, ChronoUnit.DAYS.between(oldestDay, now).toInt() + 1)
+      max(1, ChronoUnit.DAYS.between(oldestDay, anchor.date).toInt() + 1)
     } else {
       1
     }
-    val spentLabel = when (range) {
-      StatsRange.ONE_WEEK -> "Spent this week"
-      StatsRange.MONTH -> "Spent this month"
-      else -> "Spent in the last ${StatsConstants.rangeMonths[range] ?: 1} months"
+    val label = periodLabel(range, offset, now, nowMillis, locale)
+    val spentLabel = if (offset != 0) {
+      "Spent in $label"
+    } else {
+      when (range) {
+        StatsRange.ONE_WEEK -> "Spent this week"
+        StatsRange.MONTH -> "Spent this month"
+        else -> "Spent in the last ${StatsConstants.rangeMonths[range] ?: 1} months"
+      }
     }
     return StatsScope(
       rangeMonths = if (range == StatsRange.ONE_WEEK) 0 else (StatsConstants.rangeMonths[range] ?: 0),
       scopeTotal = scopeTotal,
       scopePast = 0.0,
       spentLabel = spentLabel,
+      periodLabel = label,
       averageLabel = "${Formatting.money(scopeTotal / days)} avg per day",
       transactions = scoped,
     )
@@ -261,10 +344,15 @@ object StatsSelectors {
     selectedKey: String?,
     now: LocalDate = LocalDate.now(DateHelpers.zone()),
     locale: Locale = Locale.getDefault(),
-  ): MonthBars = if (StatsConstants.isDayStatsRange(range)) {
-    dayBars(range, transactions, selectedKey, now, locale)
-  } else {
-    monthBars(range, transactions, selectedKey, now, locale)
+    nowMillis: Long = System.currentTimeMillis(),
+    offset: Int = 0,
+  ): MonthBars {
+    val anchor = statsAnchor(range, offset, now, nowMillis)
+    return if (StatsConstants.isDayStatsRange(range)) {
+      dayBars(range, transactions, selectedKey, anchor.date, locale)
+    } else {
+      monthBars(range, transactions, selectedKey, anchor.date, locale)
+    }
   }
 
   fun statCategories(scope: StatsScope, limit: Int): Pair<List<StatCategory>, Int> {

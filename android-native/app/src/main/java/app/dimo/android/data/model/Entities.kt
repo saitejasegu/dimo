@@ -396,6 +396,11 @@ data class Recurring(
   val frequency: RecurringFrequency? = null,
   /** Currency the amount is denominated in. null = account default currency. */
   val currency: String? = null,
+  /**
+   * Precomputed FX estimate label (e.g. "≈ ₹1,200 today"), or null when the bill
+   * is already in the default currency.
+   */
+  val convertedEstimateLabel: String? = null,
 )
 
 data class Lend(

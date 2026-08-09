@@ -45,6 +45,14 @@ object DateHelpers {
   fun startOfDayMillis(date: LocalDate, zone: ZoneId = zone()): Long =
     date.atStartOfDay(zone).toInstant().toEpochMilli()
 
+  /**
+   * Last representable millisecond of [date]. Swift builds the same instant as
+   * `startOfNextDay - 0.001`; a whole millisecond is the finest unit either
+   * client compares against, so the two land on the same boundary.
+   */
+  fun endOfDayMillis(date: LocalDate, zone: ZoneId = zone()): Long =
+    startOfDayMillis(date.plusDays(1), zone) - 1
+
   fun formatTransactionDay(
     timestamp: Long,
     now: LocalDate = LocalDate.now(zone()),
@@ -57,6 +65,12 @@ object DateHelpers {
     val pattern = if (date.year == now.year) "EEEE, MMM d" else "EEEE, MMM d, yyyy"
     return date.format(DateTimeFormatter.ofPattern(pattern, locale))
   }
+
+  /** Compact "MMM d" used by the active-filter chips. */
+  fun formatShortMonthDay(
+    date: LocalDate,
+    locale: Locale = Locale.getDefault(),
+  ): String = date.format(DateTimeFormatter.ofPattern("MMM d", locale))
 
   fun formatTransactionTime(
     timestamp: Long,

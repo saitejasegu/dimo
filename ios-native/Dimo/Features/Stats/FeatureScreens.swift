@@ -5,6 +5,13 @@ struct StatsScreen: View {
   @Bindable var entities: EntitiesStore
   @Bindable var nav: NavStore
   @State private var txSheet: StatsTxSelection?
+  /// Global frame of the trend chart while it scrolls horizontally on its own; `.zero` otherwise.
+  @State private var chartScrollFrame: CGRect = .zero
+  /// Direction of the last period change: +1 toward newer periods, -1 toward older ones,
+  /// 0 when the content changed for another reason and should just crossfade.
+  @State private var pageStep = 0
+  /// Damped follow of an in-progress swipe, so the page reacts before it commits.
+  @State private var dragOffset: CGFloat = 0
 
   private var statsInputs: StatsInputs {
     StatsInputs(
@@ -24,26 +31,22 @@ struct StatsScreen: View {
         topBar
         periodNav(scope)
           .padding(.top, 4)
-        hero(scope)
-          .padding(.top, 12)
       }
       .padding(.horizontal, 22)
       .padding(.top, 12)
-      .padding(.bottom, 14)
 
-      ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          trendCard
-          categoriesCard
-          merchantsCard
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 16)
-        .padding(.bottom, 24)
+      // The period's figures live in one keyed subtree so stepping periods slides the
+      // old numbers out and the new ones in rather than swapping them in place.
+      ZStack(alignment: .top) {
+        periodPage(scope)
+          .id(scope.periodLabel)
+          .transition(pageTransition)
       }
-      .onScrollPhaseChange { _, phase in
-        store.setUIScrolling(phase != .idle)
-      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .offset(x: dragOffset)
+      // The projection lands asynchronously, so the page animates off the delivered
+      // label rather than the offset the tap or swipe set.
+      .animation(.snappy(duration: 0.28), value: scope.periodLabel)
     }
     .background(Theme.canvas.ignoresSafeArea())
     // Whole-screen horizontal swipe mirrors the period chevrons; vertical scrolls stay free.
@@ -54,6 +57,7 @@ struct StatsScreen: View {
     .onDisappear { entities.setStatsVisible(false, inputs: statsInputs) }
     .onChange(of: nav.statsRange) { _, _ in
       // A new range reinterprets the offset's length, so snap back to current.
+      pageStep = 0
       store.statsPeriodOffset = 0
       store.selectedMonth = nil
     }
@@ -71,6 +75,51 @@ struct StatsScreen: View {
         transactions: matching
       )
     }
+  }
+
+  /// Everything that belongs to the shown period: the hero total and the three cards.
+  private func periodPage(_ scope: StatsScope) -> some View {
+    VStack(spacing: 0) {
+      hero(scope)
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+        .padding(.bottom, 14)
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          trendCard
+          categoriesCard
+          merchantsCard
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 16)
+        .padding(.bottom, 24)
+      }
+      .onScrollPhaseChange { _, phase in
+        store.setUIScrolling(phase != .idle)
+      }
+      // A period change replaces this scroll view mid-scroll, which would otherwise
+      // strand the flag that pauses background email work.
+      .onDisappear { store.setUIScrolling(false) }
+    }
+  }
+
+  /// Older periods arrive from the leading edge, newer ones from the trailing edge, so
+  /// the motion matches the chevron or swipe that asked for them. The first projection
+  /// to land and range switches have no direction, so they crossfade instead.
+  private var pageTransition: AnyTransition {
+    guard pageStep != 0 else { return .opacity }
+    let insertion: Edge = pageStep > 0 ? .trailing : .leading
+    let removal: Edge = pageStep > 0 ? .leading : .trailing
+    return .asymmetric(
+      insertion: .move(edge: insertion).combined(with: .opacity),
+      removal: .move(edge: removal).combined(with: .opacity)
+    )
+  }
+
+  private func step(by delta: Int) {
+    pageStep = delta
+    store.statsPeriodOffset = nav.statsPeriodOffset + delta
   }
 
   private var topBar: some View {
@@ -100,10 +149,12 @@ struct StatsScreen: View {
     // One bordered row rather than free-floating chevrons, matching the web nav.
     return HStack(spacing: 12) {
       periodStep(systemName: "chevron.left", enabled: canGoBack) {
-        store.statsPeriodOffset = nav.statsPeriodOffset - 1
+        step(by: -1)
       }
       Spacer(minLength: 0)
       Button {
+        // Offsets only run backwards, so returning to current always moves newer.
+        pageStep = 1
         store.statsPeriodOffset = 0
       } label: {
         Text(scope.periodLabel)
@@ -115,7 +166,7 @@ struct StatsScreen: View {
       .disabled(isCurrent)
       Spacer(minLength: 0)
       periodStep(systemName: "chevron.right", enabled: !isCurrent) {
-        store.statsPeriodOffset = nav.statsPeriodOffset + 1
+        step(by: 1)
       }
     }
     .padding(.horizontal, 12)
@@ -147,12 +198,21 @@ struct StatsScreen: View {
 
   /// Swipe right → older period (left chevron); swipe left → newer (right chevron).
   private var periodSwipeGesture: some Gesture {
-    DragGesture(minimumDistance: 40, coordinateSpace: .local)
+    DragGesture(minimumDistance: 40, coordinateSpace: .global)
+      .onChanged { value in
+        guard isPeriodSwipe(value) else { return }
+        // Damped, capped follow measured past the recognition threshold, so the page
+        // picks the drag up smoothly instead of jumping when the gesture engages.
+        let slack = max(0, abs(value.translation.width) - 40)
+        dragOffset = (value.translation.width < 0 ? -1 : 1) * min(48, slack * 0.3)
+      }
       .onEnded { value in
+        withAnimation(.snappy(duration: 0.28)) { dragOffset = 0 }
+        guard isPeriodSwipe(value) else { return }
+
         let horizontal = value.translation.width
-        let vertical = abs(value.translation.height)
-        // Require a clearly horizontal flick so list scrolling is unaffected.
-        guard abs(horizontal) >= 80, abs(horizontal) > vertical * 1.5 else { return }
+        // Require a decisive flick so an incidental sideways drift does nothing.
+        guard abs(horizontal) >= 80 else { return }
 
         if horizontal > 0 {
           let canGoBack = StatsSelectors.hasEarlierData(
@@ -161,12 +221,19 @@ struct StatsScreen: View {
             offset: nav.statsPeriodOffset
           )
           guard canGoBack else { return }
-          store.statsPeriodOffset = nav.statsPeriodOffset - 1
+          step(by: -1)
         } else {
           guard nav.statsPeriodOffset < 0 else { return }
-          store.statsPeriodOffset = nav.statsPeriodOffset + 1
+          step(by: 1)
         }
       }
+  }
+
+  /// A drag counts as a period swipe when it is clearly horizontal and did not start on
+  /// the trend chart, whose own scroll view owns horizontal drags.
+  private func isPeriodSwipe(_ value: DragGesture.Value) -> Bool {
+    guard !chartScrollFrame.contains(value.startLocation) else { return false }
+    return abs(value.translation.width) > abs(value.translation.height) * 1.5
   }
 
   private func hero(_ scope: StatsScope) -> some View {
@@ -201,7 +268,7 @@ struct StatsScreen: View {
             .font(DimoFont.body(12))
             .foregroundStyle(Theme.muted)
         }
-        MonthBarsView(bars: bars.bars) { key in
+        MonthBarsView(bars: bars.bars, scrollFrame: $chartScrollFrame) { key in
           store.selectedMonth = key
         }
       }
@@ -401,6 +468,9 @@ private struct StatsTransactionListSheet: View {
 /// Horizontal bar chart matching the web MonthBars (mobile size).
 private struct MonthBarsView: View {
   var bars: [MonthBar]
+  /// Reports the chart's frame while it owns horizontal drags, so the page-level period
+  /// swipe can skip them; stays `.zero` when the bars fit and nothing scrolls.
+  @Binding var scrollFrame: CGRect
   var onSelect: (String) -> Void
 
   private var scrollable: Bool { bars.count > 7 }
@@ -411,6 +481,11 @@ private struct MonthBarsView: View {
         ScrollView(.horizontal, showsIndicators: false) {
           barRow
         }
+        .onGeometryChange(for: CGRect.self) { geometry in
+          geometry.frame(in: .global)
+        } action: { frame in
+          scrollFrame = frame
+        }
         .onAppear {
           if let last = bars.last?.key {
             proxy.scrollTo(last, anchor: .trailing)
@@ -419,6 +494,7 @@ private struct MonthBarsView: View {
       }
     } else {
       barRow
+        .onAppear { scrollFrame = .zero }
     }
   }
 

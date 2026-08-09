@@ -1,6 +1,7 @@
 package app.dimo.android.features.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -152,6 +154,13 @@ fun AccountScreen(
       }
     }
 
+    DimoCard(verticalSpacing = 14.dp) {
+      SectionTitle("Help & legal", modifier = Modifier.fillMaxWidth())
+      LegalLink(label = "Support", url = "https://dimoapp.xyz/support")
+      LegalLink(label = "Privacy Policy", url = "https://dimoapp.xyz/privacy")
+      LegalLink(label = "Terms of Service", url = "https://dimoapp.xyz/terms")
+    }
+
     DimoCard(verticalSpacing = 10.dp) {
       ActionButton(title = "Sign out", onClick = { confirmSignOut = true })
       ActionButton(
@@ -189,6 +198,20 @@ fun AccountScreen(
       onDismiss = { confirmDelete = false },
     )
   }
+}
+
+/** Opens in the browser; these pages are also linked from the App Store listing. */
+@Composable
+private fun LegalLink(label: String, url: String) {
+  val uriHandler = LocalUriHandler.current
+  Text(
+    text = label,
+    style = DimoFont.body(14f, FontWeight.Medium),
+    color = DimoColors.green,
+    modifier = Modifier
+      .fillMaxWidth()
+      .clickable { uriHandler.openUri(url) },
+  )
 }
 
 @Composable

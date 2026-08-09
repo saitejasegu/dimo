@@ -204,6 +204,152 @@ class StatsSelectorTests : ZonedTest() {
 
     assertEquals("₹100 avg per day", scope.averageLabel)
   }
+
+  private fun transaction(id: String, amount: Double, occurredAt: Long) = Transaction(
+    id = id,
+    name = "Merchant",
+    category = "Dining",
+    time = "",
+    day = "",
+    amount = amount,
+    occurredAt = occurredAt,
+  )
+
+  @Test
+  fun currentPeriodAnchorsToNow() {
+    val now = LocalDate.of(2026, 7, 11)
+    val nowMillis = stamp(2026, 7, 11, hour = 15)
+
+    val anchor = StatsSelectors.statsAnchor(StatsRange.MONTH, 0, now, nowMillis)
+
+    assertEquals(now, anchor.date)
+    assertEquals(nowMillis, anchor.millis)
+  }
+
+  @Test
+  fun previousMonthPeriodCoversThatWholeMonth() {
+    val now = LocalDate.of(2026, 7, 11)
+    val nowMillis = stamp(2026, 7, 11, hour = 15)
+    val transactions = listOf(
+      transaction("june-first", 100.0, stamp(2026, 6, 1, hour = 1)),
+      transaction("june-last", 200.0, stamp(2026, 6, 30, hour = 23)),
+      transaction("july", 999.0, stamp(2026, 7, 2, hour = 10)),
+      transaction("may", 999.0, stamp(2026, 5, 31, hour = 10)),
+    )
+
+    val scope = StatsSelectors.statsScope(
+      range = StatsRange.MONTH,
+      transactions = transactions,
+      now = now,
+      nowMillis = nowMillis,
+      offset = -1,
+    )
+
+    assertEquals(listOf("june-first", "june-last"), scope.transactions.map { it.id })
+    assertEquals(300.0, scope.scopeTotal, 0.0001)
+    assertEquals("Jun 2026", scope.periodLabel)
+    assertEquals("Spent in Jun 2026", scope.spentLabel)
+  }
+
+  @Test
+  fun currentPeriodKeepsItsOwnLabels() {
+    val scope = StatsSelectors.statsScope(
+      range = StatsRange.MONTH,
+      transactions = emptyList(),
+      now = LocalDate.of(2026, 7, 11),
+      nowMillis = stamp(2026, 7, 11, hour = 15),
+    )
+
+    assertEquals("This month", scope.periodLabel)
+    assertEquals("Spent this month", scope.spentLabel)
+  }
+
+  @Test
+  fun previousWeekLabelSpansTheShiftedWindow() {
+    val label = StatsSelectors.periodLabel(
+      range = StatsRange.ONE_WEEK,
+      offset = -1,
+      now = LocalDate.of(2026, 7, 11),
+      nowMillis = stamp(2026, 7, 11, hour = 15),
+      locale = Locale.US,
+    )
+
+    assertEquals("Jun 28 – Jul 4", label)
+  }
+
+  @Test
+  fun multiMonthLabelSpansStartAndEndMonths() {
+    val label = StatsSelectors.periodLabel(
+      range = StatsRange.ONE_YEAR,
+      offset = -1,
+      now = LocalDate.of(2026, 7, 11),
+      nowMillis = stamp(2026, 7, 11, hour = 15),
+      locale = Locale.US,
+    )
+
+    assertEquals("Aug 2024 – Jul 2025", label)
+  }
+
+  @Test
+  fun periodsAreContiguousAndDoNotOverlap() {
+    val now = LocalDate.of(2026, 7, 11)
+    val nowMillis = stamp(2026, 7, 11, hour = 15)
+    // One per month across the last three months, plus the current partial one.
+    val transactions = listOf(
+      transaction("may", 10.0, stamp(2026, 5, 15)),
+      transaction("june", 20.0, stamp(2026, 6, 15)),
+      transaction("july", 30.0, stamp(2026, 7, 5)),
+    )
+
+    fun idsAt(offset: Int) = StatsSelectors.statsScope(
+      range = StatsRange.MONTH,
+      transactions = transactions,
+      now = now,
+      nowMillis = nowMillis,
+      offset = offset,
+    ).transactions.map { it.id }
+
+    assertEquals(listOf("july"), idsAt(0))
+    assertEquals(listOf("june"), idsAt(-1))
+    assertEquals(listOf("may"), idsAt(-2))
+  }
+
+  @Test
+  fun hasEarlierDataStopsWhenNothingPrecedesTheWindow() {
+    val now = LocalDate.of(2026, 7, 11)
+    val nowMillis = stamp(2026, 7, 11, hour = 15)
+    val transactions = listOf(transaction("oldest", 100.0, stamp(2025, 7, 1, hour = 10)))
+
+    // The current year window starts 2025-08-01, so the 2025-07-01 row precedes it.
+    assertTrue(
+      StatsSelectors.hasEarlierData(transactions, StatsRange.ONE_YEAR, 0, now, nowMillis),
+    )
+    // One period back starts 2024-08-01, which nothing precedes.
+    assertFalse(
+      StatsSelectors.hasEarlierData(transactions, StatsRange.ONE_YEAR, -1, now, nowMillis),
+    )
+  }
+
+  @Test
+  fun trendBarsFollowTheSelectedPeriod() {
+    val now = LocalDate.of(2026, 7, 11)
+    val nowMillis = stamp(2026, 7, 11, hour = 15)
+
+    val bars = StatsSelectors.trendBars(
+      range = StatsRange.MONTH,
+      transactions = emptyList(),
+      selectedKey = null,
+      now = now,
+      locale = Locale.US,
+      nowMillis = nowMillis,
+      offset = -1,
+    )
+
+    // June has 30 days and the shifted window runs to month end.
+    assertEquals(30, bars.bars.size)
+    assertEquals("2026-06-01", bars.bars.first().key)
+    assertEquals("2026-06-30", bars.bars.last().key)
+  }
 }
 
 class DateHelpersTests : ZonedTest() {
@@ -734,6 +880,41 @@ class LendSelectorsTests {
     occurredAt = occurredAt,
     kind = kind,
   )
+
+  @Test
+  fun paginationKeepsWholeDaysTogether() {
+    // 50 on one day, then three more on the next: the page must not split day 2.
+    val page1 = (1..50).map { lend("a$it", "Aakash", "cn-a", 10.0).copy(day = "Mon") }
+    val page2 = (1..3).map { lend("b$it", "Aakash", "cn-a", 10.0).copy(day = "Sun") }
+
+    val (items, hasMore) = LendSelectors.paginateByDay(
+      page1 + page2,
+      LendSelectors.historyPageSize,
+    )
+
+    assertEquals(50, items.size)
+    assertTrue(hasMore)
+  }
+
+  @Test
+  fun paginationExtendsPastTheLimitToFinishADay() {
+    val sameDay = (1..53).map { lend("a$it", "Aakash", "cn-a", 10.0).copy(day = "Mon") }
+
+    val (items, hasMore) = LendSelectors.paginateByDay(sameDay, LendSelectors.historyPageSize)
+
+    assertEquals(53, items.size)
+    assertFalse(hasMore)
+  }
+
+  @Test
+  fun paginationReportsNoMoreWhenEverythingFits() {
+    val lends = (1..5).map { lend("a$it", "Aakash", "cn-a", 10.0).copy(day = "Mon") }
+
+    val (items, hasMore) = LendSelectors.paginateByDay(lends, LendSelectors.historyPageSize)
+
+    assertEquals(5, items.size)
+    assertFalse(hasMore)
+  }
 
   @Test
   fun summariesSplitSameNameByContactId() {

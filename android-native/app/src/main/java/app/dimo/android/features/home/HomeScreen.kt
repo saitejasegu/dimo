@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.dimo.android.data.model.CategoryEntity
 import app.dimo.android.data.model.Recurring
 import app.dimo.android.data.model.Transaction
 import app.dimo.android.design.AvatarView
@@ -47,6 +51,7 @@ import app.dimo.android.design.DimoFont
 import app.dimo.android.design.StatusBadge
 import app.dimo.android.design.StatusBadgeTone
 import app.dimo.android.domain.BudgetSelectors
+import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.Greeting
 import app.dimo.android.domain.RecurringSelectors
@@ -62,6 +67,7 @@ import app.dimo.android.features.common.HeroAmount
 import app.dimo.android.features.common.HeroCaption
 import app.dimo.android.features.common.HeroCard
 import app.dimo.android.features.common.HeroLabel
+import app.dimo.android.features.common.LoadingRow
 import app.dimo.android.features.common.OptionalDateField
 import app.dimo.android.features.common.FilterCategoryDropdown
 import app.dimo.android.features.common.FilterPaymentDropdown
@@ -77,6 +83,7 @@ import app.dimo.android.store.AppStore
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /**
  * Home / Activity. Port of `ios-native/Dimo/Features/Home/HomeScreen.swift`:
@@ -175,14 +182,6 @@ fun HomeScreen(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
           SectionTitle("Activity", modifier = Modifier.weight(1f))
-          if (filterActive) {
-            Text(
-              text = "Clear",
-              style = DimoFont.body(13f, FontWeight.Medium),
-              color = DimoColors.green,
-              modifier = Modifier.clickable { store.filter = TransactionFilter() },
-            )
-          }
           Box(
             modifier = Modifier
               .size(36.dp)
@@ -196,6 +195,28 @@ fun HomeScreen(
               tint = if (filterActive) DimoColors.green else DimoColors.ink,
               modifier = Modifier.size(18.dp),
             )
+          }
+        }
+      }
+
+      if (filterActive) {
+        item("filter-chips") {
+          val tags = filterTags(store.filter, store.categories)
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            tags.forEach { tag ->
+              RemovableFilterChip(
+                label = tag.label,
+                onRemove = {
+                  store.filter = removeFilterTag(store.filter, tag.id)
+                  pageSize = TransactionSelectors.HOME_PAGE_SIZE
+                },
+              )
+            }
           }
         }
       }
@@ -259,16 +280,13 @@ fun HomeScreen(
 
       if (hasMore) {
         item("load-more") {
-          Text(
-            text = "Load more",
-            style = DimoFont.body(14f, FontWeight.Medium),
-            color = DimoColors.green,
-            modifier = Modifier
-              .fillMaxWidth()
-              .cardSurface(12.dp)
-              .clickable { pageSize += TransactionSelectors.HOME_PAGE_SIZE }
-              .padding(vertical = 14.dp),
-          )
+          // Advancing on composition gives the iOS auto-load behaviour: the row
+          // only enters composition once the list is scrolled to it.
+          LaunchedEffect(pageSize) {
+            val next = minOf(pageSize + TransactionSelectors.HOME_PAGE_SIZE, filtered.size)
+            if (next > pageSize) pageSize = next
+          }
+          LoadingRow()
         }
       }
     }
@@ -300,7 +318,102 @@ fun HomeScreen(
   }
 
   if (showFilters) {
-    FilterSheet(store = store, onClose = { showFilters = false })
+    FilterSheet(
+      store = store,
+      onApply = { applied ->
+        store.filter = applied
+        pageSize = TransactionSelectors.HOME_PAGE_SIZE
+        showFilters = false
+      },
+      onClose = { showFilters = false },
+    )
+  }
+}
+
+/** One active-filter pill; [id] encodes which part of the filter it clears. */
+private data class FilterTag(val id: String, val label: String)
+
+private fun filterTags(
+  filter: TransactionFilter,
+  categories: List<CategoryEntity>,
+): List<FilterTag> {
+  val tags = mutableListOf<FilterTag>()
+  filter.categories.forEach { name ->
+    // The default face carries no meaning, so it is dropped from the pill.
+    val emoji = categories.firstOrNull { it.name == name }?.emoji?.takeIf { it != "🙂" }
+    tags.add(
+      FilterTag(
+        id = "category:$name",
+        label = listOfNotNull(emoji, name).joinToString(" "),
+      ),
+    )
+  }
+  if (filter.paymentMethod != "All") {
+    tags.add(FilterTag(id = "payment", label = filter.paymentMethod))
+  }
+  val query = filter.query.trim()
+  if (query.isNotEmpty()) {
+    tags.add(FilterTag(id = "query", label = "“$query”"))
+  }
+  if (filter.startDate != null || filter.endDate != null) {
+    tags.add(FilterTag(id = "dates", label = dateRangeLabel(filter)))
+  }
+  return tags
+}
+
+private fun dateRangeLabel(filter: TransactionFilter): String {
+  val start = filter.startDate?.let { DateHelpers.formatShortMonthDay(it) }
+  val end = filter.endDate?.let { DateHelpers.formatShortMonthDay(it) }
+  return when {
+    start != null && end != null -> if (start == end) start else "$start – $end"
+    start != null -> "From $start"
+    end != null -> "Until $end"
+    else -> ""
+  }
+}
+
+private fun removeFilterTag(filter: TransactionFilter, tagId: String): TransactionFilter = when {
+  tagId == "payment" -> filter.copy(paymentMethod = "All")
+  tagId == "query" -> filter.copy(query = "")
+  tagId == "dates" -> filter.copy(startDate = null, endDate = null)
+  tagId.startsWith("category:") -> {
+    val name = tagId.removePrefix("category:")
+    filter.copy(categories = filter.categories.filterNot { it == name })
+  }
+  else -> filter
+}
+
+@Composable
+private fun RemovableFilterChip(
+  label: String,
+  onRemove: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier = modifier
+      .clip(RoundedCornerShape(50))
+      .background(DimoColors.greenSoft)
+      .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    Text(
+      text = label,
+      style = DimoFont.body(12f, FontWeight.Medium),
+      color = DimoColors.greenDeep,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+    Icon(
+      imageVector = Icons.Filled.Close,
+      contentDescription = "Remove $label filter",
+      tint = DimoColors.greenDeep,
+      modifier = Modifier
+        .size(18.dp)
+        .clip(RoundedCornerShape(50))
+        .clickable(onClick = onRemove)
+        .padding(3.dp),
+    )
   }
 }
 
@@ -429,11 +542,22 @@ private fun UpcomingBillsCard(
             overflow = TextOverflow.Ellipsis,
           )
         }
-        Text(
-          text = Formatting.money(bill.amount, bill.currency ?: store.currency.wire),
-          style = DimoFont.display(14f, FontWeight.SemiBold),
-          color = DimoColors.ink,
-        )
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+          Text(
+            text = Formatting.money(bill.amount, bill.currency ?: store.currency.wire),
+            style = DimoFont.display(14f, FontWeight.SemiBold),
+            color = DimoColors.ink,
+          )
+          bill.convertedEstimateLabel?.let { estimate ->
+            Text(
+              text = estimate,
+              style = DimoFont.body(11f),
+              color = DimoColors.muted,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
+          }
+        }
       }
     }
   }
@@ -550,17 +674,28 @@ private fun SelectionBar(
   }
 }
 
+/**
+ * Edits a local draft and only writes it back to the store on Apply, so
+ * dismissing the sheet abandons the edit. Port of the iOS `FilterSheet`.
+ */
 @Composable
 private fun FilterSheet(
   store: AppStore,
+  onApply: (TransactionFilter) -> Unit,
   onClose: () -> Unit,
 ) {
-  val filter = store.filter
-  var dateFilterEnabled by remember(filter.startDate, filter.endDate) {
-    mutableStateOf(filter.startDate != null || filter.endDate != null)
+  var filter by remember { mutableStateOf(store.filter) }
+  var dateFilterEnabled by remember {
+    mutableStateOf(store.filter.startDate != null || store.filter.endDate != null)
   }
-  val matchCount = remember(filter, store.transactions) {
-    TransactionSelectors.filterTransactions(store.transactions, filter).size
+  // Debounced so dragging a date or typing a query does not re-scan the list on
+  // every keystroke; the count is advisory, not the applied result.
+  var matchCount by remember {
+    mutableStateOf(TransactionSelectors.filterTransactions(store.transactions, store.filter).size)
+  }
+  LaunchedEffect(filter, store.transactions) {
+    delay(180)
+    matchCount = TransactionSelectors.filterTransactions(store.transactions, filter).size
   }
 
   DimoBottomSheet(onDismiss = onClose) {
@@ -576,7 +711,7 @@ private fun FilterSheet(
         SectionLabel("Search")
         DimoTextField(
           value = filter.query,
-          onValueChange = { store.filter = filter.copy(query = it) },
+          onValueChange = { filter = filter.copy(query = it) },
           placeholder = "Search merchant or category",
           imeAction = ImeAction.Search,
           textStyle = DimoFont.body(16f),
@@ -598,7 +733,7 @@ private fun FilterSheet(
           onCheckedChange = { enabled ->
             dateFilterEnabled = enabled
             if (!enabled) {
-              store.filter = store.filter.copy(startDate = null, endDate = null)
+              filter = filter.copy(startDate = null, endDate = null)
             }
           },
         )
@@ -607,13 +742,26 @@ private fun FilterSheet(
             OptionalDateField(
               label = "From",
               date = filter.startDate,
-              onChange = { store.filter = store.filter.copy(startDate = it) },
+              onChange = { next ->
+                // Keep the range ordered the way the iOS pickers clamp it.
+                val end = filter.endDate
+                filter = filter.copy(
+                  startDate = next,
+                  endDate = if (next != null && end != null && end < next) next else end,
+                )
+              },
               modifier = Modifier.weight(1f),
             )
             OptionalDateField(
               label = "To",
               date = filter.endDate,
-              onChange = { store.filter = store.filter.copy(endDate = it) },
+              onChange = { next ->
+                val start = filter.startDate
+                filter = filter.copy(
+                  startDate = if (next != null && start != null && start > next) next else start,
+                  endDate = next,
+                )
+              },
               modifier = Modifier.weight(1f),
             )
           }
@@ -626,7 +774,7 @@ private fun FilterSheet(
           FilterCategoryDropdown(
             categories = store.categories,
             selected = filter.categories.toSet(),
-            onChange = { store.filter = filter.copy(categories = it.toList()) },
+            onChange = { filter = filter.copy(categories = it.toList()) },
           )
         }
       }
@@ -637,7 +785,7 @@ private fun FilterSheet(
           FilterPaymentDropdown(
             methods = store.paymentMethods.filter { !it.archived },
             selection = filter.paymentMethod,
-            onSelect = { store.filter = filter.copy(paymentMethod = it) },
+            onSelect = { filter = filter.copy(paymentMethod = it) },
           )
         }
       }
@@ -658,15 +806,13 @@ private fun FilterSheet(
           modifier = Modifier
             .weight(1f)
             .cardSurface(14.dp, DimoColors.canvas)
-            .clickable {
-              store.filter = TransactionFilter()
-              dateFilterEnabled = false
-            }
+            // Clear commits an empty filter and closes, matching iOS.
+            .clickable { onApply(TransactionFilter()) }
             .padding(vertical = 15.dp),
           textAlign = TextAlign.Center,
         )
         Box(modifier = Modifier.weight(1f)) {
-          PrimaryButton(title = "Apply", onClick = onClose)
+          PrimaryButton(title = "Apply", onClick = { onApply(filter) })
         }
       }
       Spacer(modifier = Modifier.height(4.dp))

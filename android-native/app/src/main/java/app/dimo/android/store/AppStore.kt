@@ -42,6 +42,7 @@ import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.ExchangeRates
+import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.ExpenseReminderSettings
 import app.dimo.android.domain.ExpenseReminderStore
 import app.dimo.android.domain.LendDirection
@@ -116,6 +117,13 @@ class AppStore(
     private set
   var filter by mutableStateOf(TransactionFilter())
   var statsRange by mutableStateOf(StatsRange.ONE_YEAR)
+
+  /**
+   * How many whole periods back Stats is showing: 0 is the current (partial)
+   * period, -1 one full range earlier. Never positive — the UI clamps forward
+   * navigation at the current period.
+   */
+  var statsPeriodOffset by mutableStateOf(0)
   var selectedMonth by mutableStateOf<String?>(null)
   var merchantsExpanded by mutableStateOf(false)
   var categoriesExpanded by mutableStateOf(false)
@@ -335,7 +343,13 @@ class AppStore(
     try {
       val table = coordinator?.latestExchangeRates() ?: return
       ratesService.store(table)
+      val previousDate = rates?.date
       rates = table
+      // FX changes remap foreign amounts into the default currency, so the
+      // derived recurring estimates have to be rebuilt.
+      if (previousDate != table.date) {
+        repository?.let { hydrate(it.allEntities()) }
+      }
     } catch (_: Throwable) {
       // Offline / auth — keep the DataStore cache already seeded into `rates`.
     }
@@ -1193,8 +1207,28 @@ class AppStore(
     nextRecurring.sortBy {
       DateHelpers.nextOccurrence(anchorDate = it.anchorDate, frequency = it.frequency)
     }
+    val defaultCurrency = prefs.currency.wire
     recurring = nextRecurring.map { rec ->
       val cat = categoryById[rec.categoryId]
+      val sourceCurrency = rec.currency
+      // Foreign-currency bills carry a default-currency estimate so the list can
+      // be read without doing the conversion mentally.
+      val convertedEstimateLabel = if (sourceCurrency != null && sourceCurrency != defaultCurrency) {
+        val convertedMinor = ExchangeRates.convertMinor(
+          rec.amountMinor,
+          from = sourceCurrency,
+          to = defaultCurrency,
+          rates = rates,
+        )
+        if (convertedMinor != null) {
+          val converted = ExchangeRates.toMajorUnits(convertedMinor, defaultCurrency)
+          "≈ ${Formatting.money(converted, defaultCurrency)} today"
+        } else {
+          "Rate unavailable"
+        }
+      } else {
+        null
+      }
       Recurring(
         id = rec.id,
         name = rec.name,
@@ -1205,7 +1239,7 @@ class AppStore(
         ),
         amount = ExchangeRates.toMajorUnits(
           rec.amountMinor,
-          rec.currency ?: prefs.currency.wire,
+          sourceCurrency ?: defaultCurrency,
         ),
         paused = rec.paused,
         green = cat?.tint == CategoryTint.GREEN,
@@ -1216,6 +1250,7 @@ class AppStore(
         anchorDate = rec.anchorDate,
         frequency = rec.frequency,
         currency = rec.currency,
+        convertedEstimateLabel = convertedEstimateLabel,
       )
     }
 

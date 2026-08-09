@@ -99,6 +99,24 @@ object ContactsLoader {
     }
   }
 
+  /**
+   * Process-lifetime `contactId → photo URI` index. Lending rows only store the
+   * address-book id, so this is what lets a list row resolve a thumbnail without
+   * re-querying the provider per row.
+   */
+  private var photoIndex: Map<String, String>? = null
+
+  suspend fun photoUris(context: Context): Map<String, String> {
+    photoIndex?.let { return it }
+    // Not cached while unauthorized, so granting the permission later still works.
+    if (!hasPermission(context)) return emptyMap()
+    val loaded = load(context).mapNotNull { contact ->
+      contact.photoUri?.takeIf { it.isNotEmpty() }?.let { contact.id to it }
+    }.toMap()
+    photoIndex = loaded
+    return loaded
+  }
+
   /** Decodes (and memoizes) a contact thumbnail. Returns null when unavailable. */
   suspend fun thumbnail(context: Context, photoUri: String?): ImageBitmap? {
     if (photoUri.isNullOrEmpty()) return null
@@ -114,6 +132,19 @@ object ContactsLoader {
     thumbnails[photoUri] = bitmap
     return bitmap
   }
+}
+
+/**
+ * `contactId → photo URI` for the current address book, empty until loaded (or
+ * when `READ_CONTACTS` has not been granted). Photos are read on-device only and
+ * are never persisted or synced.
+ */
+@Composable
+fun rememberContactPhotoUris(): Map<String, String> {
+  val context = LocalContext.current
+  var photos by remember { mutableStateOf(emptyMap<String, String>()) }
+  LaunchedEffect(Unit) { photos = ContactsLoader.photoUris(context) }
+  return photos
 }
 
 /**

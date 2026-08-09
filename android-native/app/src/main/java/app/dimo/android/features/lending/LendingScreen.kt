@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,8 @@ import app.dimo.android.features.common.HeroAmount
 import app.dimo.android.features.common.HeroCaption
 import app.dimo.android.features.common.HeroCard
 import app.dimo.android.features.common.HeroLabel
+import app.dimo.android.features.common.LoadingRow
+import app.dimo.android.features.common.rememberContactPhotoUris
 import app.dimo.android.features.common.ScreenHeader
 import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SegmentedControl
@@ -72,8 +75,13 @@ fun LendingScreen(
   modifier: Modifier = Modifier,
 ) {
   var section by remember { mutableStateOf(LendingSection.Summary) }
+  var visibleLimit by remember { mutableStateOf(LendSelectors.historyPageSize) }
   val summaries = LendSelectors.contactSummaries(store.lends)
   val totals = LendSelectors.totals(summaries)
+  val contactPhotos = rememberContactPhotoUris()
+
+  // A fresh section starts at the first page, matching the iOS reset.
+  LaunchedEffect(section) { visibleLimit = LendSelectors.historyPageSize }
 
   LazyColumn(
     modifier = modifier.fillMaxWidth(),
@@ -147,13 +155,18 @@ fun LendingScreen(
           }
         } else {
           items(summaries, key = { "contact-${it.contactId}" }) { summary ->
-            ContactSummaryRow(store = store, summary = summary)
+            ContactSummaryRow(
+              store = store,
+              summary = summary,
+              photoUri = contactPhotos[summary.contactId],
+            )
           }
         }
       }
 
       LendingSection.Transactions -> {
-        val groups = LendSelectors.groupByDay(store.lends)
+        val (paged, hasMore) = LendSelectors.paginateByDay(store.lends, visibleLimit)
+        val groups = LendSelectors.groupByDay(paged)
         if (groups.isEmpty()) {
           item("tx-empty") {
             DimoCard {
@@ -178,7 +191,22 @@ fun LendingScreen(
             }
           }
           items(group.items, key = { "lend-${it.id}" }) { lend ->
-            LendRow(store = store, lend = lend)
+            LendRow(
+              store = store,
+              lend = lend,
+              photoUri = contactPhotos[lend.contactId],
+            )
+          }
+        }
+        if (hasMore) {
+          item("lend-load-more") {
+            // Advancing on composition gives the iOS auto-load behaviour: the
+            // row only enters composition once the list is scrolled to it.
+            LaunchedEffect(visibleLimit) {
+              val next = minOf(visibleLimit + LendSelectors.historyPageSize, store.lends.size)
+              if (next > visibleLimit) visibleLimit = next
+            }
+            LoadingRow()
           }
         }
       }
@@ -190,6 +218,7 @@ fun LendingScreen(
 private fun ContactSummaryRow(
   store: AppStore,
   summary: LendContactSummary,
+  photoUri: String?,
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
@@ -218,7 +247,7 @@ private fun ContactSummaryRow(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      ContactAvatar(name = summary.contactName)
+      ContactAvatar(name = summary.contactName, photoUri = photoUri)
       Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(
           text = summary.contactName,
@@ -268,6 +297,7 @@ private fun ContactSummaryRow(
 private fun LendRow(
   store: AppStore,
   lend: Lend,
+  photoUri: String?,
   modifier: Modifier = Modifier,
 ) {
   val detailBase = lend.comment.ifEmpty { fallbackDetail(lend.kind).orEmpty() }
@@ -285,7 +315,7 @@ private fun LendRow(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    ContactAvatar(name = lend.contactName, size = 38.dp, radius = 11.dp)
+    ContactAvatar(name = lend.contactName, photoUri = photoUri, size = 38.dp, radius = 11.dp)
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
       Text(
         text = lend.contactName,

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -234,6 +235,27 @@ fun EmptyState(
         textAlign = TextAlign.Center,
       )
     }
+  }
+}
+
+/**
+ * Spinner row that marks the tail of a paged list. Callers advance their page
+ * size from a `LaunchedEffect` beside it, so reaching this row is what loads the
+ * next page — the iOS lists page the same way.
+ */
+@Composable
+fun LoadingRow(modifier: Modifier = Modifier) {
+  Box(
+    modifier = modifier
+      .fillMaxWidth()
+      .padding(vertical = 14.dp),
+    contentAlignment = Alignment.Center,
+  ) {
+    CircularProgressIndicator(
+      color = DimoColors.green,
+      strokeWidth = 2.dp,
+      modifier = Modifier.size(20.dp),
+    )
   }
 }
 

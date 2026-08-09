@@ -215,4 +215,19 @@ object LendSelectors {
       LendDayGroup(label = day, total = items.sumOf { it.signedAmount }, items = items)
     }
   }
+
+  /**
+   * Takes at least [limit] entries, then keeps going to the end of that day so a
+   * page break never splits a day group in half.
+   */
+  fun paginateByDay(lends: List<Lend>, limit: Int): Pair<List<Lend>, Boolean> {
+    if (limit <= 0) return Pair(emptyList(), lends.isNotEmpty())
+    if (lends.size <= limit) return Pair(lends, false)
+    var end = limit
+    val oldestDay = lends[limit - 1].day
+    while (end < lends.size && lends[end].day == oldestDay) {
+      end += 1
+    }
+    return Pair(lends.take(end), end < lends.size)
+  }
 }

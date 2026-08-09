@@ -159,6 +159,15 @@ private fun RecurringRow(
         style = DimoFont.display(15f, FontWeight.SemiBold),
         color = DimoColors.ink,
       )
+      bill.convertedEstimateLabel?.let { estimate ->
+        Text(
+          text = estimate,
+          style = DimoFont.body(11f),
+          color = DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
       StatusBadge(
         label = if (bill.paused) "Resume" else "Pause",
         tone = if (bill.paused) StatusBadgeTone.Green else StatusBadgeTone.Muted,
