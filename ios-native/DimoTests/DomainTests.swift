@@ -933,11 +933,13 @@ final class BudgetSelectorTests: XCTestCase {
       now: now,
       calendar: cal
     )
-    XCTAssertEqual(budgets.map(\.category), ["Dining", "Bills", "Empty"])
-    XCTAssertEqual(budgets[0].spent, 150)
-    XCTAssertEqual(budgets[1].spent, 80)
+    // Bills 80% > Dining 75% > Empty 0%, even though Dining spent more.
+    XCTAssertEqual(budgets.map(\.category), ["Bills", "Dining", "Empty"])
+    XCTAssertEqual(budgets[0].spent, 80)
+    XCTAssertEqual(budgets[0].pct, 80)
+    XCTAssertEqual(budgets[1].spent, 150)
+    XCTAssertEqual(budgets[1].pct, 75)
     XCTAssertEqual(budgets[2].spent, 0)
-    XCTAssertEqual(budgets[0].pct, 75)
   }
 
   func testSuggestedBudgetsFromLookback() {

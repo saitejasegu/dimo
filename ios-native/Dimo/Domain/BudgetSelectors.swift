@@ -90,7 +90,11 @@ enum BudgetSelectors {
         over: pct >= 90
       )
     }
-    .sorted { $0.spent > $1.spent }
+    // Highest usage first so near-limit categories surface at the top.
+    .sorted {
+      if $0.pct != $1.pct { return $0.pct > $1.pct }
+      return $0.spent > $1.spent
+    }
   }
 
   static func budgetTotals(

@@ -61,7 +61,11 @@ struct MainTabShell: View {
   }
 
   private var tabShell: some View {
-    TabView(selection: $tab) {
+    // KeyPath-derived binding so a Stats re-tap can reset the period without
+    // rebuilding tab children the way a hand-rolled Binding getter/setter would.
+    TabView(selection: $tab[statsReselect: StatsTabReselectAction {
+      store.statsPeriodOffset = 0
+    }]) {
       Tab(value: .home) {
         HomeScreen(store: store, entities: store.entities, nav: store.nav) {
           openSettings()
@@ -262,4 +266,25 @@ private struct DetailSheetItem: Identifiable {
 enum OverlayKey: String, Identifiable {
   case add, recurring, category, lend
   var id: String { rawValue }
+}
+
+/// Stable identity for the Stats-tab reselect side effect. Equality ignores the
+/// closure so SwiftUI keeps the same derived Binding across `body` evaluations.
+private struct StatsTabReselectAction: Hashable {
+  let action: () -> Void
+
+  static func == (lhs: Self, rhs: Self) -> Bool { true }
+  func hash(into hasher: inout Hasher) { hasher.combine(0) }
+}
+
+private extension AppTab {
+  subscript(statsReselect action: StatsTabReselectAction) -> AppTab {
+    get { self }
+    set {
+      if self == newValue, newValue == .stats {
+        action.action()
+      }
+      self = newValue
+    }
+  }
 }
