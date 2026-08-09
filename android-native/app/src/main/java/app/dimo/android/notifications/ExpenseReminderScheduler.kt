@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import app.dimo.android.app.MainActivity
 import app.dimo.android.domain.ExpenseReminderCopy
 import app.dimo.android.domain.ExpenseReminderSettings
 import app.dimo.android.store.AppStore
@@ -38,7 +37,6 @@ object ExpenseReminderRouter {
  */
 object ExpenseReminderScheduler {
   private const val REQUEST_CODE_ALARM = 7101
-  private const val REQUEST_CODE_CONTENT = 7102
 
   fun ensureChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -110,13 +108,11 @@ object ExpenseReminderScheduler {
       hour = clamped.hour,
       minute = clamped.minute,
     )
-    val showIntent = PendingIntent.getActivity(
-      appContext,
-      REQUEST_CODE_CONTENT,
-      Intent(appContext, MainActivity::class.java),
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-    alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), operation)
+    // Daily expense reminders do not justify Android's special exact-alarm
+    // access. setAlarmClock throws SecurityException when that user-controlled
+    // access is absent (including after some package updates). An inexact idle-
+    // tolerant alarm is sufficient for a reminder and remains permission-free.
+    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
     return true
   }
 

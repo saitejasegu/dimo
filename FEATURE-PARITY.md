@@ -248,9 +248,48 @@ and multi-month label spans, contiguous non-overlapping periods,
   an iOS-style "Upcoming this month" sheet, because Android has a real Recurring
   destination and iOS does not.
 
-## 5. Email / Gmail / AI suggestions — not ported
+## 5. Email / Gmail / AI suggestions — ported
 
-This is the one iOS-ahead item left. It is out of reach of a code-only port:
+> **Update.** This subsystem has since been ported to Android in full and is
+> covered by unit tests — see **§5.1**. The assessment below is the original
+> pre-migration analysis.
+
+### 5.1 Current state
+
+**Ported and compiling** (`./gradlew :app:testProdDebugUnitTest` green, 110 tests):
+
+| Layer | Android files |
+| --- | --- |
+| Local schema | `data/model/EmailEntities.kt`, `data/db/EmailRecords.kt`, `EmailDaos.kt`, `SyncedEmailRecords.kt`, `Migrations.kt` (v1→v2) |
+| Repository | `data/EmailRepository.kt` — accounts, ingest, analysis lifecycle, review actions, grouping, refunds, retention, sync projection |
+| Domain | `domain/EmailSuggestionSelectors.kt`, `domain/EmailPurchaseGroupingSelector.kt` |
+| Gmail | `email/gmail/` — OAuth (Custom Tabs + PKCE), credential vault, REST + batch client, MIME parser, sync coordinator |
+| OpenRouter | `email/openrouter/` — direct client, Convex free-tier transport, credential vault |
+| Analysis | `email/analysis/` — prompt builder, structured-output validator, analyzer coordinator, start throttle |
+| Integration | `email/integration/EmailRepositorySyncAdapter.kt`, `EmailFeatureController.kt` |
+| Background | `email/work/EmailBackgroundWork.kt` (AlarmManager, not WorkManager) |
+| UI | `features/email/` — store, screen, cards, detail/source sheets, purchase + refund review, settings + model picker |
+| Shell | Fifth tab in `MainTabShell.kt` with the pending-purchase badge |
+| Sync contract | `emailMessage` re-included in `EntityType`, `ConvexAPI`, full upload and `clearWorkspace`; pulled rows project into the local email table |
+| Config | `gmail.properties` plumbing, `AppConfig.isGmailConfigured`, manifest redirect filter, sign-out vault cleanup |
+
+**Deliberate differences from iOS:**
+
+1. Background work uses `AlarmManager` + a broadcast receiver instead of
+   `BGTaskScheduler`; WorkManager could not be added offline. Scheduling policy
+   is isolated in `EmailBackgroundWork` for a later swap.
+2. The Email settings sheet merges iOS's separate accounts sheet and model
+   picker behind one gear entry point.
+3. Purchase review is its own sheet rather than reusing `ExpenseEditorSheet`.
+
+**Still externally blocked:** the Google Cloud OAuth client cannot be created
+from the repo. The code reads it from `gmail.properties` and degrades to a
+"not configured" state without it, so this blocks *running* the feature, not
+building it.
+
+### 5.2 Original assessment
+
+It is out of reach of a code-only port:
 
 - **Scale.** 31 files, 9,442 LOC: Gmail OAuth + API client + message parser +
   credential vault + sync coordinator, an OpenRouter client routed through a

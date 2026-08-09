@@ -3,6 +3,7 @@ package app.dimo.android.data
 import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.Currency
 import app.dimo.android.data.model.DEFAULT_CATEGORY_EMOJI
+import app.dimo.android.data.model.EmailSuggestionState
 import app.dimo.android.data.model.EntityPayload
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.RecurringFrequency
@@ -15,14 +16,24 @@ import java.time.LocalDate
 import kotlin.math.max
 
 /**
- * Port of `ios-native/Dimo/Data/PayloadSanitizer.swift`, minus the `emailMessage`
- * branch (Android is not an email writer).
+ * Port of `ios-native/Dimo/Data/PayloadSanitizer.swift`.
  *
  * Every local write goes through this so the same normalization runs before the
  * row is persisted and before it is enqueued for Convex.
  */
 object PayloadSanitizer {
   private val ANCHOR_DATE = Regex("^\\d{4}-\\d{2}-\\d{2}$")
+
+  /** The only `state` values the Convex emailMessage validator accepts. */
+  private val SYNCED_EMAIL_STATES = setOf(
+    EmailSuggestionState.ADDED.wire,
+    EmailSuggestionState.DISMISSED.wire,
+    EmailSuggestionState.REFUND_APPLIED.wire,
+    EmailSuggestionState.PENDING_PURCHASE.wire,
+    EmailSuggestionState.PENDING_REFUND.wire,
+  )
+
+  private fun nonempty(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
 
   fun sanitize(payload: EntityPayload, now: Long = System.currentTimeMillis()): EntityPayload =
     when (payload) {
@@ -104,6 +115,40 @@ object PayloadSanitizer {
             amountMinor = max(1L, value.amountMinor),
             occurredAt = occurredAt,
             kind = value.kind ?: LendKind.LENT,
+          ),
+        )
+      }
+
+      is EntityPayload.EmailMessage -> {
+        val value = payload.value
+        EntityPayload.EmailMessage(
+          value.copy(
+            accountId = value.accountId.trim(),
+            accountEmail = value.accountEmail.trim(),
+            gmailMessageId = value.gmailMessageId.trim(),
+            threadId = value.threadId.trim(),
+            rfcMessageId = nonempty(value.rfcMessageId),
+            senderName = nonempty(value.senderName),
+            senderAddress = value.senderAddress.trim(),
+            analyzerType = nonempty(value.analyzerType),
+            modelVersion = nonempty(value.modelVersion),
+            classification = nonempty(value.classification),
+            merchant = nonempty(value.merchant),
+            amount = nonempty(value.amount),
+            currency = nonempty(value.currency),
+            categoryId = nonempty(value.categoryId),
+            paymentMethodId = nonempty(value.paymentMethodId),
+            paymentLastFour = nonempty(value.paymentLastFour),
+            reference = nonempty(value.reference),
+            // An unsyncable state would be rejected by the validator and would
+            // block the whole outbox, so it degrades to dismissed.
+            state = if (value.state in SYNCED_EMAIL_STATES) {
+              value.state
+            } else {
+              EmailSuggestionState.DISMISSED.wire
+            },
+            purchaseGroupId = nonempty(value.purchaseGroupId),
+            linkedTransactionId = nonempty(value.linkedTransactionId),
           ),
         )
       }

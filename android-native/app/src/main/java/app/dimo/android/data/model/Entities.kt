@@ -3,8 +3,9 @@ package app.dimo.android.data.model
 /**
  * Port of `ios-native/Dimo/Data/Model/Entities.swift`.
  *
- * Android is not an `emailMessage` writer, so that entity type is absent here.
- * See `android-native/README.md` for why it must also stay out of clear/upload.
+ * Android became an `emailMessage` writer when the Email tab was ported, so that
+ * entity type now participates in pull, push, full upload and clear exactly as it
+ * does on iOS. See `android-native/README.md`.
  */
 
 enum class EntityType(val wire: String) {
@@ -13,6 +14,7 @@ enum class EntityType(val wire: String) {
   TRANSACTION("transaction"),
   RECURRING("recurring"),
   LEND("lend"),
+  EMAIL_MESSAGE("emailMessage"),
   PREFERENCES("preferences");
 
   companion object {
@@ -130,6 +132,7 @@ enum class ViewKey(val wire: String) {
   RECURRING("recurring"),
   BUDGETS("budgets"),
   LENDING("lending"),
+  EMAIL("email"),
   SETTINGS("settings"),
   ACCOUNT("account");
 
@@ -277,6 +280,11 @@ sealed interface EntityPayload {
   data class Lend(val value: LendEntity) : EntityPayload {
     override val id get() = value.id
     override val entityType get() = EntityType.LEND
+  }
+
+  data class EmailMessage(val value: EmailMessageEntity) : EntityPayload {
+    override val id get() = value.id
+    override val entityType get() = EntityType.EMAIL_MESSAGE
   }
 
   data class Preferences(val value: PreferencesEntity) : EntityPayload {

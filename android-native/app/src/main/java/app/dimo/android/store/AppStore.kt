@@ -57,6 +57,10 @@ import app.dimo.android.domain.TransactionFilter
 import app.dimo.android.notifications.ExpenseReminderAuthorization
 import app.dimo.android.notifications.ExpenseReminderRouter
 import app.dimo.android.notifications.ExpenseReminderScheduler
+import app.dimo.android.data.EmailRepository
+import app.dimo.android.email.integration.EmailFeatureController
+import app.dimo.android.email.openrouter.OpenRouterConvexTransport
+import app.dimo.android.features.email.EmailFeatureStore
 import app.dimo.android.sync.ConvexSyncTransport
 import app.dimo.android.sync.NetworkMonitor
 import app.dimo.android.sync.SyncCoordinator
@@ -75,8 +79,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Port of `ios-native/Dimo/Store/AppStore.swift` without the Email / Gmail
- * suggestions subsystem (Android excludes that surface).
+ * Port of `ios-native/Dimo/Store/AppStore.swift`.
  */
 class AppStore(
   application: Application,
@@ -162,6 +165,11 @@ class AppStore(
   var lendDraft by mutableStateOf(LendDraft())
 
   private val ratesService = RatesService(application)
+
+  /** UI state for the Email tab; created eagerly so the tab can render before start(). */
+  val emailStore = EmailFeatureStore(scope = viewModelScope)
+
+  private var emailController: EmailFeatureController? = null
   private var repository: Repository? = null
   private var coordinator: SyncCoordinator? = null
   private var convexClient: ConvexClientWithAuth<WorkOSSession>? = null
@@ -213,6 +221,8 @@ class AppStore(
       hydrate(repo.allEntities())
       dataReady = true
 
+      startEmailFeature(db, repo)
+
       expenseReminder = ExpenseReminderStore.load(getApplication(), userId)
       ExpenseReminderRouter.store = this
       refreshExpenseReminderAuthorization()
@@ -237,6 +247,45 @@ class AppStore(
     }
   }
 
+  /**
+   * Brings up the Email tab for this signed-in user. The controller is created
+   * even when Gmail OAuth is unconfigured so the tab can explain why, and so the
+   * already-synced `emailMessage` rows from another device still project into the
+   * local tables.
+   */
+  private suspend fun startEmailFeature(
+    db: app.dimo.android.data.db.DimoDatabase,
+    repo: Repository,
+  ) {
+    val emailRepository = EmailRepository(db, repo.entityWriter)
+    // Pulled email entities must reach the device-local table inside the pull
+    // transaction, or a Gmail refresh would re-analyze what another device
+    // already reviewed.
+    repo.emailProjection = { emailRepository.projectRemoteMessage(it) }
+    val controller = EmailFeatureController(
+      context = getApplication(),
+      userId = userId,
+      repository = emailRepository,
+      store = emailStore,
+      scope = viewModelScope,
+    )
+    emailController = controller
+    controller.start(categories, paymentMethods, transactions, currency)
+  }
+
+  /** Keeps the Email tab's category/method/transaction context in step. */
+  private fun updateEmailDomain() {
+    emailController?.updateDomain(categories, paymentMethods, transactions, currency)
+  }
+
+  /** True when this build has a Gmail OAuth client configured. */
+  val isGmailConfigured: Boolean get() = emailController?.isGmailConfigured ?: false
+
+  /** Soft-pauses email analysis while a list is actively scrolling. */
+  fun setUIScrolling(scrolling: Boolean) {
+    emailController?.setUIScrolling(scrolling)
+  }
+
   private suspend fun startRemoteServices(repo: Repository) {
     try {
       val client = ConvexClientWithAuth(AppConfig.convexURL, authProvider)
@@ -251,6 +300,9 @@ class AppStore(
         return
       }
       convexClient = client
+      // Free-tier OpenRouter proxies through authenticated Convex actions, so the
+      // analyzer only becomes available once sync login succeeds.
+      emailController?.attachOpenRouterConvexTransport(OpenRouterConvexTransport(client))
 
       val transport = ConvexSyncTransport(client)
       val monitor = NetworkMonitor(getApplication())
@@ -283,6 +335,8 @@ class AppStore(
     outboxCountJob = null
     writeListener?.let { repository?.removeLocalWriteListener(it) }
     writeListener = null
+    emailController?.tearDown()
+    emailController = null
     coordinator?.stop()
     coordinator = null
     networkMonitor = null
@@ -298,6 +352,7 @@ class AppStore(
   }
 
   fun sceneBecameActive() {
+    emailController?.appBecameActive()
     viewModelScope.launch {
       coordinator?.request()
       refreshExchangeRates()
@@ -1126,6 +1181,9 @@ class AppStore(
         is EntityPayload.Transaction -> nextTransactions.add(payload.value)
         is EntityPayload.Recurring -> nextRecurring.add(payload.value)
         is EntityPayload.Lend -> nextLends.add(payload.value)
+        // Synced email suggestions are projected into the device-local email
+        // tables by the repository; the main store never displays them directly.
+        is EntityPayload.EmailMessage -> Unit
         is EntityPayload.Preferences -> prefs = payload.value
       }
     }
@@ -1269,6 +1327,7 @@ class AppStore(
     if (profileName.isEmpty()) profileName = prefs.profileName
     if (profileEmail.isEmpty()) profileEmail = prefs.profileEmail
     dataReady = true
+    updateEmailDomain()
   }
 
   private fun currentPreferences(): PreferencesEntity = PreferencesEntity(

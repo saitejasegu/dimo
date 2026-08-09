@@ -1,0 +1,27 @@
+# Gmail OAuth clients for the Email tab. Copy to `gmail.properties` (gitignored)
+# and fill in real values; without them `AppConfig.isGmailConfigured` is false and
+# the Email tab shows its "not configured" state instead of a broken consent screen.
+#
+# Create one OAuth client per flavor in Google Cloud Console:
+#   APIs & Services > Credentials > Create credentials > OAuth client ID
+#   Application type: Android
+#   Package name:     app.dimo.android       (prod)
+#                     app.dimo.android.dev   (dev)
+#   SHA-1:            the signing certificate fingerprint for that build
+#     debug:   keytool -list -v -keystore ~/.android/debug.keystore \
+#                -alias androiddebugkey -storepass android -keypass android
+#     release: from the upload/release keystore
+#
+# Enable the Gmail API on the same project, and add the
+# `https://www.googleapis.com/auth/gmail.readonly` scope to the OAuth consent
+# screen. The app requests read-only access and never writes to a mailbox.
+#
+# The redirect scheme is the reversed client id and is derived automatically when
+# omitted; set it explicitly only if Google issues a different one. It is also
+# injected into AndroidManifest.xml as the ${gmailRedirectScheme} placeholder.
+
+prod.gmailOAuthClientId=REPLACE_ME.apps.googleusercontent.com
+# prod.gmailOAuthRedirectScheme=com.googleusercontent.apps.REPLACE_ME
+
+dev.gmailOAuthClientId=REPLACE_ME.apps.googleusercontent.com
+# dev.gmailOAuthRedirectScheme=com.googleusercontent.apps.REPLACE_ME

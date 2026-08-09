@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.dimo.android.data.db.AppDatabase
+import app.dimo.android.email.gmail.GmailCredentialVault
+import app.dimo.android.email.openrouter.OpenRouterCredentialVault
 import app.dimo.android.store.AppStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,13 @@ class SessionController(context: Context) {
     tokenRefresher?.stop()
     tokenRefresher = null
     appStore?.tearDown()
+    // Gmail refresh tokens and any OpenRouter key live outside the database, so
+    // deleting the local databases alone would leave a signed-out device holding
+    // credentials for the previous user's inbox.
+    userId?.let { id ->
+      GmailCredentialVault(appContext).removeAll(id)
+      OpenRouterCredentialVault(appContext).remove(id)
+    }
     withContext(Dispatchers.IO) {
       AppDatabase.deleteAllLocalDatabases(appContext)
     }

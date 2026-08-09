@@ -15,4 +15,21 @@ object AppConfig {
 
   val isConfigured: Boolean
     get() = convexURL.isNotBlank() && workOSClientID.isNotBlank()
+
+  // MARK: - Gmail
+
+  val gmailOAuthClientID: String = BuildConfig.GMAIL_OAUTH_CLIENT_ID
+  val gmailOAuthRedirectScheme: String = BuildConfig.GMAIL_OAUTH_REDIRECT_SCHEME
+  val gmailOAuthRedirectURI: String get() = "$gmailOAuthRedirectScheme:/oauthredirect"
+
+  /**
+   * False until a Google Cloud OAuth client for this package + signing key is put
+   * in `android-native/gmail.properties`. The Email tab checks this before
+   * offering to connect an inbox.
+   */
+  val isGmailConfigured: Boolean
+    get() = gmailOAuthClientID.isNotBlank() &&
+      gmailOAuthRedirectScheme.isNotBlank() &&
+      !gmailOAuthClientID.contains("REPLACE_ME") &&
+      !gmailOAuthRedirectScheme.contains("REPLACE_ME")
 }

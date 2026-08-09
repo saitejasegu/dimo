@@ -4,22 +4,25 @@ Kotlin + Jetpack Compose Android app for Dimo. Shares the existing Convex +
 WorkOS backend with the web, Electron, and iOS clients.
 
 `ios-native/` is the sole behavioral reference. Android aims at **core parity**
-with iOS except the Email/Gmail/AI suggestions subsystem.
+with iOS, including the Email/Gmail/AI suggestions subsystem (see
+`FEATURE-PARITY.md` §5.1 for the deliberate differences).
 
 Requires **minSdk 26**, **targetSdk 37**, **JDK 17+** (Temurin 21 recommended).
 
 ## Features
 
-- Four primary tabs: Home, Stats, Budgets, Lending (Recurring is reached from
-  Home / the expense editor; Settings and Account are stack destinations)
+- Five primary tabs: Home, Stats, Budgets, Lending, Email (Recurring is reached
+  from Home / the expense editor; Settings and Account are stack destinations)
 - Local-first Room/SQLite store with Convex sync and WorkOS PKCE sign-in
 - Lending writer: address-book contacts, repayments capped to outstanding,
   shareable unsettled-cycle summaries
 - CSV import / export compatible with web and iOS
 - Multi-currency expenses using Convex `exchangeRates:latest` (ECB snapshot)
-- **No Email / Gmail / on-device LLM** — Android does not pull, store, clear, or
-  re-upload `emailMessage` entities so iOS-owned email suggestions survive
-  Android full cloud replacement
+- **Email / Gmail suggestions** — Gmail scan, OpenRouter analysis, purchase and
+  refund review. Android is an `emailMessage` writer and participates in pull,
+  push, full upload and `clearWorkspace`. Gmail OAuth needs `gmail.properties`
+  (see `gmail.properties.example`); without it `AppConfig.isGmailConfigured` is
+  false and the tab explains what is missing
 
 ## Setup
 
@@ -64,8 +67,9 @@ Bundle / application id: `app.dimo.android` (`app.dimo.android.dev` for the
 
 ### Parity rules (must not regress)
 
-1. **Do not destroy iOS-owned email data.** Exclude `emailMessage` from
-   `clearWorkspace`, `enqueueFullUpload`, and pull. Android holds no email rows.
+1. **Keep the email clear/upload pair symmetric.** `emailMessage` is included in
+   `clearWorkspace`, `enqueueFullUpload` and pull. Full replacement clears *and*
+   re-uploads, so narrowing only one side would destroy the user's suggestions.
 2. **Android is a lending writer** (like iOS): group by address-book `contactId`,
    never persist/sync contact photos, cap repayments at outstanding (excluding
    the edited row), reuse `LendSelectors.unsettledTransactions`.

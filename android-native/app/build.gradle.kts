@@ -1,3 +1,7 @@
+// `java` inside the android block resolves to Gradle's java extension, so
+// Properties is imported rather than fully qualified at the use site.
+import java.util.Properties
+
 // AGP 9 has built-in Kotlin support, so `org.jetbrains.kotlin.android` must not
 // be applied. Compose / serialization / KSP stay as separate plugins.
 plugins {
@@ -25,6 +29,16 @@ android {
     buildConfigField("String", "WORKOS_AUTH_BASE_URL", "\"https://api.workos.com\"")
   }
 
+  // Gmail uses its own installed-app OAuth client, separate from WorkOS. Provision
+  // one per flavor in Google Cloud for this package name + signing SHA-1 and put
+  // the values in `gmail.properties` (gitignored, see android-native/README.md).
+  // Until then `AppConfig.isGmailConfigured` is false and the Email tab shows its
+  // "not configured" state instead of launching a broken consent screen.
+  val gmailProperties = Properties().apply {
+    val file = rootProject.file("gmail.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+  }
+
   flavorDimensions += "env"
   productFlavors {
     // Values from ios-native/Config/Debug.xcconfig + Release.xcconfig.
@@ -33,6 +47,7 @@ android {
       isDefault = true
       buildConfigField("String", "CONVEX_URL", "\"https://formal-akita-237.convex.cloud\"")
       buildConfigField("String", "WORKOS_CLIENT_ID", "\"client_01KX83VGCS077ZKQSRK9BNSKKK\"")
+      applyGmailConfig(gmailProperties, "prod")
     }
     // Values from ios-native/Config/Dev.xcconfig.
     create("dev") {
@@ -41,6 +56,7 @@ android {
       versionNameSuffix = "-dev"
       buildConfigField("String", "CONVEX_URL", "\"https://little-bat-382.convex.cloud\"")
       buildConfigField("String", "WORKOS_CLIENT_ID", "\"client_01KX83VG314Y92FTEJX28H23Z9\"")
+      applyGmailConfig(gmailProperties, "dev")
     }
   }
 
@@ -83,8 +99,37 @@ kotlin {
   }
 }
 
+/**
+ * Wires one flavor's Gmail OAuth client into BuildConfig and the manifest.
+ *
+ * The redirect scheme must also reach `AndroidManifest.xml`, because Google's
+ * installed-app flow redirects to `{reversed-client-id}:/oauthredirect` and the
+ * activity has to declare that scheme to receive it.
+ */
+fun com.android.build.api.dsl.ApplicationProductFlavor.applyGmailConfig(
+  properties: Properties,
+  flavor: String,
+) {
+  val clientId = properties.getProperty("$flavor.gmailOAuthClientId").orEmpty()
+  // Google's reversed client id doubles as the redirect scheme.
+  val scheme = properties.getProperty("$flavor.gmailOAuthRedirectScheme").orEmpty().ifEmpty {
+    clientId.substringBefore(".apps.googleusercontent.com").takeIf { it != clientId }
+      ?.let { "com.googleusercontent.apps.$it" }
+      .orEmpty()
+  }
+  buildConfigField("String", "GMAIL_OAUTH_CLIENT_ID", "\"$clientId\"")
+  buildConfigField("String", "GMAIL_OAUTH_REDIRECT_SCHEME", "\"$scheme\"")
+  // A blank scheme would make the intent-filter unmergeable, so an unconfigured
+  // build registers an inert placeholder that Google will never redirect to.
+  manifestPlaceholders["gmailRedirectScheme"] =
+    scheme.ifEmpty { "app.dimo.android.gmail.unconfigured" }
+}
+
 ksp {
   arg("room.generateKotlin", "true")
+  // Exported schemas are what `EmailMigrationTest` replays 1 -> 2 against, and
+  // they are the reference for the hand-written DDL in `Migrations.kt`.
+  arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

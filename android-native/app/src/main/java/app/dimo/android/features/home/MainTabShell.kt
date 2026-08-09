@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.TrackChanges
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,6 +46,8 @@ import app.dimo.android.design.FabButton
 import app.dimo.android.features.common.FabBottomPadding
 import app.dimo.android.design.ToastOverlay
 import app.dimo.android.features.budgets.BudgetsScreen
+import app.dimo.android.features.email.EmailScreen
+import app.dimo.android.features.email.EmailSettingsSheet
 import app.dimo.android.features.lending.LendingScreen
 import app.dimo.android.features.recurring.RecurringScreen
 import app.dimo.android.features.settings.AccountScreen
@@ -62,6 +67,7 @@ enum class AppTab(val title: String, val icon: ImageVector, val view: ViewKey) {
   Stats("Stats", Icons.Filled.BarChart, ViewKey.STATS),
   Budgets("Budgets", Icons.Filled.TrackChanges, ViewKey.BUDGETS),
   Lending("Lending", Icons.Filled.People, ViewKey.LENDING),
+  Email("Email", Icons.Filled.MailOutline, ViewKey.EMAIL),
   ;
 
   companion object {
@@ -73,8 +79,7 @@ enum class AppTab(val title: String, val icon: ImageVector, val view: ViewKey) {
 private enum class PushedRoute { Recurring, PaymentMethods }
 
 /**
- * Four-tab shell (no Email tab on Android). Port of
- * `ios-native/Dimo/Features/Home/MainTabShell.swift`.
+ * Five-tab shell. Port of `ios-native/Dimo/Features/Home/MainTabShell.swift`.
  *
  * `store.view` stays the source of truth for the tab selection and for the
  * Settings/Account destinations, so a deep link or a store-driven navigation
@@ -92,6 +97,7 @@ fun MainTabShell(
   val lifecycleOwner = LocalLifecycleOwner.current
   var tab by remember { mutableStateOf(AppTab.forView(store.view) ?: AppTab.Home) }
   var pushed by remember { mutableStateOf<PushedRoute?>(null) }
+  var emailSettingsOpen by remember { mutableStateOf(false) }
 
   DisposableEffect(lifecycleOwner, store) {
     val observer = LifecycleEventObserver { _, event ->
@@ -145,7 +151,25 @@ fun MainTabShell(
                 store.setView(destination.view)
                 tab = destination
               },
-              icon = { Icon(destination.icon, contentDescription = destination.title) },
+              icon = {
+                val badge = if (destination == AppTab.Email) {
+                  store.emailStore.pendingPurchaseCount
+                } else {
+                  0
+                }
+                BadgedBox(
+                  badge = {
+                    if (badge > 0) {
+                      Badge(
+                        containerColor = DimoColors.green,
+                        contentColor = DimoColors.onGreen,
+                      ) { Text(badge.toString()) }
+                    }
+                  },
+                ) {
+                  Icon(destination.icon, contentDescription = destination.title)
+                }
+              },
               label = {
                 Text(
                   text = destination.title,
@@ -199,12 +223,24 @@ fun MainTabShell(
           AppTab.Home -> HomeScreen(
             store = store,
             onOpenSettings = { store.setView(ViewKey.SETTINGS) },
-            onOpenRecurring = { pushed = PushedRoute.Recurring },
           )
           AppTab.Stats -> StatsScreen(store = store)
           AppTab.Budgets -> BudgetsScreen(store = store)
           AppTab.Lending -> LendingScreen(store = store)
+
+          AppTab.Email -> EmailScreen(
+            store = store.emailStore,
+            onOpenSettings = { emailSettingsOpen = true },
+          )
         }
+      }
+
+      if (emailSettingsOpen) {
+        EmailSettingsSheet(
+          store = store.emailStore,
+          gmailConfigured = store.isGmailConfigured,
+          onClose = { emailSettingsOpen = false },
+        )
       }
 
       ToastOverlay(

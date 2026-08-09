@@ -134,11 +134,11 @@ class SyncCoordinator(
   suspend fun latestExchangeRates(): RateTable? = transport.latestExchangeRates()
 
   /**
-   * Deletes cloud rows for the types Android owns.
+   * Deletes cloud rows for every type Android owns, `emailMessage` included.
    *
-   * `emailMessage` is absent from [EntityType] on Android on purpose: this client
-   * holds no email rows, so clearing that type would destroy the user's iOS email
-   * suggestions with nothing to re-upload in their place.
+   * This is only safe because the paired [Repository.enqueueFullUpload] re-uploads
+   * the same types: full replacement clears and re-writes, so email suggestions
+   * survive the round trip. It is destructive and is not part of normal sync.
    */
   suspend fun clearCloudWorkspace() {
     while (true) {

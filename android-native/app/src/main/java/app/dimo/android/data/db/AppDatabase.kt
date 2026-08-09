@@ -12,7 +12,12 @@ import java.io.File
  *
  * iOS opens `dimo-{userId}.sqlite`; Android opens `dimo-{userId}.db`. There is no
  * migration history to replay — the schema starts at the current iOS v6/v7 typed
- * shape — so this is version 1.
+ * shape.
+ *
+ * Version 2 adds the Email tab's tables. There is no [androidx.room.migration.Migration]
+ * because every one of them is new and empty on upgrade: a destructive rebuild
+ * would throw away synced entity rows and the outbox, so the migration only has
+ * to create tables.
  */
 @Database(
   entities = [
@@ -25,9 +30,14 @@ import java.io.File
     OutboxRecord::class,
     SyncMetaRecord::class,
     DeviceMetaRecord::class,
+    SyncedEmailMessageRecord::class,
+    EmailAccountRecord::class,
+    EmailMessageRecord::class,
+    EmailAnalysisSettingsRecord::class,
+    EmailAnalysisRetryRecord::class,
   ],
-  version = 1,
-  exportSchema = false,
+  version = 2,
+  exportSchema = true,
 )
 abstract class DimoDatabase : RoomDatabase() {
   abstract fun categories(): CategoryDao
@@ -39,6 +49,11 @@ abstract class DimoDatabase : RoomDatabase() {
   abstract fun outbox(): OutboxDao
   abstract fun syncMeta(): SyncMetaDao
   abstract fun deviceMeta(): DeviceMetaDao
+  abstract fun syncedEmailMessages(): SyncedEmailMessageDao
+  abstract fun emailAccounts(): EmailAccountDao
+  abstract fun emailMessages(): EmailMessageDao
+  abstract fun emailAnalysisSettings(): EmailAnalysisSettingsDao
+  abstract fun emailAnalysisRetry(): EmailAnalysisRetryDao
 }
 
 object AppDatabase {
@@ -64,6 +79,7 @@ object AppDatabase {
         DimoDatabase::class.java,
         fileName(userId),
       )
+      .addMigrations(*Migrations.ALL)
       .build()
     database = opened
     activeUserId = userId

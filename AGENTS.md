@@ -34,10 +34,9 @@ navigation is reducer state rather than URL routes. Electron has no separate
 data layer and exposes only platform metadata through its preload bridge.
 
 The main product destinations are Home/Activity, Stats, Recurring, Budgets,
-Lending, Settings, and Account. Native iOS adds an Email tab (Gmail suggestions);
-Android omits Email and uses four tabs (Home, Stats, Budgets, Lending) with
-Recurring reached from Home. Responsive mobile web still surfaces Recurring as a
-primary tab. Desktop web uses a sidebar. Web sheets/modals and native sheets are
+Lending, Settings, and Account. Both native clients add an Email tab (Gmail
+suggestions); Android reaches Recurring from Home instead of a tab. Responsive
+mobile web still surfaces Recurring as a primary tab. Desktop web uses a sidebar. Web sheets/modals and native sheets are
 transient state, not routes.
 
 # Data architecture
@@ -101,10 +100,9 @@ transient state, not routes.
 - Web “Sync now” hard-replaces only web-owned entity types and preserves
   native-owned `lend`. Native iOS “Sync now” is an ordinary sync; its separate
   explicit replacement action covers all types including `emailMessage`.
-  Android “Sync now” is also ordinary sync; its full cloud replacement and
-  `enqueueFullUpload` **exclude** `emailMessage` so iOS-owned email data is not
-  wiped. Account deletion can clear every type. Hard replacement is destructive
-  and is not normal sync.
+  Android “Sync now” is also ordinary sync, and its full cloud replacement now
+  covers `emailMessage` too, matching iOS. Account deletion can clear every
+  type. Hard replacement is destructive and is not normal sync.
 - Client payload errors are permanent/blocked; auth, deployment, and network
   failures remain retryable. Preserve batch splitting that isolates one bad
   operation.
@@ -218,10 +216,25 @@ from derived UI models.
 - Auth uses Custom Tabs + `dimo://callback` (same redirect as iOS) and stores
   the refresh token in EncryptedSharedPreferences. Never put WorkOS API keys
   or client secrets in Android config.
-- Android excludes `emailMessage` from pull, push/full upload, and
-  `clearWorkspace` so iOS-owned email suggestions survive Android full cloud
-  replacement. Android does not implement the Email / Gmail / AI suggestions
-  subsystem.
+- Android is an `emailMessage` writer: that type participates in pull, push,
+  full upload and `clearWorkspace` exactly as on iOS. This reverses the earlier
+  exclusion, and is only safe because full replacement clears *and* re-uploads
+  the same types — never narrow one side alone.
+- Gmail needs a per-flavor Google OAuth client (package name + signing SHA-1)
+  in the gitignored `android-native/gmail.properties`; see
+  `gmail.properties.example`. `AppConfig.isGmailConfigured` gates the feature
+  when it is absent. Gmail refresh tokens and any OpenRouter key live in
+  Keystore-backed `EncryptedSharedPreferences`, never in Room, and sign-out
+  deletes both vaults alongside the local databases.
+- Room schemas are exported to `android-native/app/schemas/`. The hand-written
+  DDL in `data/db/Migrations.kt` must stay byte-identical to the exported
+  schema; regenerate rather than hand-edit. Destructive migration fallback is
+  deliberately not configured — it would discard the pending outbox.
+- Email background refresh/analysis uses `AlarmManager` +
+  `EmailBackgroundReceiver` rather than `BGTaskScheduler`. WorkManager is the
+  better fit (network constraints, backoff) and is where this should move when
+  that dependency can be added; keep the scheduling policy inside
+  `email/work/EmailBackgroundWork.kt` so the swap stays local.
 - Domain and repository unit tests live under
   `android-native/app/src/test/`. See `android-native/TESTING.md`.
 

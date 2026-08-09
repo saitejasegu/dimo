@@ -14,10 +14,18 @@ Coverage today:
   (dates, formatting, stats, budgets, recurring, lending, CSV, exchange rates)
 - `data/RepositoryTests.kt` — Room in-memory: fresh bootstrap, local write +
   outbox, LWW merge, tombstones, blocked outbox, full-upload boundaries
+- `features/email/EmailFeatureStoreTests.kt` — tab badge count, filter
+  partitioning, review routing, and the controller's state/amount mappings
+- `data/EmailMigrationTest.kt` — replays the 1 -> 2 migration and lets Room
+  validate the hand-written DDL
+- `data/EmailRepositoryTests.kt` — email ingest idempotency, analysis gates,
+  accept/dismiss/restore, purchase↔debit grouping, full/partial refund limits,
+  retention, and disconnect → reconnect materialization
 
 Add repository/sync cases when changing sync: offline write → reconnect,
 conflicting versions, batch bisection isolating a permanent payload error,
-sign-out DB deletion, and account-deletion clear boundaries (no `emailMessage`).
+sign-out DB deletion, and account-deletion clear boundaries (`emailMessage`
+included — verify clear and re-upload stay symmetric).
 
 ## Assemble
 

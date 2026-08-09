@@ -10,6 +10,7 @@ import app.dimo.android.data.db.PaymentMethodRecord
 import app.dimo.android.data.db.PreferencesRecord
 import app.dimo.android.data.db.RecurringRecord
 import app.dimo.android.data.db.SyncMetaRecord
+import app.dimo.android.data.db.SyncedEmailMessageRecord
 import app.dimo.android.data.db.TransactionRecord
 import app.dimo.android.data.model.BOOTSTRAP_VERSION
 import app.dimo.android.data.model.DeviceMeta
@@ -51,6 +52,13 @@ class Repository(private val db: DimoDatabase) {
 
   /** Device-id factory, used only when `deviceMeta` is first created. */
   var newDeviceId: () -> String = { UUID.randomUUID().toString().lowercase() }
+
+  /**
+   * Set by the email feature to project pulled `emailMessage` entities into the
+   * device-local email tables. Null while the Email tab has never been opened, in
+   * which case the synced rows simply wait in [SyncedEmailMessageRecord].
+   */
+  var emailProjection: (suspend (StoredEntity) -> Unit)? = null
 
   fun onLocalWrite(listener: () -> Unit): UUID {
     val id = UUID.randomUUID()
@@ -286,6 +294,12 @@ class Repository(private val db: DimoDatabase) {
         saveRecord(remote)
         // A pulled row supersedes anything still queued for the same key.
         db.outbox().deleteByKey(remote.key)
+        // A reviewed suggestion from another device must also reach the local
+        // email table, or Gmail refresh would re-analyze a message iOS already
+        // resolved. Same transaction so the two halves cannot diverge.
+        if (remote.entityType == EntityType.EMAIL_MESSAGE) {
+          emailProjection?.invoke(remote)
+        }
       }
       val meta = db.syncMeta().byWorkspace(WORKSPACE_ID)?.toSyncMeta()
       if (meta != null) {
@@ -314,9 +328,9 @@ class Repository(private val db: DimoDatabase) {
   /**
    * Re-versions and re-queues everything for an explicit full upload.
    *
-   * `emailMessage` is deliberately absent from [EntityType]: Android holds no
-   * email rows, so including that type would upload nothing while the paired
-   * `clearWorkspace` wiped the user's iOS email data.
+   * `emailMessage` is included now that Android ships the Email tab, so a full
+   * replacement re-uploads reviewed suggestions instead of leaving the cloud
+   * copy cleared. Callers that must not touch email pass a narrower list.
    */
   suspend fun enqueueFullUpload(entityTypes: List<EntityType> = EntityType.entries) {
     db.withTransaction {
@@ -422,6 +436,32 @@ class Repository(private val db: DimoDatabase) {
 
   suspend fun deviceMeta(): DeviceMeta? = db.deviceMeta().byId(DEVICE_ROW_ID)?.toDeviceMeta()
 
+  /**
+   * The entity half of the email feature's writes. [EmailRepository] runs its own
+   * `withTransaction` block and calls into this so an email review and the
+   * transaction it creates share one commit and one outbox batch.
+   */
+  val entityWriter: EntityWriter = object : EntityWriter {
+    override suspend fun fetchOne(key: String): StoredEntity? = this@Repository.fetchOne(key)
+
+    override suspend fun fetchAllEmailMessages(): List<StoredEntity> =
+      fetchAll(EntityType.EMAIL_MESSAGE)
+
+    override suspend fun put(payload: EntityPayload, deleted: Boolean) {
+      putInTransaction(payload, deleted)
+    }
+
+    override suspend fun setLastPaymentMethodInTransaction(id: String?) {
+      ensureDevice()
+      val device = db.deviceMeta().byId(DEVICE_ROW_ID) ?: return
+      db.deviceMeta().upsert(device.copy(lastPaymentMethodId = id))
+    }
+
+    override fun notifyWrite() {
+      this@Repository.notifyWrite()
+    }
+  }
+
   // MARK: - Reads
 
   suspend fun activeEntities(type: EntityType): List<StoredEntity> =
@@ -434,7 +474,9 @@ class Repository(private val db: DimoDatabase) {
    * Room Flow observation, the replacement for GRDB `ValueObservation`.
    *
    * `combine` only has typed overloads up to five flows, so the six typed tables
-   * are combined in two groups and then merged.
+   * are combined in two groups and then merged. `syncedEmailMessages` is left out
+   * on purpose — as on iOS, email writes must not re-hydrate the whole app; the
+   * Email tab observes the device-local email tables instead.
    */
   fun observeEntities(): Flow<List<StoredEntity>> {
     val groupA: Flow<List<StoredEntity>> = combine(
@@ -571,6 +613,8 @@ class Repository(private val db: DimoDatabase) {
       EntityType.TRANSACTION -> db.transactions().upsert(TransactionRecord.from(entity))
       EntityType.RECURRING -> db.recurring().upsert(RecurringRecord.from(entity))
       EntityType.LEND -> db.lends().upsert(LendRecord.from(entity))
+      EntityType.EMAIL_MESSAGE ->
+        db.syncedEmailMessages().upsert(SyncedEmailMessageRecord.from(entity))
       EntityType.PREFERENCES -> db.preferences().upsert(PreferencesRecord.from(entity))
     }
   }
@@ -582,6 +626,7 @@ class Repository(private val db: DimoDatabase) {
       EntityType.TRANSACTION -> db.transactions().deleteByKey(key)
       EntityType.RECURRING -> db.recurring().deleteByKey(key)
       EntityType.LEND -> db.lends().deleteByKey(key)
+      EntityType.EMAIL_MESSAGE -> db.syncedEmailMessages().deleteByKey(key)
       EntityType.PREFERENCES -> db.preferences().deleteByKey(key)
     }
   }
@@ -600,6 +645,7 @@ class Repository(private val db: DimoDatabase) {
     EntityType.TRANSACTION -> db.transactions().byKey(key)?.toStoredEntity()
     EntityType.RECURRING -> db.recurring().byKey(key)?.toStoredEntity()
     EntityType.LEND -> db.lends().byKey(key)?.toStoredEntity()
+    EntityType.EMAIL_MESSAGE -> db.syncedEmailMessages().byKey(key)?.toStoredEntity()
     EntityType.PREFERENCES -> db.preferences().byKey(key)?.toStoredEntity()
   }
 
@@ -609,6 +655,8 @@ class Repository(private val db: DimoDatabase) {
     EntityType.TRANSACTION -> db.transactions().all(WORKSPACE_ID).map { it.toStoredEntity() }
     EntityType.RECURRING -> db.recurring().all(WORKSPACE_ID).map { it.toStoredEntity() }
     EntityType.LEND -> db.lends().all(WORKSPACE_ID).map { it.toStoredEntity() }
+    EntityType.EMAIL_MESSAGE ->
+      db.syncedEmailMessages().all(WORKSPACE_ID).map { it.toStoredEntity() }
     EntityType.PREFERENCES -> db.preferences().all(WORKSPACE_ID).map { it.toStoredEntity() }
   }
 

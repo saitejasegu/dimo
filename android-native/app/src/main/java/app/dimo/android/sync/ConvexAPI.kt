@@ -10,6 +10,7 @@ import app.dimo.android.data.model.entityKey
 import app.dimo.android.data.model.CategoryEntity
 import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.Currency
+import app.dimo.android.data.model.EmailMessageEntity
 import app.dimo.android.data.model.LendEntity
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.NotificationSettings
@@ -29,11 +30,11 @@ import app.dimo.android.data.model.DEFAULT_CATEGORY_EMOJI
  * Wire contract for the typed Convex sync API, ported from
  * `ios-native/Dimo/Sync/ConvexAPI.swift` and `ConvexSyncTransport`.
  *
- * Two rules this file exists to enforce:
- *  1. every numeric field goes out as a JSON **double** — an integer encoding
- *     becomes Convex `$integer` and fails validation;
- *  2. `emailMessage` never appears, because Android is not an email writer and
- *     must not touch those rows.
+ * The rule this file exists to enforce: every numeric field goes out as a JSON
+ * **double** — an integer encoding becomes Convex `$integer` and fails validation.
+ *
+ * `emailMessage` participates fully now that Android ships the Email tab; it was
+ * previously excluded here because Android was not an email writer.
  */
 object ConvexAPI {
   fun pullPath(type: EntityType): String = when (type) {
@@ -42,6 +43,7 @@ object ConvexAPI {
     EntityType.TRANSACTION -> "syncTyped:pullTransactions"
     EntityType.RECURRING -> "syncTyped:pullRecurring"
     EntityType.LEND -> "syncTyped:pullLends"
+    EntityType.EMAIL_MESSAGE -> "syncTyped:pullEmailMessages"
     EntityType.PREFERENCES -> "syncTyped:pullPreferences"
   }
 
@@ -51,6 +53,7 @@ object ConvexAPI {
     EntityType.TRANSACTION -> "syncTyped:pushTransactions"
     EntityType.RECURRING -> "syncTyped:pushRecurring"
     EntityType.LEND -> "syncTyped:pushLends"
+    EntityType.EMAIL_MESSAGE -> "syncTyped:pushEmailMessages"
     EntityType.PREFERENCES -> "syncTyped:pushPreferences"
   }
 
@@ -152,6 +155,43 @@ object ConvexAPI {
         dict["kind"] = (e.kind ?: LendKind.LENT).wire
       }
 
+      is EntityPayload.EmailMessage -> {
+        val e = payload.value
+        // Unlike the other payloads, the emailMessage validator declares every
+        // optional field as nullable, so absent values go out as explicit nulls
+        // rather than being omitted. The id travels as `entityId` in the metadata.
+        dict["accountId"] = e.accountId
+        dict["accountEmail"] = e.accountEmail
+        dict["gmailMessageId"] = e.gmailMessageId
+        dict["threadId"] = e.threadId
+        dict["rfcMessageId"] = e.rfcMessageId
+        dict["senderName"] = e.senderName
+        dict["senderAddress"] = e.senderAddress
+        dict["subject"] = e.subject
+        dict["snippet"] = e.snippet
+        dict["internalDate"] = e.internalDate.toDouble()
+        dict["normalizedBodyText"] = e.normalizedBodyText
+        dict["analyzerType"] = e.analyzerType
+        dict["modelVersion"] = e.modelVersion
+        dict["promptVersion"] = e.promptVersion?.toDouble()
+        dict["classification"] = e.classification
+        dict["merchant"] = e.merchant
+        dict["amount"] = e.amount
+        dict["currency"] = e.currency
+        dict["occurredAt"] = e.occurredAt?.toDouble()
+        dict["categoryId"] = e.categoryId
+        dict["paymentMethodId"] = e.paymentMethodId
+        dict["paymentLastFour"] = e.paymentLastFour
+        dict["reference"] = e.reference
+        dict["state"] = e.state
+        dict["purchaseGroupId"] = e.purchaseGroupId
+        dict["linkedTransactionId"] = e.linkedTransactionId
+        dict["analyzedAt"] = e.analyzedAt?.toDouble()
+        dict["reviewedAt"] = e.reviewedAt?.toDouble()
+        dict["createdAt"] = e.createdAt.toDouble()
+        dict["updatedAt"] = e.updatedAt.toDouble()
+      }
+
       is EntityPayload.Preferences -> {
         val e = payload.value
         dict["profileName"] = e.profileName
@@ -251,6 +291,42 @@ object ConvexAPI {
           ),
         )
       }
+
+      EntityType.EMAIL_MESSAGE -> EntityPayload.EmailMessage(
+        EmailMessageEntity(
+          id = entityId,
+          accountId = row.string("accountId"),
+          accountEmail = row.string("accountEmail"),
+          gmailMessageId = row.string("gmailMessageId"),
+          threadId = row.string("threadId"),
+          rfcMessageId = row["rfcMessageId"] as? String,
+          senderName = row["senderName"] as? String,
+          senderAddress = row.string("senderAddress"),
+          subject = row.string("subject"),
+          snippet = row.string("snippet"),
+          internalDate = row["internalDate"].asLong(),
+          normalizedBodyText = row["normalizedBodyText"] as? String,
+          analyzerType = row["analyzerType"] as? String,
+          modelVersion = row["modelVersion"] as? String,
+          promptVersion = row["promptVersion"].asLongOrNull()?.toInt(),
+          classification = row["classification"] as? String,
+          merchant = row["merchant"] as? String,
+          amount = row["amount"] as? String,
+          currency = row["currency"] as? String,
+          occurredAt = row["occurredAt"].asLongOrNull(),
+          categoryId = row["categoryId"] as? String,
+          paymentMethodId = row["paymentMethodId"] as? String,
+          paymentLastFour = row["paymentLastFour"] as? String,
+          reference = row["reference"] as? String,
+          state = row.string("state"),
+          purchaseGroupId = row["purchaseGroupId"] as? String,
+          linkedTransactionId = row["linkedTransactionId"] as? String,
+          analyzedAt = row["analyzedAt"].asLongOrNull(),
+          reviewedAt = row["reviewedAt"].asLongOrNull(),
+          createdAt = row["createdAt"].asLong(),
+          updatedAt = row["updatedAt"].asLong(),
+        ),
+      )
 
       EntityType.PREFERENCES -> {
         val notifications = row["notifications"] as? Map<*, *> ?: emptyMap<String, Any?>()

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,7 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
@@ -33,9 +34,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -52,6 +55,7 @@ import app.dimo.android.design.StatusBadge
 import app.dimo.android.design.StatusBadgeTone
 import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
+import app.dimo.android.domain.ExchangeRates
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.Greeting
 import app.dimo.android.domain.RecurringSelectors
@@ -84,6 +88,7 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Home / Activity. Port of `ios-native/Dimo/Features/Home/HomeScreen.swift`:
@@ -95,23 +100,23 @@ import kotlinx.coroutines.delay
 fun HomeScreen(
   store: AppStore,
   onOpenSettings: () -> Unit,
-  onOpenRecurring: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   var showFilters by remember { mutableStateOf(false) }
   var pageSize by remember { mutableStateOf(TransactionSelectors.HOME_PAGE_SIZE) }
   var selection by remember { mutableStateOf(setOf<String>()) }
   var confirmBulkDelete by remember { mutableStateOf(false) }
+  var showUpcoming by remember { mutableStateOf(false) }
+  var upcomingShowAll by remember { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
 
   val filtered = TransactionSelectors.filterTransactions(store.transactions, store.filter)
   val (paged, hasMore) = TransactionSelectors.paginateTransactionsByDay(filtered, pageSize)
   val groups = TransactionSelectors.groupByDay(paged)
   val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
-  val upcoming = RecurringSelectors.upcomingBills(
-    store.recurring,
-    store.transactions,
-    limit = 3,
-  )
+  val upcomingThisMonth = RecurringSelectors.upcomingBills(store.recurring, store.transactions)
+  val upcomingAll = RecurringSelectors.allUpcomingBills(store.recurring, store.transactions)
+  val upcomingThisMonthTotal = upcomingTotal(upcomingThisMonth, store)
   val filterActive = store.filter != TransactionFilter()
 
   Box(modifier = modifier.fillMaxWidth()) {
@@ -161,17 +166,16 @@ fun HomeScreen(
         }
       }
 
-      if (upcoming.isNotEmpty()) {
+      if (upcomingAll.isNotEmpty()) {
         item("upcoming") {
-          UpcomingBillsCard(
-            store = store,
-            bills = upcoming,
-            onOpenRecurring = onOpenRecurring,
+          UpcomingSummaryRow(
+            total = upcomingThisMonthTotal,
+            currency = store.currency,
+            onClick = {
+              upcomingShowAll = false
+              showUpcoming = true
+            },
           )
-        }
-      } else {
-        item("upcoming-empty") {
-          RecurringEntryRow(onOpenRecurring = onOpenRecurring)
         }
       }
 
@@ -328,6 +332,24 @@ fun HomeScreen(
       onClose = { showFilters = false },
     )
   }
+
+  if (showUpcoming) {
+    UpcomingBillsSheet(
+      store = store,
+      thisMonth = upcomingThisMonth,
+      all = upcomingAll,
+      showAll = upcomingShowAll,
+      onShowAllChange = { upcomingShowAll = it },
+      onOpenBill = { id ->
+        showUpcoming = false
+        scope.launch {
+          delay(250)
+          store.openEditRecurring(id)
+        }
+      },
+      onClose = { showUpcoming = false },
+    )
+  }
 }
 
 /** One active-filter pill; [id] encodes which part of the filter it clears. */
@@ -454,107 +476,116 @@ private fun HomeHeader(
 }
 
 @Composable
-private fun RecurringEntryRow(onOpenRecurring: () -> Unit, modifier: Modifier = Modifier) {
+private fun UpcomingSummaryRow(
+  total: Double,
+  currency: app.dimo.android.data.model.Currency,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   Row(
     modifier = modifier
       .fillMaxWidth()
       .cardSurface(14.dp)
-      .clickable(onClick = onOpenRecurring)
-      .padding(horizontal = 14.dp, vertical = 14.dp),
+      .clickable(onClick = onClick)
+      .padding(horizontal = 12.dp, vertical = 11.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    Box(
-      modifier = Modifier
-        .size(38.dp)
-        .clip(RoundedCornerShape(11.dp))
-        .background(DimoColors.canvasDeep),
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(
-        imageVector = Icons.Filled.Autorenew,
-        contentDescription = null,
-        tint = DimoColors.ink,
-        modifier = Modifier.size(18.dp),
-      )
-    }
-    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-      Text(
-        text = "Recurring bills",
-        style = DimoFont.body(15f, FontWeight.Medium),
-        color = DimoColors.ink,
-      )
-      Text(
-        text = "No bills due this month",
-        style = DimoFont.body(12f),
-        color = DimoColors.muted,
-      )
-    }
-    Text(text = "›", style = DimoFont.display(18f, FontWeight.Medium), color = DimoColors.faint)
+    Text(
+      text = "Upcoming this month",
+      style = DimoFont.display(16f, FontWeight.SemiBold),
+      color = DimoColors.ink,
+      modifier = Modifier.weight(1f),
+    )
+    Text(
+      text = Formatting.money(total, currency),
+      style = DimoFont.body(13f, FontWeight.Medium),
+      color = DimoColors.muted,
+    )
+    Icon(
+      imageVector = Icons.Filled.ChevronRight,
+      contentDescription = null,
+      tint = DimoColors.faint,
+      modifier = Modifier.size(16.dp),
+    )
   }
 }
 
 @Composable
-private fun UpcomingBillsCard(
+private fun UpcomingBillsSheet(
   store: AppStore,
-  bills: List<Recurring>,
-  onOpenRecurring: () -> Unit,
-  modifier: Modifier = Modifier,
+  thisMonth: List<Recurring>,
+  all: List<Recurring>,
+  showAll: Boolean,
+  onShowAllChange: (Boolean) -> Unit,
+  onOpenBill: (String) -> Unit,
+  onClose: () -> Unit,
 ) {
-  DimoCard(modifier = modifier, verticalSpacing = 10.dp) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      SectionLabel("Upcoming", modifier = Modifier.weight(1f))
+  val bills = if (showAll) all else thisMonth
+  val canShowAll = all.size > thisMonth.size
+  val total = upcomingTotal(bills, store)
+
+  DimoBottomSheet(onDismiss = onClose) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 22.dp)
+        .padding(top = 8.dp, bottom = 22.dp),
+      verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
       Text(
-        text = "See all",
-        style = DimoFont.body(12f, FontWeight.Medium),
-        color = DimoColors.green,
-        modifier = Modifier.clickable(onClick = onOpenRecurring),
+        text = if (showAll) "Upcoming" else "Upcoming this month",
+        style = DimoFont.display(19f, FontWeight.SemiBold),
+        color = DimoColors.ink,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
       )
-    }
-    bills.forEach { bill ->
       Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .clickable { store.openEditRecurring(bill.id) },
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        CategoryTintView(
-          emoji = store.categoryEmoji(bill.emoji, bill.categoryId, bill.category),
-          green = bill.green,
-          size = 34.dp,
-          radius = 10.dp,
-          fontSize = 15f,
+        Text(
+          text = Formatting.money(total, store.currency),
+          style = DimoFont.body(13f, FontWeight.Medium),
+          color = DimoColors.muted,
         )
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Spacer(modifier = Modifier.weight(1f))
+        if (canShowAll || showAll) {
           Text(
-            text = bill.name,
-            style = DimoFont.body(14f, FontWeight.Medium),
-            color = DimoColors.ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-          Text(
-            text = RecurringSelectors.recurringSubtitle(bill),
-            style = DimoFont.body(12f),
-            color = DimoColors.muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            text = if (showAll) "This month" else "Show all (${all.size})",
+            style = DimoFont.body(12f, FontWeight.Medium),
+            color = DimoColors.green,
+            modifier = Modifier
+              .clip(RoundedCornerShape(8.dp))
+              .clickable { onShowAllChange(!showAll) }
+              .padding(horizontal = 4.dp, vertical = 3.dp),
           )
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-          Text(
-            text = Formatting.money(bill.amount, bill.currency ?: store.currency.wire),
-            style = DimoFont.display(14f, FontWeight.SemiBold),
-            color = DimoColors.ink,
-          )
-          bill.convertedEstimateLabel?.let { estimate ->
-            Text(
-              text = estimate,
-              style = DimoFont.body(11f),
-              color = DimoColors.muted,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
+      }
+
+      if (bills.isEmpty()) {
+        Text(
+          text = "None",
+          style = DimoFont.body(14f),
+          color = DimoColors.faint,
+          textAlign = TextAlign.Center,
+          modifier = Modifier
+            .fillMaxWidth()
+            .cardSurface(14.dp)
+            .padding(vertical = 18.dp),
+        )
+      } else {
+        LazyColumn(
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 460.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          items(bills, key = { "upcoming-${it.id}" }) { bill ->
+            UpcomingBillRow(
+              store = store,
+              bill = bill,
+              onClick = { onOpenBill(bill.id) },
             )
           }
         }
@@ -562,6 +593,83 @@ private fun UpcomingBillsCard(
     }
   }
 }
+
+@Composable
+private fun UpcomingBillRow(
+  store: AppStore,
+  bill: Recurring,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .cardSurface(
+        radius = 14.dp,
+        background = if (bill.paused) DimoColors.canvasDeep.copy(alpha = 0.7f) else DimoColors.surface,
+        borderColor = if (bill.paused) DimoColors.hairline else DimoColors.line,
+      )
+      .clickable(onClick = onClick)
+      .padding(horizontal = 12.dp, vertical = 11.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    CategoryTintView(
+      emoji = store.categoryEmoji(bill.emoji, bill.categoryId, bill.category),
+      green = bill.green,
+      modifier = Modifier.alpha(if (bill.paused) 0.6f else 1f),
+    )
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(
+        text = bill.name,
+        style = DimoFont.body(14f, FontWeight.Medium),
+        color = if (bill.paused) DimoColors.muted else DimoColors.ink,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      if (bill.paused) {
+        StatusBadge(label = "Paused", tone = StatusBadgeTone.Muted)
+      } else {
+        Text(
+          text = bill.due,
+          style = DimoFont.body(12f, if (bill.urgent == true) FontWeight.Medium else FontWeight.Normal),
+          color = if (bill.urgent == true) DimoColors.warn else DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Text(
+        text = Formatting.money(bill.amount, bill.currency ?: store.currency.wire),
+        style = DimoFont.display(15f, FontWeight.SemiBold),
+        color = if (bill.paused) DimoColors.muted else DimoColors.ink,
+      )
+      bill.convertedEstimateLabel?.let { estimate ->
+        Text(
+          text = estimate,
+          style = DimoFont.body(12f),
+          color = DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+  }
+}
+
+private fun upcomingTotal(items: List<Recurring>, store: AppStore): Double =
+  items.sumOf { bill ->
+    if (bill.paused) {
+      0.0
+    } else {
+      ExchangeRates.recurringAmountInDefault(
+        bill,
+        defaultCurrency = store.currency.wire,
+        rates = store.rates,
+      )
+    }
+  }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

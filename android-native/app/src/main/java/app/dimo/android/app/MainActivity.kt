@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.remember
 import app.dimo.android.auth.AuthRedirectBus
+import app.dimo.android.email.gmail.GmailRedirectBus
 import app.dimo.android.notifications.ExpenseReminderRouter
 import app.dimo.android.notifications.ExpenseReminderScheduler
 
@@ -38,6 +39,9 @@ class MainActivity : ComponentActivity() {
     if (AuthRedirectBus.hasPending() && !consumedRedirect) {
       AuthRedirectBus.cancelPending()
     }
+    if (GmailRedirectBus.hasPending() && !consumedRedirect) {
+      GmailRedirectBus.cancelPending()
+    }
     consumedRedirect = false
     // Cold-start notification taps may arrive before AppStore is ready; retry
     // once the session has hydrated.
@@ -54,6 +58,16 @@ class MainActivity : ComponentActivity() {
     val uri = intent?.data
     if (uri?.scheme == "dimo" && uri.host == "callback") {
       AuthRedirectBus.publish(uri)
+      intent.data = null
+      consumedRedirect = true
+      return
+    }
+    // Gmail redirects to the reversed OAuth client id rather than dimo://, so it
+    // is routed by scheme to its own bus.
+    if (uri != null && uri.scheme == AppConfig.gmailOAuthRedirectScheme &&
+      AppConfig.isGmailConfigured
+    ) {
+      GmailRedirectBus.publish(uri)
       intent.data = null
       consumedRedirect = true
       return

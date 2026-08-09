@@ -606,5 +606,6 @@ fun storedEntityToRecord(entity: StoredEntity): Any = when (entity.entityType) {
   EntityType.TRANSACTION -> TransactionRecord.from(entity)
   EntityType.RECURRING -> RecurringRecord.from(entity)
   EntityType.LEND -> LendRecord.from(entity)
+  EntityType.EMAIL_MESSAGE -> SyncedEmailMessageRecord.from(entity)
   EntityType.PREFERENCES -> PreferencesRecord.from(entity)
 }

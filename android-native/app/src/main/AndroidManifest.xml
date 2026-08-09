@@ -6,7 +6,6 @@
   <uses-permission android:name="android.permission.READ_CONTACTS" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
   <application
     android:name=".app.DimoApplication"
@@ -34,6 +33,17 @@
         <category android:name="android.intent.category.BROWSABLE" />
         <data android:scheme="dimo" android:host="callback" />
       </intent-filter>
+      <!--
+        Gmail's installed-app OAuth redirect. The scheme is the reversed OAuth
+        client id, injected per flavor from gmail.properties; unconfigured builds
+        get an inert placeholder so the manifest still merges.
+      -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="${gmailRedirectScheme}" />
+      </intent-filter>
     </activity>
 
     <!-- Explicit PendingIntents from AlarmManager; keep non-exported. -->
@@ -47,6 +57,16 @@
     </receiver>
 
     <!-- System broadcasts require an exported receiver. -->
+    <!-- Opportunistic Gmail refresh / analysis passes; see EmailBackgroundWork. -->
+    <receiver
+      android:name=".email.work.EmailBackgroundReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="app.dimo.android.action.EMAIL_BACKGROUND_REFRESH" />
+        <action android:name="app.dimo.android.action.EMAIL_BACKGROUND_ANALYSIS" />
+      </intent-filter>
+    </receiver>
+
     <receiver
       android:name=".notifications.ExpenseReminderBootReceiver"
       android:exported="true"
