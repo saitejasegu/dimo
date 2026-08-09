@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.MailOutline
@@ -209,6 +211,7 @@ private fun EmailHeader(store: EmailFeatureStore, onOpenSettings: () -> Unit) {
     horizontalArrangement = Arrangement.spacedBy(12.dp),
     modifier = Modifier
       .fillMaxWidth()
+      .statusBarsPadding()
       .heightIn(min = 64.dp)
       .padding(horizontal = 22.dp)
       .padding(top = 8.dp),
@@ -289,6 +292,14 @@ private fun ConnectAccountCard(store: EmailFeatureStore) {
         contentDescription = null,
         tint = DimoColors.green,
         modifier = Modifier.size(24.dp),
+      )
+      Box(
+        modifier = Modifier
+          .align(Alignment.TopEnd)
+          .padding(top = 8.dp, end = 8.dp)
+          .size(6.dp)
+          .clip(CircleShape)
+          .background(DimoColors.green),
       )
     }
     Text(

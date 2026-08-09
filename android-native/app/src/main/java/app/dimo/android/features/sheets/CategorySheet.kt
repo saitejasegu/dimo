@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,8 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import app.dimo.android.data.model.CategoryTint
-import app.dimo.android.design.Chip
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.BudgetSelectors
@@ -43,8 +42,6 @@ import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoTextField
 import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.PrimaryButton
-import app.dimo.android.features.common.SectionLabel
-import app.dimo.android.features.common.SheetHeader
 import app.dimo.android.features.common.WrapRow
 import app.dimo.android.features.common.cardSurface
 import app.dimo.android.store.AppStore
@@ -74,20 +71,24 @@ fun CategorySheet(
   val suggestion = lookback?.monthlyAverage?.roundToLong()?.toDouble()
   val canSave = draft.name.trim().isNotEmpty()
 
-  DimoBottomSheet(onDismiss = onClose) {
-    SheetHeader(
-      title = if (editingId == null) "New category" else "Edit category",
-      onDelete = if (editingId == null) null else ({ confirmDelete = true }),
-    )
+  DimoBottomSheet(
+    onDismiss = onClose,
+    compactDragHandle = true,
+  ) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .heightIn(max = 560.dp)
         .verticalScroll(rememberScrollState())
         .padding(horizontal = 22.dp)
+        .padding(top = 10.dp)
         .padding(bottom = 22.dp),
       verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+      CategorySheetHeader(
+        editing = editingId != null,
+        onDelete = { confirmDelete = true },
+      )
+
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         FieldLabel("Name")
         Row(
@@ -193,45 +194,69 @@ fun CategorySheet(
         }
       }
 
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionLabel("Tint")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Chip(
-            label = "Neutral",
-            selected = draft.tint == CategoryTint.NEUTRAL,
-            onClick = { store.categoryDraft = draft.copy(tint = CategoryTint.NEUTRAL) },
-          )
-          Chip(
-            label = "Green",
-            selected = draft.tint == CategoryTint.GREEN,
-            onClick = { store.categoryDraft = draft.copy(tint = CategoryTint.GREEN) },
-          )
-        }
-      }
-
       PrimaryButton(
         title = if (editingId == null) "Create category" else "Save category",
         enabled = canSave,
         onClick = { store.saveCategory() },
       )
-      Spacer(modifier = Modifier.height(4.dp))
     }
   }
 
   if (confirmDelete && editingId != null) {
     val linked = store.transactions.count { it.categoryId == editingId }
     ConfirmDialog(
-      title = "Delete ${draft.name}?",
-      message = if (linked == 0) {
-        "This category has no transactions."
-      } else {
-        val suffix = if (linked == 1) "" else "s"
-        "$linked transaction$suffix in this category will also be deleted."
-      },
+      title = "Delete this category?",
+      message = "This will also permanently delete $linked transaction${if (linked == 1) "" else "s"} " +
+        "in this category. This action cannot be undone.",
       confirmLabel = "Delete",
       onConfirm = { store.deleteCategoryAndTransactions(editingId) },
       onDismiss = { confirmDelete = false },
     )
+  }
+}
+
+@Composable
+private fun CategorySheetHeader(
+  editing: Boolean,
+  onDelete: () -> Unit,
+) {
+  if (!editing) {
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+      Text(
+        text = "New category",
+        style = DimoFont.display(18f, FontWeight.SemiBold),
+        color = DimoColors.ink,
+      )
+    }
+    return
+  }
+
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = "Edit category",
+      style = DimoFont.display(18f, FontWeight.SemiBold),
+      color = DimoColors.ink,
+      modifier = Modifier.weight(1f),
+    )
+    Box(
+      modifier = Modifier
+        .size(42.dp)
+        .clip(RoundedCornerShape(13.dp))
+        .background(DimoColors.dangerSoft)
+        .border(1.dp, DimoColors.dangerLine, RoundedCornerShape(13.dp))
+        .clickable(onClick = onDelete),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        imageVector = Icons.Filled.DeleteOutline,
+        contentDescription = "Delete category",
+        tint = DimoColors.danger,
+        modifier = Modifier.size(17.dp),
+      )
+    }
   }
 }
 

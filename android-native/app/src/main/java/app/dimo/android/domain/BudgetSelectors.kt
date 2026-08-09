@@ -26,6 +26,7 @@ data class BudgetTotals(
   val pct: Int,
   val left: Double,
   val over: Boolean,
+  val transactionCount: Int,
 )
 
 data class CategoryLookbackSpend(
@@ -89,7 +90,10 @@ object BudgetSelectors {
       pct = pct,
       over = pct >= 90,
     )
-  }.sortedByDescending { it.spent }
+  }.sortedWith(
+    compareByDescending<CategoryBudget> { it.pct }
+      .thenByDescending { it.spent },
+  )
 
   fun budgetTotals(
     transactions: List<Transaction>,
@@ -106,6 +110,7 @@ object BudgetSelectors {
       pct = pct,
       left = totalLimit - totalSpent,
       over = totalLimit > 0 && totalSpent / totalLimit >= 0.9,
+      transactionCount = current.size,
     )
   }
 

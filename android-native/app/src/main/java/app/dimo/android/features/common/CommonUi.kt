@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -87,8 +88,8 @@ import java.util.Locale
 /** Horizontal page gutter shared by tab screens — matches iOS `22`. */
 val ScreenContentPadding = 22.dp
 
-/** FAB clearance above the system tab bar — matches iOS overlay bottom `68`. */
-val FabBottomPadding = 68.dp
+/** Gap between a tab screen's FAB and the tab bar below it. */
+val FabBottomPadding = 16.dp
 
 /**
  * Shared building blocks for the Compose feature screens. These are the Android
@@ -804,21 +805,43 @@ fun WrapRow(
 fun DimoBottomSheet(
   onDismiss: () -> Unit,
   modifier: Modifier = Modifier,
+  containerColor: Color = DimoColors.surface,
+  compactDragHandle: Boolean = false,
   content: @Composable ColumnScope.() -> Unit,
 ) {
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
-    containerColor = DimoColors.surface,
+    containerColor = containerColor,
     contentColor = DimoColors.ink,
-    dragHandle = { BottomSheetDefaults.DragHandle(color = DimoColors.line) },
+    dragHandle = {
+      if (compactDragHandle) {
+        Box(
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp),
+          contentAlignment = Alignment.Center,
+        ) {
+          Box(
+            modifier = Modifier
+              .width(32.dp)
+              .height(4.dp)
+              .clip(RoundedCornerShape(50))
+              .background(DimoColors.line),
+          )
+        }
+      } else {
+        BottomSheetDefaults.DragHandle(color = DimoColors.line)
+      }
+    },
     modifier = modifier,
   ) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .imePadding(),
+        .imePadding()
+        .navigationBarsPadding(),
       content = content,
     )
   }
@@ -829,12 +852,17 @@ fun SheetHeader(
   title: String,
   modifier: Modifier = Modifier,
   onDelete: (() -> Unit)? = null,
+  compact: Boolean = false,
 ) {
   Box(
     modifier = modifier
       .fillMaxWidth()
       .padding(horizontal = 20.dp)
-      .padding(top = 22.dp, bottom = 10.dp),
+      .padding(
+        top = if (compact) 0.dp else 22.dp,
+        bottom = if (compact) 0.dp else 10.dp,
+      )
+      .then(if (compact) Modifier.height(44.dp) else Modifier),
     contentAlignment = Alignment.Center,
   ) {
     Text(
@@ -1314,6 +1342,7 @@ fun DateField(
   modifier: Modifier = Modifier,
   includeTime: Boolean = false,
   maxToday: Boolean = true,
+  compact: Boolean = false,
 ) {
   var showDate by remember { mutableStateOf(false) }
   var showTime by remember { mutableStateOf(false) }
@@ -1331,24 +1360,53 @@ fun DateField(
         .fillMaxWidth()
         .height(50.dp)
         .cardSurface(12.dp, DimoColors.canvas)
-        .clickable { showDate = true }
+        .then(if (compact) Modifier else Modifier.clickable { showDate = true })
         .padding(horizontal = 14.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Icon(
-        imageVector = Icons.Filled.CalendarToday,
-        contentDescription = null,
-        tint = DimoColors.muted,
-        modifier = Modifier.size(16.dp),
-      )
-      Text(
-        text = text,
-        style = DimoFont.body(15f),
-        color = DimoColors.ink,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
+      if (compact) {
+        val dateText = zoned.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()))
+        Text(
+          text = dateText,
+          style = DimoFont.body(15f),
+          color = DimoColors.ink,
+          modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(DimoColors.canvasDeep)
+            .clickable { showDate = true }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+        if (includeTime) {
+          val timeText = zoned
+            .format(DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()))
+            .uppercase(Locale.getDefault())
+          Text(
+            text = timeText,
+            style = DimoFont.body(15f),
+            color = DimoColors.ink,
+            modifier = Modifier
+              .clip(RoundedCornerShape(50))
+              .background(DimoColors.canvasDeep)
+              .clickable { showTime = true }
+              .padding(horizontal = 12.dp, vertical = 7.dp),
+          )
+        }
+      } else {
+        Icon(
+          imageVector = Icons.Filled.CalendarToday,
+          contentDescription = null,
+          tint = DimoColors.muted,
+          modifier = Modifier.size(16.dp),
+        )
+        Text(
+          text = text,
+          style = DimoFont.body(15f),
+          color = DimoColors.ink,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
   }
 
@@ -1374,7 +1432,7 @@ fun DateField(
                 .toEpochMilli()
               if (maxToday) next = minOf(next, System.currentTimeMillis())
               onChange(next)
-              if (includeTime) showTime = true
+              if (includeTime && !compact) showTime = true
             }
           },
         ) {

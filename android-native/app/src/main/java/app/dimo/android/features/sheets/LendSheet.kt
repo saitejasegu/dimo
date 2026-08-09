@@ -3,18 +3,27 @@ package app.dimo.android.features.sheets
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +40,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.LendKind
-import app.dimo.android.design.Chip
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.Formatting
@@ -47,9 +55,8 @@ import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.LabeledTextField
 import app.dimo.android.features.common.PrimaryButton
 import app.dimo.android.features.common.SegmentedControl
-import app.dimo.android.features.common.SheetHeader
-import app.dimo.android.features.common.WrapRow
 import app.dimo.android.features.common.cardSurface
+import app.dimo.android.features.common.rememberContactPhotoUris
 import app.dimo.android.store.AppStore
 import java.time.Instant
 import kotlin.math.roundToLong
@@ -83,12 +90,21 @@ fun LendSheet(
   var contactQuery by remember(editingId) { mutableStateOf("") }
   var pickingContact by remember { mutableStateOf(false) }
   var confirmDelete by remember { mutableStateOf(false) }
+  val contactPhotos = rememberContactPhotoUris()
 
   val permissionLauncher = rememberLauncherForActivityResult(
     ActivityResultContracts.RequestPermission(),
   ) { granted ->
     permissionDenied = !granted
     if (granted) pickingContact = true
+  }
+
+  fun openContactPicker() {
+    if (ContactsLoader.hasPermission(context)) {
+      pickingContact = true
+    } else {
+      permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+    }
   }
 
   LaunchedEffect(pickingContact) {
@@ -189,10 +205,14 @@ fun LendSheet(
     }
   }
 
-  DimoBottomSheet(onDismiss = onClose) {
-    SheetHeader(
+  DimoBottomSheet(
+    onDismiss = onClose,
+    compactDragHandle = true,
+  ) {
+    LendSheetHeader(
       title = sheetTitle,
-      onDelete = if (editingId == null) null else ({ confirmDelete = true }),
+      editing = isEditing,
+      onDelete = { confirmDelete = true },
     )
     Column(
       modifier = Modifier
@@ -200,10 +220,11 @@ fun LendSheet(
         .heightIn(max = 620.dp)
         .verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp)
+        .padding(top = 12.dp)
         .padding(bottom = 24.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      if (canChooseDirection) {
+      if (canChooseDirection && !pickingContact) {
         SegmentedControl(
           options = listOf(LendKind.LENT, LendKind.BORROWED),
           selected = if (kind == LendKind.BORROWED) LendKind.BORROWED else LendKind.LENT,
@@ -212,58 +233,92 @@ fun LendSheet(
         )
       }
 
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         FieldLabel(contactLabel)
-        if (draft.contactName.isNotEmpty()) {
+        if (contactLocked) {
           Row(
             modifier = Modifier
               .fillMaxWidth()
+              .height(50.dp)
               .cardSurface(12.dp, DimoColors.canvas)
-              .padding(horizontal = 12.dp, vertical = 10.dp),
+              .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            ContactAvatar(name = draft.contactName, size = 34.dp, radius = 11.dp)
+            ContactAvatar(
+              name = draft.contactName,
+              photoUri = draft.contactId?.let(contactPhotos::get),
+              size = 28.dp,
+              radius = 14.dp,
+              fontSize = 11f,
+              monogram = lendContactInitials(draft.contactName),
+            )
             Text(
               text = draft.contactName,
-              style = DimoFont.body(15f, FontWeight.Medium),
+              style = DimoFont.body(15f),
               color = DimoColors.ink,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
               modifier = Modifier.weight(1f),
             )
-            if (!contactLocked) {
-              Text(
-                text = "Change",
-                style = DimoFont.body(13f, FontWeight.Medium),
-                color = DimoColors.green,
-                modifier = Modifier.clickable {
-                  if (ContactsLoader.hasPermission(context)) {
-                    pickingContact = true
-                  } else {
-                    permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                  }
-                },
-              )
-            }
           }
-        } else if (!contactLocked) {
-          Text(
-            text = "Choose from contacts",
-            style = DimoFont.body(15f, FontWeight.Medium),
-            color = DimoColors.green,
+        } else if (pickingContact) {
+          DimoTextField(
+            value = contactQuery,
+            onValueChange = { contactQuery = it },
+            placeholder = "Search contacts",
+            leading = {
+              Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = DimoColors.muted,
+                modifier = Modifier.size(16.dp),
+              )
+            },
+          )
+        } else {
+          Row(
             modifier = Modifier
               .fillMaxWidth()
+              .height(50.dp)
               .cardSurface(12.dp, DimoColors.canvas)
-              .clickable {
-                if (ContactsLoader.hasPermission(context)) {
-                  pickingContact = true
-                } else {
-                  permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
-                }
-              }
-              .padding(horizontal = 14.dp, vertical = 15.dp),
-          )
+              .clickable(onClick = ::openContactPicker)
+              .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            if (draft.contactName.isEmpty()) {
+              Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = DimoColors.muted,
+                modifier = Modifier.size(16.dp),
+              )
+            } else {
+              ContactAvatar(
+                name = draft.contactName,
+                photoUri = draft.contactId?.let(contactPhotos::get),
+                size = 28.dp,
+                radius = 14.dp,
+                fontSize = 11f,
+                monogram = lendContactInitials(draft.contactName),
+              )
+            }
+            Text(
+              text = draft.contactName.ifEmpty { "Search contacts" },
+              style = DimoFont.body(15f),
+              color = if (draft.contactName.isEmpty()) DimoColors.faint else DimoColors.ink,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            Icon(
+              imageVector = Icons.Filled.KeyboardArrowDown,
+              contentDescription = "Choose from contacts",
+              tint = DimoColors.green,
+              modifier = Modifier.size(18.dp),
+            )
+          }
         }
 
         if (permissionDenied) {
@@ -282,12 +337,6 @@ fun LendSheet(
               .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
           ) {
-            DimoTextField(
-              value = contactQuery,
-              onValueChange = { contactQuery = it },
-              placeholder = "Search contacts",
-              height = 44.dp,
-            )
             if (filteredContacts.isEmpty()) {
               Text(
                 text = "No contacts found.",
@@ -317,8 +366,9 @@ fun LendSheet(
                   name = contact.name,
                   photoUri = contact.photoUri,
                   size = 32.dp,
-                  radius = 10.dp,
+                  radius = 16.dp,
                   fontSize = 13f,
+                  monogram = lendContactInitials(contact.name),
                 )
                 Text(
                   text = contact.name,
@@ -332,90 +382,168 @@ fun LendSheet(
           }
         }
 
-        if (existing == null && !contactLocked && recentContacts.isNotEmpty()) {
-          WrapRow {
+        if (
+          existing == null &&
+          !contactLocked &&
+          !pickingContact &&
+          draft.contactName.isEmpty() &&
+          recentContacts.isNotEmpty()
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .horizontalScroll(rememberScrollState())
+              .padding(top = 4.dp, bottom = 1.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
             recentContacts.forEach { suggestion ->
-              Chip(
-                label = suggestion.contactName,
-                selected = draft.contactId == suggestion.contactId,
-                onClick = {
-                  store.lendDraft = draft.copy(
-                    contactName = suggestion.contactName,
-                    contactId = suggestion.contactId,
-                  )
-                  pickingContact = false
-                },
-              )
+              Row(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(50))
+                  .cardSurface(50.dp, DimoColors.canvas)
+                  .clickable {
+                    store.lendDraft = draft.copy(
+                      contactName = suggestion.contactName,
+                      contactId = suggestion.contactId,
+                    )
+                    pickingContact = false
+                  }
+                  .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                ContactAvatar(
+                  name = suggestion.contactName,
+                  photoUri = contactPhotos[suggestion.contactId],
+                  size = 22.dp,
+                  radius = 11.dp,
+                  fontSize = 8f,
+                  monogram = lendContactInitials(suggestion.contactName),
+                )
+                Text(
+                  text = suggestion.contactName,
+                  style = DimoFont.body(13f, FontWeight.Medium),
+                  color = DimoColors.ink,
+                  maxLines = 1,
+                )
+              }
             }
           }
         }
       }
 
-      LabeledTextField(
-        label = amountLabel,
-        value = draft.amount,
-        onValueChange = { next -> clampToSettlementLimit(next) },
-        placeholder = "0",
-        keyboardType = KeyboardType.Decimal,
-      )
-
-      if (settlementLimit != null) {
-        Text(
-          text = if (exceedsLimit) {
-            when (kind) {
-              LendKind.REPAID ->
-                "Repayment cannot exceed ${Formatting.money(settlementLimit, store.currency)} outstanding."
-              LendKind.RETURNED ->
-                "Payment cannot exceed ${Formatting.money(settlementLimit, store.currency)} owed."
-              else ->
-                "Amount cannot exceed ${Formatting.money(settlementLimit, store.currency)}."
-            }
-          } else {
-            when (kind) {
-              LendKind.REPAID ->
-                "${Formatting.money(settlementLimit, store.currency)} outstanding."
-              LendKind.RETURNED ->
-                "${Formatting.money(settlementLimit, store.currency)} owed."
-              else ->
-                "${Formatting.money(settlementLimit, store.currency)} available."
-            }
+      if (!pickingContact) {
+        DateField(
+          label = "Date",
+          millis = draft.date.toEpochMilli(),
+          onChange = { millis ->
+            store.lendDraft = draft.copy(date = Instant.ofEpochMilli(millis))
           },
-          style = DimoFont.body(12f),
-          color = if (exceedsLimit) DimoColors.danger else DimoColors.muted,
+          compact = true,
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          FieldLabel(amountLabel)
+          DimoTextField(
+            value = draft.amount,
+            onValueChange = { next -> clampToSettlementLimit(next) },
+            placeholder = "0",
+            keyboardType = KeyboardType.Decimal,
+            leading = {
+              Text(
+                text = Formatting.currencySymbol(store.currency),
+                style = DimoFont.body(15f),
+                color = DimoColors.muted,
+              )
+            },
+          )
+        }
+
+        LabeledTextField(
+          label = "Comments (optional)",
+          value = draft.comment,
+          onValueChange = { store.lendDraft = draft.copy(comment = it) },
+          placeholder = commentPlaceholder,
+        )
+
+        PrimaryButton(
+          title = saveTitle,
+          enabled = canSave,
+          onClick = { store.saveLend() },
         )
       }
-
-      DateField(
-        label = "When",
-        millis = draft.date.toEpochMilli(),
-        onChange = { millis ->
-          store.lendDraft = draft.copy(date = Instant.ofEpochMilli(millis))
-        },
-      )
-
-      LabeledTextField(
-        label = "Note (optional)",
-        value = draft.comment,
-        onValueChange = { store.lendDraft = draft.copy(comment = it) },
-        placeholder = commentPlaceholder,
-      )
-
-      PrimaryButton(
-        title = saveTitle,
-        enabled = canSave,
-        onClick = { store.saveLend() },
-      )
-      Spacer(modifier = Modifier.height(4.dp))
     }
   }
 
   if (confirmDelete && editingId != null) {
     ConfirmDialog(
       title = deleteTitle,
-      message = "${draft.contactName} · ${Formatting.money(amountValue, store.currency)}",
       confirmLabel = "Delete",
       onConfirm = { store.deleteLend(editingId) },
       onDismiss = { confirmDelete = false },
     )
+  }
+}
+
+private fun lendContactInitials(name: String): String {
+  val parts = name.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
+  return listOfNotNull(
+    parts.firstOrNull()?.firstOrNull(),
+    parts.lastOrNull()?.firstOrNull()?.takeIf { parts.size > 1 },
+  )
+    .joinToString("")
+    .uppercase()
+}
+
+@Composable
+private fun LendSheetHeader(
+  title: String,
+  editing: Boolean,
+  onDelete: () -> Unit,
+) {
+  if (!editing) {
+    Box(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 20.dp, vertical = 10.dp),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        text = title,
+        style = DimoFont.display(18f, FontWeight.SemiBold),
+        color = DimoColors.ink,
+      )
+    }
+    return
+  }
+
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(horizontal = 20.dp, vertical = 10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = title,
+      style = DimoFont.display(18f, FontWeight.SemiBold),
+      color = DimoColors.ink,
+      modifier = Modifier.weight(1f),
+    )
+    Box(
+      modifier = Modifier
+        .size(42.dp)
+        .clip(RoundedCornerShape(13.dp))
+        .background(DimoColors.dangerSoft)
+        .border(1.dp, DimoColors.dangerLine, RoundedCornerShape(13.dp))
+        .clickable(onClick = onDelete),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        imageVector = Icons.Filled.DeleteOutline,
+        contentDescription = "Delete lending entry",
+        tint = DimoColors.danger,
+        modifier = Modifier.size(17.dp),
+      )
+    }
   }
 }

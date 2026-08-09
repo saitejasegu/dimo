@@ -1,5 +1,6 @@
 package app.dimo.android.features.budgets
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,12 +10,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -25,36 +29,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.dimo.android.data.model.CategoryEntity
-import app.dimo.android.data.model.CategoryTint
+import app.dimo.android.data.model.Currency
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.design.ProgressBar
-import app.dimo.android.design.StatusBadge
-import app.dimo.android.design.StatusBadgeTone
 import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
+import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
-import app.dimo.android.features.common.CategoryTintView
-import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoCard
 import app.dimo.android.features.common.EmptyState
-import app.dimo.android.features.common.HeroAmount
-import app.dimo.android.features.common.HeroCaption
-import app.dimo.android.features.common.HeroCard
-import app.dimo.android.features.common.HeroLabel
 import app.dimo.android.features.common.PrimaryButton
 import app.dimo.android.features.common.ScreenHeader
-import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SheetHeader
 import app.dimo.android.features.common.SyncErrorBanner
 import app.dimo.android.features.common.cardSurface
 import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.store.AppStore
+import java.time.LocalDate
 
 /**
  * Budgets. Port of `BudgetsScreen` in
@@ -67,7 +65,6 @@ fun BudgetsScreen(
   modifier: Modifier = Modifier,
 ) {
   var showSuggestions by remember { mutableStateOf(false) }
-  var pendingDelete by remember { mutableStateOf<CategoryEntity?>(null) }
 
   val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
   val budgets = BudgetSelectors.categoryBudgets(store.transactions, store.limits)
@@ -79,97 +76,81 @@ fun BudgetsScreen(
     },
   )
 
-  LazyColumn(
-    modifier = modifier.fillMaxWidth(),
-    contentPadding = PaddingValues(start = ScreenContentPadding, end = ScreenContentPadding, top = 12.dp, bottom = 110.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
-  ) {
-    item("header") {
-      ScreenHeader(title = "Budgets", modifier = Modifier.statusBarsPadding())
-    }
-
-    store.syncMeta?.error?.let { error ->
-      item("sync-error") { SyncErrorBanner(error) }
-    }
-
-    item("hero") {
-      HeroCard {
-        HeroLabel("Monthly budget")
-        HeroAmount(Formatting.money(totals.totalSpent, store.currency))
-        HeroCaption(
-          when {
-            totals.totalLimit <= 0 -> "No monthly limits set yet"
-            totals.left >= 0 ->
-              "${Formatting.money(totals.left, store.currency)} left of " +
-                Formatting.money(totals.totalLimit, store.currency)
-            else -> "${Formatting.money(-totals.left, store.currency)} over budget"
-          },
-        )
-        if (totals.totalLimit > 0) {
-          Spacer(modifier = Modifier.height(6.dp))
-          ProgressBar(progress = totals.pct / 100.0, over = totals.over)
-        }
-      }
-    }
-
-    if (suggestions.isNotEmpty()) {
-      item("suggestions-cta") {
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .cardSurface(14.dp, DimoColors.greenSoft, DimoColors.green)
-            .clickable { showSuggestions = true }
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-              text = "Suggested budgets",
-              style = DimoFont.body(15f, FontWeight.SemiBold),
-              color = DimoColors.greenDeep,
-            )
-            Text(
-              text = "Based on your last 6 months of spending",
-              style = DimoFont.body(12f),
-              color = DimoColors.greenDeep,
+  Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = ScreenContentPadding)
+        .padding(top = 12.dp, bottom = 14.dp),
+    ) {
+      ScreenHeader(
+        title = "Budgets",
+        modifier = Modifier.statusBarsPadding(),
+        trailing = {
+          Box(
+            modifier = Modifier
+              .size(36.dp)
+              .clickable(enabled = suggestions.isNotEmpty()) { showSuggestions = true },
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(
+              imageVector = Icons.Filled.AutoAwesome,
+              contentDescription = "Suggested budgets",
+              tint = if (suggestions.isEmpty()) DimoColors.faint else DimoColors.green,
+              modifier = Modifier.size(20.dp),
             )
           }
-          Text(
-            text = "${suggestions.size}",
-            style = DimoFont.display(16f, FontWeight.Bold),
-            color = DimoColors.greenDeep,
-          )
-        }
-      }
+        },
+      )
+      BudgetHero(
+        spent = totals.totalSpent,
+        limit = totals.totalLimit,
+        left = totals.left,
+        pct = totals.pct,
+        over = totals.over,
+        currency = store.currency,
+        modifier = Modifier.padding(top = 16.dp),
+      )
     }
 
-    if (budgets.isEmpty()) {
-      item("empty") {
-        DimoCard {
-          EmptyState(
-            title = "No categories yet",
-            message = "Tap + to create your first category and give it a monthly budget.",
+    LazyColumn(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(
+        start = ScreenContentPadding,
+        end = ScreenContentPadding,
+        top = 16.dp,
+        bottom = 110.dp,
+      ),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      store.syncMeta?.error?.let { error ->
+        item("sync-error") { SyncErrorBanner(error) }
+      }
+
+      if (budgets.isEmpty()) {
+        item("empty") {
+          DimoCard {
+            EmptyState(
+              title = "No categories yet",
+              message = "Tap + to create your first category and give it a monthly budget.",
+            )
+          }
+        }
+      } else {
+        items(budgets, key = { "budget-${it.category}" }) { budget ->
+          val category = categoryByName[budget.category]
+          BudgetCard(
+            store = store,
+            categoryName = budget.category,
+            emoji = store.categoryEmoji(category?.emoji, category?.id, budget.category),
+            spent = budget.spent,
+            limit = budget.limit,
+            hasLimit = budget.hasLimit,
+            pct = budget.pct,
+            over = budget.over,
+            onEdit = { category?.let { store.openEditCategory(it.id) } },
           )
         }
-      }
-    } else {
-      item("list-label") { SectionLabel("Categories") }
-      items(budgets, key = { "budget-${it.category}" }) { budget ->
-        val category = categoryByName[budget.category]
-        BudgetCard(
-          store = store,
-          categoryName = budget.category,
-          emoji = store.categoryEmoji(category?.emoji, category?.id, budget.category),
-          green = category?.tint == CategoryTint.GREEN,
-          spent = budget.spent,
-          limit = budget.limit,
-          hasLimit = budget.hasLimit,
-          pct = budget.pct,
-          over = budget.over,
-          onEdit = { category?.let { store.openEditCategory(it.id) } },
-          onDelete = { category?.let { pendingDelete = it } },
-        )
       }
     }
   }
@@ -181,19 +162,59 @@ fun BudgetsScreen(
     )
   }
 
-  pendingDelete?.let { category ->
-    val linked = store.transactions.count { it.categoryId == category.id }
-    ConfirmDialog(
-      title = "Delete ${category.name}?",
-      message = if (linked == 0) {
-        "This category has no transactions."
-      } else {
-        val suffix = if (linked == 1) "" else "s"
-        "$linked transaction$suffix in this category will also be deleted."
-      },
-      confirmLabel = "Delete",
-      onConfirm = { store.deleteCategoryAndTransactions(category.id) },
-      onDismiss = { pendingDelete = null },
+}
+
+@Composable
+private fun BudgetHero(
+  spent: Double,
+  limit: Double,
+  left: Double,
+  pct: Int,
+  over: Boolean,
+  currency: Currency,
+  modifier: Modifier = Modifier,
+) {
+  val today = LocalDate.now(DateHelpers.zone())
+  val daysToGo = today.lengthOfMonth() - today.dayOfMonth
+  Column(
+    modifier = modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(20.dp))
+      .background(DimoColors.inverse)
+      .padding(20.dp),
+  ) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+      Text("Monthly budget", style = DimoFont.body(13f), color = DimoColors.sideMuted)
+      Spacer(modifier = Modifier.weight(1f))
+      Text("$pct% used", style = DimoFont.body(12f), color = DimoColors.sideSub)
+    }
+    Row(
+      modifier = Modifier.padding(top = 8.dp),
+      verticalAlignment = Alignment.Bottom,
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Text(
+        text = Formatting.money(spent, currency),
+        style = DimoFont.display(30f, FontWeight.SemiBold),
+        color = DimoColors.sideText,
+      )
+      Text(
+        text = "of ${Formatting.money(limit, currency)}",
+        style = DimoFont.body(16f, FontWeight.Medium),
+        color = DimoColors.sideSub,
+        modifier = Modifier.padding(bottom = 4.dp),
+      )
+    }
+    ProgressBar(
+      progress = if (limit > 0) pct / 100.0 else 0.0,
+      over = over,
+      modifier = Modifier.padding(top = 12.dp),
+    )
+    Text(
+      text = "${Formatting.money(left, currency)} left · $daysToGo days to go",
+      style = DimoFont.body(12f),
+      color = DimoColors.sideSub,
+      modifier = Modifier.padding(top = 8.dp),
     )
   }
 }
@@ -203,14 +224,12 @@ private fun BudgetCard(
   store: AppStore,
   categoryName: String,
   emoji: String,
-  green: Boolean,
   spent: Double,
   limit: Double?,
   hasLimit: Boolean,
   pct: Int,
   over: Boolean,
   onEdit: () -> Unit,
-  onDelete: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   Column(
@@ -219,48 +238,30 @@ private fun BudgetCard(
       .cardSurface(16.dp)
       .clickable(onClick = onEdit)
       .padding(16.dp),
-    verticalArrangement = Arrangement.spacedBy(12.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     Row(
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      CategoryTintView(emoji = emoji, green = green)
-      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(
-          text = categoryName,
-          style = DimoFont.body(15f, FontWeight.Medium),
-          color = DimoColors.ink,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-          text = if (hasLimit && limit != null) {
-            "${Formatting.money(spent, store.currency)} of ${Formatting.money(limit, store.currency)}"
-          } else {
-            "${Formatting.money(spent, store.currency)} spent · no limit"
-          },
-          style = DimoFont.body(12f),
-          color = DimoColors.muted,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-      }
-      if (hasLimit) {
-        StatusBadge(
-          label = "$pct%",
-          tone = if (over) StatusBadgeTone.Muted else StatusBadgeTone.Green,
-        )
-      }
-      Box(
-        modifier = Modifier
-          .size(30.dp)
-          .cardSurface(9.dp, DimoColors.dangerSoft, DimoColors.dangerLine)
-          .clickable(onClick = onDelete),
-        contentAlignment = Alignment.Center,
-      ) {
-        Text(text = "✕", style = DimoFont.body(11f, FontWeight.SemiBold), color = DimoColors.danger)
-      }
+      Text(
+        text = "$emoji $categoryName",
+        style = DimoFont.body(14f, FontWeight.Medium),
+        color = DimoColors.ink,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+      )
+      Text(
+        text = if (hasLimit && limit != null) {
+          "${Formatting.money(spent, store.currency)} of ${Formatting.money(limit, store.currency)}"
+        } else {
+          "${Formatting.money(spent, store.currency)} · no budget"
+        },
+        style = DimoFont.body(13f),
+        color = DimoColors.muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
     }
     if (hasLimit) {
       ProgressBar(progress = pct / 100.0, over = over)
@@ -283,76 +284,115 @@ private fun SuggestedBudgetsSheet(
   }
   var selected by remember(suggestions) { mutableStateOf(suggestions.map { it.id }.toSet()) }
 
-  DimoBottomSheet(onDismiss = onClose) {
-    SheetHeader(title = "Suggested budgets")
+  DimoBottomSheet(
+    onDismiss = onClose,
+    compactDragHandle = true,
+  ) {
+    SheetHeader(title = "Suggested budgets", compact = true)
     Column(
       modifier = Modifier
         .fillMaxWidth()
+        .heightIn(max = 690.dp)
         .padding(horizontal = 20.dp)
         .padding(bottom = 24.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
       Text(
-        text = "Monthly averages from the last 6 months. Pick the ones to apply.",
-        style = DimoFont.body(13f),
+        text = "Based on the last 6 months of spend. Choose which categories to update.",
+        style = DimoFont.body(15f),
         color = DimoColors.muted,
       )
-      suggestions.forEach { suggestion ->
-        val isSelected = selected.contains(suggestion.id)
-        Row(
-          modifier = Modifier
-            .fillMaxWidth()
-            .cardSurface(
-              radius = 12.dp,
-              background = if (isSelected) DimoColors.greenSoft else DimoColors.canvas,
-              borderColor = if (isSelected) DimoColors.green else DimoColors.line,
-            )
-            .clickable {
-              selected = if (isSelected) selected - suggestion.id else selected + suggestion.id
+      LazyColumn(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        items(suggestions, key = { "suggestion-${it.id}" }) { suggestion ->
+          val isSelected = selected.contains(suggestion.id)
+          val category = store.categories.firstOrNull { it.id == suggestion.id }
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .cardSurface(14.dp, DimoColors.canvas)
+              .clickable {
+                selected = if (isSelected) selected - suggestion.id else selected + suggestion.id
+              }
+              .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            Box(
+              modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(if (isSelected) DimoColors.green else DimoColors.canvasDeep),
+              contentAlignment = Alignment.Center,
+            ) {
+              if (isSelected) {
+                Icon(
+                  imageVector = Icons.Filled.Check,
+                  contentDescription = null,
+                  tint = DimoColors.onGreen,
+                  modifier = Modifier.size(18.dp),
+                )
+              }
             }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-              text = suggestion.name,
-              style = DimoFont.body(14f, FontWeight.Medium),
-              color = DimoColors.ink,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-              text = buildString {
-                append(Formatting.money(suggestion.suggestedLimit, store.currency))
-                append(" / month")
-                suggestion.currentLimit?.let { current ->
-                  append(" · now ")
-                  append(Formatting.money(current, store.currency))
-                }
-              },
-              style = DimoFont.body(12f),
-              color = DimoColors.muted,
-            )
-          }
-          if (isSelected) {
-            Icon(
-              imageVector = Icons.Filled.Check,
-              contentDescription = null,
-              tint = DimoColors.green,
-              modifier = Modifier.size(18.dp),
-            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              Text(
+                text = "${store.categoryEmoji(category?.emoji, category?.id, suggestion.name)} ${suggestion.name}",
+                style = DimoFont.body(14f, FontWeight.Medium),
+                color = DimoColors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+              suggestion.currentLimit?.let { current ->
+                Text(
+                  text = "Now ${Formatting.money(current, store.currency)}",
+                  style = DimoFont.body(12f),
+                  color = DimoColors.faint,
+                )
+              }
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+              Text(
+                text = Formatting.money(suggestion.suggestedLimit, store.currency),
+                style = DimoFont.display(15f, FontWeight.SemiBold),
+                color = DimoColors.ink,
+              )
+              Text(
+                text = "SUGGESTED",
+                style = DimoFont.body(11f, FontWeight.SemiBold),
+                color = DimoColors.green,
+              )
+            }
           }
         }
       }
-      PrimaryButton(
-        title = if (selected.isEmpty()) "Apply" else "Apply ${selected.size}",
-        enabled = selected.isNotEmpty(),
-        onClick = {
-          store.applySuggestedBudgets(selected)
-          onClose()
-        },
-      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Text(
+          text = "Cancel",
+          style = DimoFont.body(15f, FontWeight.SemiBold),
+          color = DimoColors.ink,
+          textAlign = TextAlign.Center,
+          modifier = Modifier
+            .weight(0.28f)
+            .height(54.dp)
+            .cardSurface(14.dp, DimoColors.canvas)
+            .clickable(onClick = onClose)
+            .padding(vertical = 15.dp),
+        )
+        PrimaryButton(
+          title = if (selected.isEmpty()) "Update budgets" else "Update ${selected.size} budgets",
+          enabled = selected.isNotEmpty(),
+          onClick = {
+            store.applySuggestedBudgets(selected)
+            onClose()
+          },
+          modifier = Modifier.weight(0.72f),
+        )
+      }
     }
   }
 }

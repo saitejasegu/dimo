@@ -6,10 +6,12 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -56,10 +59,6 @@ import app.dimo.android.features.common.CategoryTintView
 import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoCard
 import app.dimo.android.features.common.EmptyState
-import app.dimo.android.features.common.HeroAmount
-import app.dimo.android.features.common.HeroCaption
-import app.dimo.android.features.common.HeroCard
-import app.dimo.android.features.common.HeroLabel
 import app.dimo.android.features.common.ScreenHeader
 import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SheetHeader
@@ -150,10 +149,9 @@ fun StatsScreen(
 
   val swipeThresholdPx = with(LocalDensity.current) { PeriodSwipeThreshold.toPx() }
 
-  LazyColumn(
-    state = listState,
+  Column(
     modifier = modifier
-      .fillMaxWidth()
+      .fillMaxSize()
       // Swipe right → older period (left chevron); swipe left → newer.
       // Vertical drags reach the list first, so scrolling is unaffected.
       .pointerInput(canGoBack, isCurrentPeriod, swipeThresholdPx) {
@@ -168,13 +166,18 @@ fun StatsScreen(
           onDragCancel = { travelled = 0f },
         ) { _, delta -> travelled += delta }
       },
-    contentPadding = PaddingValues(start = ScreenContentPadding, end = ScreenContentPadding, top = 12.dp, bottom = 110.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
-    item("header") {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = ScreenContentPadding)
+        .padding(top = 12.dp),
+    ) {
       ScreenHeader(
         title = "Stats",
-        modifier = Modifier.statusBarsPadding(),
+        modifier = Modifier
+          .statusBarsPadding()
+          .heightIn(min = 56.dp),
         trailing = {
           PillDropdown(
             options = StatsConstants.ranges,
@@ -184,13 +187,6 @@ fun StatsScreen(
           )
         },
       )
-    }
-
-    store.syncMeta?.error?.let { error ->
-      item("sync-error") { SyncErrorBanner(error) }
-    }
-
-    item("period-nav") {
       PeriodNav(
         label = scope.periodLabel,
         canGoBack = canGoBack,
@@ -198,42 +194,59 @@ fun StatsScreen(
         onBack = { goBack() },
         onForward = { goForward() },
         onReset = { store.statsPeriodOffset = 0 },
+        modifier = Modifier.padding(top = 4.dp),
+      )
+      StatsHero(
+        label = scope.spentLabel,
+        amount = Formatting.money(scope.scopeTotal, store.currency),
+        caption = scope.averageLabel,
+        modifier = Modifier.padding(top = 12.dp, bottom = 14.dp),
       )
     }
 
-    item("hero") {
-      HeroCard {
-        HeroLabel(scope.spentLabel)
-        HeroAmount(Formatting.money(scope.scopeTotal, store.currency))
-        HeroCaption(scope.averageLabel)
+    LazyColumn(
+      state = listState,
+      modifier = Modifier
+        .fillMaxWidth()
+        .clipToBounds()
+        .weight(1f),
+      contentPadding = PaddingValues(
+        start = ScreenContentPadding,
+        end = ScreenContentPadding,
+        top = 16.dp,
+        bottom = 24.dp,
+      ),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      store.syncMeta?.error?.let { error ->
+        item("sync-error") { SyncErrorBanner(error) }
       }
-    }
 
-    if (scope.transactions.isEmpty()) {
-      item("empty") {
-        DimoCard {
-          EmptyState(
-            title = if (isCurrentPeriod) {
-              "No spending in this range"
-            } else {
-              "Nothing recorded in this period"
-            },
-            message = if (isCurrentPeriod) {
-              "Pick a longer range or add an expense."
-            } else {
-              "Swipe or use the arrows to browse another period."
-            },
-          )
+      if (scope.transactions.isEmpty()) {
+        item("empty") {
+          DimoCard {
+            EmptyState(
+              title = if (isCurrentPeriod) {
+                "No spending in this range"
+              } else {
+                "Nothing recorded in this period"
+              },
+              message = if (isCurrentPeriod) {
+                "Pick a longer range or add an expense."
+              } else {
+                "Swipe or use the arrows to browse another period."
+              },
+            )
+          }
         }
+        return@LazyColumn
       }
-      return@LazyColumn
-    }
 
-    if (bars.visible) {
-      item("trend") {
-        DimoCard {
+      if (bars.visible) {
+        item("trend") {
+          DimoCard(verticalSpacing = 12.dp) {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel(bars.title, modifier = Modifier.weight(1f))
+            SectionLabel(bars.title.uppercase(), modifier = Modifier.weight(1f))
             Text(
               text = bars.caption,
               style = DimoFont.body(12f, FontWeight.Medium),
@@ -248,15 +261,15 @@ fun StatsScreen(
           )
         }
       }
-    }
+      }
 
-    item("categories") {
-      DimoCard {
+      item("categories") {
+        DimoCard(verticalSpacing = 14.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-          SectionLabel("Categories", modifier = Modifier.weight(1f))
+          SectionLabel("BY CATEGORY", modifier = Modifier.weight(1f))
           if (categoryTotal > COLLAPSED_LIMIT) {
             Text(
-              text = if (store.categoriesExpanded) "Show less" else "Show all $categoryTotal",
+              text = if (store.categoriesExpanded) "Show top 5" else "See all ($categoryTotal)",
               style = DimoFont.body(12f, FontWeight.Medium),
               color = DimoColors.green,
               modifier = Modifier.clickable {
@@ -265,42 +278,43 @@ fun StatsScreen(
             )
           }
         }
-        categories.forEach { entry ->
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { drillDown = StatsDrillDown.Category(entry.category) }
-              .padding(vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-          ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              Text(
-                text = entry.category,
-                style = DimoFont.body(14f, FontWeight.Medium),
-                color = DimoColors.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-              )
-              Text(
-                text = entry.caption,
-                style = DimoFont.body(12f),
-                color = DimoColors.muted,
-              )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          categories.forEach { entry ->
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clickable { drillDown = StatsDrillDown.Category(entry.category) },
+              verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                  text = entry.category,
+                  style = DimoFont.body(13f, FontWeight.Medium),
+                  color = DimoColors.ink,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.weight(1f),
+                )
+                Text(
+                  text = entry.caption,
+                  style = DimoFont.body(12f),
+                  color = DimoColors.muted,
+                )
+              }
+              StatBarTrack(relative = entry.relative, primary = entry.primary)
             }
-            StatBarTrack(relative = entry.relative, primary = entry.primary)
           }
         }
       }
-    }
+      }
 
-    item("merchants") {
-      DimoCard {
+      item("merchants") {
+        DimoCard(verticalSpacing = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-          SectionLabel("Top merchants", modifier = Modifier.weight(1f))
+          SectionLabel("TOP MERCHANTS", modifier = Modifier.weight(1f))
           if (merchantTotal > COLLAPSED_LIMIT) {
             Text(
-              text = if (store.merchantsExpanded) "Show less" else "Show all $merchantTotal",
+              text = if (store.merchantsExpanded) "Show top 5" else "Show all ($merchantTotal)",
               style = DimoFont.body(12f, FontWeight.Medium),
               color = DimoColors.green,
               modifier = Modifier.clickable {
@@ -309,49 +323,62 @@ fun StatsScreen(
             )
           }
         }
-        merchants.forEach { merchant ->
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clickable { drillDown = StatsDrillDown.Merchant(merchant.name) }
-              .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-          ) {
-            CategoryTintView(
-              emoji = merchant.emoji ?: "💸",
-              green = merchant.green,
-              size = 34.dp,
-              radius = 10.dp,
-              fontSize = 15f,
-            )
-            Column(
-              modifier = Modifier.weight(1f),
-              verticalArrangement = Arrangement.spacedBy(4.dp),
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          merchants.forEach { merchant ->
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clickable { drillDown = StatsDrillDown.Merchant(merchant.name) }
+                .padding(vertical = 6.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-              Text(
-                text = merchant.name,
-                style = DimoFont.body(14f, FontWeight.Medium),
-                color = DimoColors.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+              CategoryTintView(
+                emoji = merchant.emoji ?: "💸",
+                green = merchant.green,
+                size = 34.dp,
+                radius = 10.dp,
+                fontSize = 15f,
               )
-              Text(
-                text = merchant.sub,
-                style = DimoFont.body(12f),
-                color = DimoColors.muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-              )
-              StatBarTrack(relative = merchant.relative, height = 4.dp)
+              Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+              ) {
+                Text(
+                  text = merchant.name,
+                  style = DimoFont.body(14f, FontWeight.Medium),
+                  color = DimoColors.ink,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                  text = merchant.sub,
+                  style = DimoFont.body(11f),
+                  color = DimoColors.muted,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+              Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                Text(
+                  text = Formatting.money(merchant.amount, store.currency),
+                  style = DimoFont.display(14f, FontWeight.SemiBold),
+                  color = DimoColors.ink,
+                )
+                StatBarTrack(
+                  relative = merchant.relative,
+                  primary = true,
+                  height = 4.dp,
+                  modifier = Modifier.width(52.dp),
+                )
+              }
             }
-            Text(
-              text = Formatting.money(merchant.amount, store.currency),
-              style = DimoFont.display(14f, FontWeight.SemiBold),
-              color = DimoColors.ink,
-            )
           }
         }
+      }
       }
     }
   }
@@ -368,6 +395,36 @@ fun StatsScreen(
       title = selection.title,
       transactions = matching,
       onClose = { drillDown = null },
+    )
+  }
+}
+
+@Composable
+private fun StatsHero(
+  label: String,
+  amount: String,
+  caption: String,
+  modifier: Modifier = Modifier,
+) {
+  Column(
+    modifier = modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(20.dp))
+      .background(DimoColors.inverse)
+      .padding(20.dp),
+  ) {
+    Text(label, style = DimoFont.body(13f), color = DimoColors.sideMuted)
+    Text(
+      amount,
+      style = DimoFont.display(30f, FontWeight.SemiBold),
+      color = DimoColors.sideText,
+      modifier = Modifier.padding(top = 8.dp),
+    )
+    Text(
+      caption,
+      style = DimoFont.body(12f),
+      color = DimoColors.sideSub,
+      modifier = Modifier.padding(top = 6.dp),
     )
   }
 }
@@ -390,7 +447,8 @@ private fun PeriodNav(
     modifier = modifier
       .fillMaxWidth()
       .cardSurface(12.dp)
-      .padding(horizontal = 6.dp, vertical = 4.dp),
+      .padding(horizontal = 12.dp, vertical = 8.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     PeriodStep(
@@ -453,7 +511,7 @@ private fun StatsTransactionsSheet(
 ) {
   val groups = remember(transactions) { TransactionSelectors.groupByDay(transactions) }
 
-  DimoBottomSheet(onDismiss = onClose) {
+  DimoBottomSheet(onDismiss = onClose, containerColor = DimoColors.canvas) {
     SheetHeader(title = title)
     LazyColumn(
       modifier = Modifier
@@ -475,7 +533,7 @@ private fun StatsTransactionsSheet(
               .padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            SectionLabel(group.label, modifier = Modifier.weight(1f))
+            SectionLabel(group.label.uppercase(), modifier = Modifier.weight(1f))
             Text(
               text = Formatting.spent(group.total, store.currency),
               style = DimoFont.body(12f),
@@ -514,7 +572,7 @@ private fun StatsTransactionsSheet(
               Text(
                 text = listOfNotNull(
                   transaction.category.takeIf { it.isNotEmpty() },
-                  transaction.time.takeIf { it.isNotEmpty() },
+                  transaction.time.takeIf { it.isNotEmpty() }?.uppercase(),
                 ).joinToString(" · "),
                 style = DimoFont.body(12f),
                 color = DimoColors.muted,
@@ -540,23 +598,30 @@ private fun TrendBars(
   onSelect: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val barWidth = if (bars.bars.firstOrNull()?.wide == true) 26.dp else 38.dp
+  val barWidth = if (bars.bars.firstOrNull()?.wide == true) 16.dp else 30.dp
   val scrollState = rememberScrollState()
+  val scrollable = bars.bars.size > 7
 
   // Land on the most recent bar the way the iOS scroll view does.
   LaunchedEffect(bars.bars.size, bars.bars.lastOrNull()?.key) {
     scrollState.scrollTo(scrollState.maxValue)
   }
 
-  Row(
-    modifier = modifier
-      .fillMaxWidth()
-      .horizontalScroll(scrollState),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-    verticalAlignment = Alignment.Bottom,
-  ) {
-    bars.bars.forEach { bar ->
-      TrendBar(bar = bar, width = barWidth, onSelect = { onSelect(bar.key) })
+  BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+    val itemWidth = if (scrollable) 40.dp else maxWidth / bars.bars.size.coerceAtLeast(1)
+    Row(
+      modifier = if (scrollable) Modifier.horizontalScroll(scrollState) else Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(2.dp),
+      verticalAlignment = Alignment.Bottom,
+    ) {
+      bars.bars.forEach { bar ->
+        TrendBar(
+          bar = bar,
+          barWidth = barWidth,
+          itemWidth = itemWidth,
+          onSelect = { onSelect(bar.key) },
+        )
+      }
     }
   }
 }
@@ -564,35 +629,37 @@ private fun TrendBars(
 @Composable
 private fun TrendBar(
   bar: MonthBar,
-  width: Dp,
+  barWidth: Dp,
+  itemWidth: Dp,
   onSelect: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val maxHeight = 116.dp
-  val height = maxHeight * bar.heightRatio.coerceIn(0.02, 1.0).toFloat()
+  val maxHeight = 62.dp
+  val height = (maxHeight * bar.heightRatio.coerceIn(0.0, 1.0).toFloat()).coerceAtLeast(8.dp)
   Column(
     modifier = modifier
-      .width(width)
+      .width(itemWidth)
+      .height(104.dp)
       .clickable(onClick = onSelect),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
     Text(
       text = bar.display,
-      style = DimoFont.body(9f, FontWeight.Medium),
-      color = if (bar.selected) DimoColors.ink else DimoColors.faint,
+      style = DimoFont.body(if (bar.wide) 8f else 10f, if (bar.selected) FontWeight.SemiBold else FontWeight.Normal),
+      color = if (bar.selected) DimoColors.green else DimoColors.muted,
       maxLines = 1,
       textAlign = TextAlign.Center,
     )
     Box(
       modifier = Modifier
-        .width(width)
+        .width(barWidth)
         .height(maxHeight),
       contentAlignment = Alignment.BottomCenter,
     ) {
       Box(
         modifier = Modifier
-          .fillMaxWidth()
+          .width(barWidth)
           .height(height)
           .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp, bottomStart = 3.dp, bottomEnd = 3.dp))
           .background(if (bar.selected) DimoColors.green else DimoColors.bar),
@@ -600,8 +667,8 @@ private fun TrendBar(
     }
     Text(
       text = bar.label,
-      style = DimoFont.body(10f, if (bar.selected) FontWeight.SemiBold else FontWeight.Normal),
-      color = if (bar.selected) DimoColors.ink else DimoColors.muted,
+      style = DimoFont.body(if (bar.wide) 9f else 11f, if (bar.selected) FontWeight.SemiBold else FontWeight.Normal),
+      color = if (bar.selected) DimoColors.green else DimoColors.faint,
       maxLines = 1,
       textAlign = TextAlign.Center,
     )

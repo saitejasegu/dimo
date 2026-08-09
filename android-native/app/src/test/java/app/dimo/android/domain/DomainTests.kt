@@ -803,6 +803,61 @@ class SanitizerTests : ZonedTest() {
 
 class BudgetSelectorTests : ZonedTest() {
   @Test
+  fun categoryBudgetsSortByUtilizationThenSpend() {
+    fun row(id: String, category: String, amount: Double) = Transaction(
+      id = id,
+      name = "Item",
+      category = category,
+      time = "",
+      day = "",
+      amount = amount,
+      occurredAt = stamp(2026, 8, 8),
+    )
+
+    val budgets = BudgetSelectors.categoryBudgets(
+      transactions = listOf(
+        row("rent", "Rent", 1_000.0),
+        row("games", "Games", 200.0),
+        row("snacks", "Snacks", 100.0),
+      ),
+      limits = mapOf(
+        "Rent" to 2_000.0,
+        "Games" to 100.0,
+        "Snacks" to 200.0,
+      ),
+      now = LocalDate.of(2026, 8, 9),
+    )
+
+    assertEquals(listOf("Games", "Rent", "Snacks"), budgets.map { it.category })
+  }
+
+  @Test
+  fun monthlyTotalsIncludeTransactionCount() {
+    fun row(id: String, amount: Double, at: Long) = Transaction(
+      id = id,
+      name = "Item",
+      category = "Dining",
+      time = "",
+      day = "",
+      amount = amount,
+      occurredAt = at,
+    )
+
+    val totals = BudgetSelectors.budgetTotals(
+      transactions = listOf(
+        row("current-a", 100.0, stamp(2026, 8, 2)),
+        row("current-b", 200.0, stamp(2026, 8, 8)),
+        row("previous", 900.0, stamp(2026, 7, 31)),
+      ),
+      limits = mapOf("Dining" to 1_000.0),
+      now = LocalDate.of(2026, 8, 9),
+    )
+
+    assertEquals(2, totals.transactionCount)
+    assertEquals(300.0, totals.totalSpent, 0.0001)
+  }
+
+  @Test
   fun suggestedBudgetsFromLookback() {
     val now = LocalDate.of(2026, 7, 11)
     val nowMillis = stamp(2026, 7, 11)

@@ -1,15 +1,18 @@
 package app.dimo.android.features.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,15 +82,27 @@ fun AccountScreen(
   Column(
     modifier = modifier
       .fillMaxSize()
-      .background(DimoColors.canvas)
-      .verticalScroll(rememberScrollState())
-      .padding(horizontal = 20.dp)
-      .padding(top = 12.dp, bottom = 40.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
+      .background(DimoColors.canvas),
   ) {
-    ScreenHeader(title = "Account", onBack = onBack, modifier = Modifier.statusBarsPadding())
+    ScreenHeader(
+      title = "Account",
+      onBack = onBack,
+      modifier = Modifier
+        .statusBarsPadding()
+        .heightIn(min = 56.dp)
+        .padding(horizontal = 22.dp)
+        .padding(top = 12.dp, bottom = 12.dp),
+    )
 
-    DimoCard {
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(rememberScrollState())
+        .padding(horizontal = 22.dp)
+        .padding(top = 4.dp, bottom = 40.dp),
+      verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+    DimoCard(padding = 20.dp) {
       Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -117,29 +133,48 @@ fun AccountScreen(
       ReadOnlyField(label = "Email", value = store.profileEmail)
     }
 
-    DimoCard(verticalSpacing = 6.dp) {
-      SectionTitle("Cloud sync", modifier = Modifier.fillMaxWidth())
+    DimoCard(padding = 20.dp, verticalSpacing = 0.dp) {
+      Text(
+        text = "Cloud sync",
+        style = DimoFont.display(16f, FontWeight.SemiBold),
+        color = DimoColors.ink,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+      )
       Text(
         text = "$statusLabel · ${store.pendingCount} pending$blockedSuffix",
         style = DimoFont.body(12f),
         color = DimoColors.muted,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
       )
       Text(
         text = "Last successful sync: $lastSync",
         style = DimoFont.body(11f),
         color = DimoColors.faint,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
       )
-      ActionButton(
-        title = if (syncing) "Syncing…" else "Sync now",
-        onClick = { store.syncNow() },
-        modifier = Modifier.padding(top = 6.dp),
+      Text(
+        text = if (syncing) "Syncing…" else "Sync now",
+        style = DimoFont.body(14f, FontWeight.SemiBold),
+        color = DimoColors.ink,
+        modifier = Modifier
+          .align(Alignment.CenterHorizontally)
+          .padding(top = 12.dp)
+          .clip(RoundedCornerShape(12.dp))
+          .background(DimoColors.canvas)
+          .border(1.dp, DimoColors.line, RoundedCornerShape(12.dp))
+          .clickable { store.syncNow() }
+          .padding(horizontal = 18.dp, vertical = 11.dp),
       )
       ActionButton(
         title = "Sync now (full replace)",
         onClick = { store.requestFullSync() },
         variant = ActionButtonVariant.Danger,
+        modifier = Modifier.padding(top = 10.dp),
       )
-      if (error.isNotEmpty()) {
+      if (error.isNotEmpty() && !offline) {
         Text(
           text = error,
           style = DimoFont.body(12f),
@@ -154,14 +189,14 @@ fun AccountScreen(
       }
     }
 
-    DimoCard(verticalSpacing = 14.dp) {
+    DimoCard(padding = 20.dp, verticalSpacing = 14.dp) {
       SectionTitle("Help & legal", modifier = Modifier.fillMaxWidth())
       LegalLink(label = "Support", url = "https://dimoapp.xyz/support")
       LegalLink(label = "Privacy Policy", url = "https://dimoapp.xyz/privacy")
       LegalLink(label = "Terms of Service", url = "https://dimoapp.xyz/terms")
     }
 
-    DimoCard(verticalSpacing = 10.dp) {
+    DimoCard(padding = 20.dp, verticalSpacing = 10.dp) {
       ActionButton(title = "Sign out", onClick = { confirmSignOut = true })
       ActionButton(
         title = "Delete account",
@@ -175,6 +210,7 @@ fun AccountScreen(
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth(),
       )
+    }
     }
   }
 

@@ -159,6 +159,7 @@ fun ContactAvatar(
   size: Dp = 40.dp,
   radius: Dp = 13.dp,
   fontSize: Float = 16f,
+  monogram: String? = null,
 ) {
   val context = LocalContext.current
   var bitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
@@ -184,7 +185,7 @@ fun ContactAvatar(
       )
     } else {
       Text(
-        text = name.trim().firstOrNull()?.uppercaseChar()?.toString().orEmpty(),
+        text = monogram ?: name.trim().firstOrNull()?.uppercaseChar()?.toString().orEmpty(),
         style = DimoFont.display(fontSize, FontWeight.SemiBold),
         color = DimoColors.green,
       )

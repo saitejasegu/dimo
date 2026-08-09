@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
@@ -47,11 +46,11 @@ import app.dimo.android.features.common.FabBottomPadding
 import app.dimo.android.design.ToastOverlay
 import app.dimo.android.features.budgets.BudgetsScreen
 import app.dimo.android.features.email.EmailScreen
-import app.dimo.android.features.email.EmailSettingsSheet
 import app.dimo.android.features.lending.LendingScreen
 import app.dimo.android.features.recurring.RecurringScreen
 import app.dimo.android.features.settings.AccountScreen
 import app.dimo.android.features.settings.PaymentMethodsScreen
+import app.dimo.android.features.settings.SettingsSection
 import app.dimo.android.features.settings.SettingsScreen
 import app.dimo.android.features.sheets.CategorySheet
 import app.dimo.android.features.sheets.ExpenseEditorMode
@@ -97,7 +96,8 @@ fun MainTabShell(
   val lifecycleOwner = LocalLifecycleOwner.current
   var tab by remember { mutableStateOf(AppTab.forView(store.view) ?: AppTab.Home) }
   var pushed by remember { mutableStateOf<PushedRoute?>(null) }
-  var emailSettingsOpen by remember { mutableStateOf(false) }
+  var settingsInitialSection by remember { mutableStateOf(SettingsSection.Preferences) }
+  var settingsReturnTab by remember { mutableStateOf(AppTab.Home) }
 
   DisposableEffect(lifecycleOwner, store) {
     val observer = LifecycleEventObserver { _, event ->
@@ -128,7 +128,7 @@ fun MainTabShell(
   BackHandler(enabled = fullScreen) {
     when {
       onAccount -> store.closeAccount()
-      onSettings -> store.setView(ViewKey.HOME)
+      onSettings -> store.setView(settingsReturnTab.view)
       else -> pushed = null
     }
   }
@@ -204,9 +204,12 @@ fun MainTabShell(
 
         onSettings -> SettingsScreen(
           store = store,
-          onBack = { store.setView(ViewKey.HOME) },
+          emailStore = store.emailStore,
+          gmailConfigured = store.isGmailConfigured,
+          onBack = { store.setView(settingsReturnTab.view) },
           onOpenAccount = { store.openAccount() },
           onApplyTheme = { environment.applyTheme(it) },
+          initialSection = settingsInitialSection,
         )
 
         pushed == PushedRoute.PaymentMethods -> PaymentMethodsScreen(
@@ -222,7 +225,11 @@ fun MainTabShell(
         else -> when (tab) {
           AppTab.Home -> HomeScreen(
             store = store,
-            onOpenSettings = { store.setView(ViewKey.SETTINGS) },
+            onOpenSettings = {
+              settingsInitialSection = SettingsSection.Preferences
+              settingsReturnTab = AppTab.Home
+              store.setView(ViewKey.SETTINGS)
+            },
           )
           AppTab.Stats -> StatsScreen(store = store)
           AppTab.Budgets -> BudgetsScreen(store = store)
@@ -230,17 +237,13 @@ fun MainTabShell(
 
           AppTab.Email -> EmailScreen(
             store = store.emailStore,
-            onOpenSettings = { emailSettingsOpen = true },
+            onOpenSettings = {
+              settingsInitialSection = SettingsSection.Email
+              settingsReturnTab = AppTab.Email
+              store.setView(ViewKey.SETTINGS)
+            },
           )
         }
-      }
-
-      if (emailSettingsOpen) {
-        EmailSettingsSheet(
-          store = store.emailStore,
-          gmailConfigured = store.isGmailConfigured,
-          onClose = { emailSettingsOpen = false },
-        )
       }
 
       ToastOverlay(
@@ -266,7 +269,6 @@ fun MainTabShell(
           },
           modifier = Modifier
             .align(Alignment.BottomEnd)
-            .navigationBarsPadding()
             .padding(end = 22.dp, bottom = FabBottomPadding),
         )
       }

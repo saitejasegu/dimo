@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,21 +83,15 @@ fun LendingScreen(
   // A fresh section starts at the first page, matching the iOS reset.
   LaunchedEffect(section) { visibleLimit = LendSelectors.historyPageSize }
 
-  LazyColumn(
-    modifier = modifier.fillMaxWidth(),
-    contentPadding = PaddingValues(start = ScreenContentPadding, end = ScreenContentPadding, top = 12.dp, bottom = 110.dp),
-    verticalArrangement = Arrangement.spacedBy(14.dp),
-  ) {
-    item("header") {
+  Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = ScreenContentPadding)
+        .padding(top = 12.dp, bottom = 14.dp),
+    ) {
       ScreenHeader(title = "Lending", modifier = Modifier.statusBarsPadding())
-    }
-
-    store.syncMeta?.error?.let { error ->
-      item("sync-error") { SyncErrorBanner(error) }
-    }
-
-    item("hero") {
-      HeroCard {
+      HeroCard(modifier = Modifier.padding(top = 16.dp)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -122,91 +116,105 @@ fun LendingScreen(
           },
         )
       }
-    }
-
-    item("section") {
       SegmentedControl(
         options = LendingSection.entries.toList(),
         selected = section,
         label = { it.title },
         onSelect = { section = it },
+        modifier = Modifier.padding(top = 14.dp),
       )
     }
 
-    when (section) {
-      LendingSection.Summary -> {
-        if (store.lends.isEmpty()) {
-          item("summary-empty") {
-            DimoCard {
-              EmptyState(
-                title = "Nothing recorded yet",
-                message = "Tap + to record money you lend or borrow.",
-              )
-            }
-          }
-        } else if (summaries.isEmpty()) {
-          item("summary-settled") {
-            DimoCard {
-              EmptyState(
-                title = "All settled",
-                message = "Nothing outstanding either way.",
-              )
-            }
-          }
-        } else {
-          items(summaries, key = { "contact-${it.contactId}" }) { summary ->
-            ContactSummaryRow(
-              store = store,
-              summary = summary,
-              photoUri = contactPhotos[summary.contactId],
-            )
-          }
-        }
+    LazyColumn(
+      modifier = Modifier.fillMaxWidth(),
+      contentPadding = PaddingValues(
+        start = ScreenContentPadding,
+        end = ScreenContentPadding,
+        top = 16.dp,
+        bottom = 110.dp,
+      ),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      store.syncMeta?.error?.let { error ->
+        item("sync-error") { SyncErrorBanner(error) }
       }
 
-      LendingSection.Transactions -> {
-        val (paged, hasMore) = LendSelectors.paginateByDay(store.lends, visibleLimit)
-        val groups = LendSelectors.groupByDay(paged)
-        if (groups.isEmpty()) {
-          item("tx-empty") {
-            DimoCard {
-              EmptyState(title = "No lending history yet")
+      when (section) {
+        LendingSection.Summary -> {
+          if (store.lends.isEmpty()) {
+            item("summary-empty") {
+              DimoCard {
+                EmptyState(
+                  title = "Nothing recorded yet",
+                  message = "Tap + to record money you lend or borrow.",
+                )
+              }
             }
-          }
-        }
-        groups.forEach { group ->
-          item("lend-day-${group.label}") {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              SectionLabel(group.label, modifier = Modifier.weight(1f))
-              Text(
-                text = Formatting.money(group.total, store.currency),
-                style = DimoFont.body(12f, FontWeight.Medium),
-                color = DimoColors.faint,
+          } else if (summaries.isEmpty()) {
+            item("summary-settled") {
+              DimoCard {
+                EmptyState(
+                  title = "All settled",
+                  message = "Nothing outstanding either way.",
+                )
+              }
+            }
+          } else {
+            items(summaries, key = { "contact-${it.contactId}" }) { summary ->
+              ContactSummaryRow(
+                store = store,
+                summary = summary,
+                photoUri = contactPhotos[summary.contactId],
               )
             }
           }
-          items(group.items, key = { "lend-${it.id}" }) { lend ->
-            LendRow(
-              store = store,
-              lend = lend,
-              photoUri = contactPhotos[lend.contactId],
-            )
-          }
         }
-        if (hasMore) {
-          item("lend-load-more") {
-            // Advancing on composition gives the iOS auto-load behaviour: the
-            // row only enters composition once the list is scrolled to it.
-            LaunchedEffect(visibleLimit) {
-              val next = minOf(visibleLimit + LendSelectors.historyPageSize, store.lends.size)
-              if (next > visibleLimit) visibleLimit = next
+
+        LendingSection.Transactions -> {
+          val (paged, hasMore) = LendSelectors.paginateByDay(store.lends, visibleLimit)
+          val groups = LendSelectors.groupByDay(paged)
+          if (groups.isEmpty()) {
+            item("tx-empty") {
+              DimoCard {
+                EmptyState(title = "No lending history yet")
+              }
             }
-            LoadingRow()
+          }
+          groups.forEach { group ->
+            item("lend-day-${group.label}") {
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                SectionLabel(
+                  group.label.uppercase(Locale.getDefault()),
+                  modifier = Modifier.weight(1f),
+                )
+                Text(
+                  text = Formatting.money(group.total, store.currency),
+                  style = DimoFont.body(12f),
+                  color = DimoColors.faint,
+                )
+              }
+            }
+            items(group.items, key = { "lend-${it.id}" }) { lend ->
+              LendRow(
+                store = store,
+                lend = lend,
+                photoUri = contactPhotos[lend.contactId],
+              )
+            }
+          }
+          if (hasMore) {
+            item("lend-load-more") {
+              LaunchedEffect(visibleLimit) {
+                val next = minOf(visibleLimit + LendSelectors.historyPageSize, store.lends.size)
+                if (next > visibleLimit) visibleLimit = next
+              }
+              LoadingRow()
+            }
           }
         }
       }
@@ -243,15 +251,21 @@ private fun ContactSummaryRow(
             direction = summary.direction,
           )
         }
-        .padding(start = 14.dp, top = 12.dp, bottom = 12.dp),
+        .padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      ContactAvatar(name = summary.contactName, photoUri = photoUri)
-      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+      ContactAvatar(
+        name = summary.contactName,
+        photoUri = photoUri,
+        size = 38.dp,
+        radius = 11.dp,
+        fontSize = 15f,
+      )
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
           text = summary.contactName,
-          style = DimoFont.body(15f, FontWeight.Medium),
+          style = DimoFont.body(14f, FontWeight.Medium),
           color = DimoColors.ink,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
@@ -284,7 +298,7 @@ private fun ContactSummaryRow(
       contentAlignment = Alignment.Center,
     ) {
       Icon(
-        imageVector = Icons.Filled.Share,
+        imageVector = Icons.Outlined.IosShare,
         contentDescription = "Share lending summary with ${summary.contactName}",
         tint = DimoColors.green,
         modifier = Modifier.size(18.dp),
@@ -303,7 +317,7 @@ private fun LendRow(
   val detailBase = lend.comment.ifEmpty { fallbackDetail(lend.kind).orEmpty() }
   val detail = listOfNotNull(
     detailBase.takeIf { it.isNotEmpty() },
-    lend.time.takeIf { it.isNotEmpty() },
+    lend.time.takeIf { it.isNotEmpty() }?.uppercase(Locale.getDefault()),
   ).joinToString(" · ")
 
   Row(

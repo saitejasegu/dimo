@@ -2,6 +2,7 @@ package app.dimo.android.features.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
@@ -64,13 +67,7 @@ import app.dimo.android.domain.TransactionSelectors
 import app.dimo.android.features.common.CategoryTintView
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.DimoBottomSheet
-import app.dimo.android.features.common.DimoCard
 import app.dimo.android.features.common.DimoTextField
-import app.dimo.android.features.common.EmptyState
-import app.dimo.android.features.common.HeroAmount
-import app.dimo.android.features.common.HeroCaption
-import app.dimo.android.features.common.HeroCard
-import app.dimo.android.features.common.HeroLabel
 import app.dimo.android.features.common.LoadingRow
 import app.dimo.android.features.common.OptionalDateField
 import app.dimo.android.features.common.FilterCategoryDropdown
@@ -119,178 +116,178 @@ fun HomeScreen(
   val upcomingThisMonthTotal = upcomingTotal(upcomingThisMonth, store)
   val filterActive = store.filter != TransactionFilter()
 
-  Box(modifier = modifier.fillMaxWidth()) {
-    LazyColumn(
-      modifier = Modifier.fillMaxWidth(),
-      contentPadding = PaddingValues(
-        start = ScreenContentPadding,
-        end = ScreenContentPadding,
-        top = 12.dp,
-        bottom = 110.dp,
-      ),
-      verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-      item("header") {
+  Box(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = ScreenContentPadding)
+          .padding(top = 12.dp, bottom = 14.dp),
+      ) {
         HomeHeader(
           store = store,
           onOpenSettings = onOpenSettings,
-          modifier = Modifier.statusBarsPadding(),
+          modifier = Modifier
+            .statusBarsPadding()
+            .heightIn(min = 56.dp),
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        HomeHero(
+          monthName = LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
+          totalSpent = totals.totalSpent,
+          budgetLeft = totals.left,
+          transactionCount = totals.transactionCount,
+          store = store,
         )
       }
 
-      store.syncMeta?.error?.let { error ->
-        item("sync-error") { SyncErrorBanner(error) }
-      }
-
-      item("hero") {
-        HeroCard {
-          HeroLabel(
-            "Spent in ${
-              LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-            }",
-          )
-          HeroAmount(Formatting.money(totals.totalSpent, store.currency))
-          HeroCaption(
-            if (totals.totalLimit > 0) {
-              val left = totals.totalLimit - totals.totalSpent
-              if (left >= 0) {
-                "${Formatting.money(left, store.currency)} left of " +
-                  Formatting.money(totals.totalLimit, store.currency)
-              } else {
-                "${Formatting.money(-left, store.currency)} over budget"
-              }
-            } else {
-              "Set category budgets to track a monthly limit"
-            },
-          )
+      LazyColumn(
+        modifier = Modifier
+          .fillMaxWidth()
+          .weight(1f),
+        contentPadding = PaddingValues(
+          start = ScreenContentPadding,
+          end = ScreenContentPadding,
+          top = 16.dp,
+          bottom = 110.dp,
+        ),
+      ) {
+        store.syncMeta?.error?.let { error ->
+          item("sync-error") {
+            SyncErrorBanner(error, modifier = Modifier.padding(bottom = 22.dp))
+          }
         }
-      }
 
-      if (upcomingAll.isNotEmpty()) {
-        item("upcoming") {
-          UpcomingSummaryRow(
-            total = upcomingThisMonthTotal,
-            currency = store.currency,
-            onClick = {
-              upcomingShowAll = false
-              showUpcoming = true
-            },
-          )
-        }
-      }
-
-      item("activity-header") {
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          SectionTitle("Activity", modifier = Modifier.weight(1f))
-          Box(
-            modifier = Modifier
-              .size(36.dp)
-              .cardSurface(11.dp, if (filterActive) DimoColors.greenSoft else DimoColors.surface)
-              .clickable { showFilters = true },
-            contentAlignment = Alignment.Center,
-          ) {
-            Icon(
-              imageVector = Icons.Filled.FilterList,
-              contentDescription = "Filters",
-              tint = if (filterActive) DimoColors.green else DimoColors.ink,
-              modifier = Modifier.size(18.dp),
+        if (upcomingAll.isNotEmpty()) {
+          item("upcoming") {
+            UpcomingSummaryRow(
+              total = upcomingThisMonthTotal,
+              currency = store.currency,
+              onClick = {
+                upcomingShowAll = false
+                showUpcoming = true
+              },
+              modifier = Modifier.padding(bottom = 22.dp),
             )
           }
         }
-      }
 
-      if (filterActive) {
-        item("filter-chips") {
-          val tags = filterTags(store.filter, store.categories)
+        item("transactions-header") {
           Row(
             modifier = Modifier
               .fillMaxWidth()
-              .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+              .padding(bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
           ) {
-            tags.forEach { tag ->
-              RemovableFilterChip(
-                label = tag.label,
-                onRemove = {
-                  store.filter = removeFilterTag(store.filter, tag.id)
-                  pageSize = TransactionSelectors.HOME_PAGE_SIZE
-                },
+            SectionTitle("Transactions", modifier = Modifier.weight(1f))
+            Box(
+              modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { showFilters = true },
+              contentAlignment = Alignment.Center,
+            ) {
+              Icon(
+                imageVector = Icons.Filled.FilterList,
+                contentDescription = "Filter",
+                tint = if (filterActive) DimoColors.green else DimoColors.muted,
+                modifier = Modifier.size(18.dp),
               )
             }
           }
         }
-      }
 
-      if (groups.isEmpty()) {
-        item("activity-empty") {
-          DimoCard {
-            EmptyState(
-              title = if (store.transactions.isEmpty()) {
-                "No expenses yet"
-              } else {
-                "Nothing matches these filters"
-              },
-              message = if (store.transactions.isEmpty()) {
-                "Tap + to record your first expense."
-              } else {
-                "Try widening the date range or clearing filters."
-              },
-            )
-          }
-        }
-      }
-
-      groups.forEach { group ->
-        item("day-${group.label}") {
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            SectionLabel(group.label, modifier = Modifier.weight(1f))
-            Text(
-              text = Formatting.spent(group.total, store.currency),
-              style = DimoFont.body(12f, FontWeight.Medium),
-              color = DimoColors.muted,
-            )
-          }
-        }
-        items(group.items, key = { "tx-${it.id}" }) { transaction ->
-          TransactionRow(
-            store = store,
-            transaction = transaction,
-            selected = selection.contains(transaction.id),
-            selectionActive = selection.isNotEmpty(),
-            onClick = {
-              if (selection.isEmpty()) {
-                store.openDetail(transaction.id)
-              } else {
-                selection = if (selection.contains(transaction.id)) {
-                  selection - transaction.id
-                } else {
-                  selection + transaction.id
-                }
+        if (filterActive) {
+          item("filter-chips") {
+            val tags = filterTags(store.filter, store.categories)
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(bottom = 14.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              tags.forEach { tag ->
+                RemovableFilterChip(
+                  label = tag.label,
+                  onRemove = {
+                    store.filter = removeFilterTag(store.filter, tag.id)
+                    pageSize = TransactionSelectors.HOME_PAGE_SIZE
+                  },
+                )
               }
-            },
-            onLongClick = { selection = selection + transaction.id },
-          )
-        }
-      }
-
-      if (hasMore) {
-        item("load-more") {
-          // Advancing on composition gives the iOS auto-load behaviour: the row
-          // only enters composition once the list is scrolled to it.
-          LaunchedEffect(pageSize) {
-            val next = minOf(pageSize + TransactionSelectors.HOME_PAGE_SIZE, filtered.size)
-            if (next > pageSize) pageSize = next
+            }
           }
-          LoadingRow()
+        }
+
+        if (groups.isEmpty()) {
+          item("transactions-empty") {
+            Text(
+              text = "No transactions match.",
+              style = DimoFont.body(14f),
+              color = DimoColors.faint,
+              textAlign = TextAlign.Center,
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 48.dp),
+            )
+          }
+        }
+
+        groups.forEach { group ->
+          item("day-${group.label}") {
+            Column(
+              modifier = Modifier.padding(bottom = 18.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                SectionLabel(
+                  group.label.uppercase(Locale.getDefault()),
+                  modifier = Modifier.weight(1f),
+                )
+                Text(
+                  text = Formatting.spent(group.total, store.currency),
+                  style = DimoFont.body(12f),
+                  color = DimoColors.faint,
+                )
+              }
+              group.items.forEach { transaction ->
+                TransactionRow(
+                  store = store,
+                  transaction = transaction,
+                  selected = selection.contains(transaction.id),
+                  selectionActive = selection.isNotEmpty(),
+                  onClick = {
+                    if (selection.isEmpty()) {
+                      store.openDetail(transaction.id)
+                    } else {
+                      selection = if (selection.contains(transaction.id)) {
+                        selection - transaction.id
+                      } else {
+                        selection + transaction.id
+                      }
+                    }
+                  },
+                  onLongClick = { selection = selection + transaction.id },
+                )
+              }
+            }
+          }
+        }
+
+        if (hasMore) {
+          item("load-more") {
+            // Advancing on composition gives the iOS auto-load behaviour: the row
+            // only enters composition once the list is scrolled to it.
+            LaunchedEffect(pageSize) {
+              val next = minOf(pageSize + TransactionSelectors.HOME_PAGE_SIZE, filtered.size)
+              if (next > pageSize) pageSize = next
+            }
+            LoadingRow()
+          }
         }
       }
     }
@@ -440,6 +437,64 @@ private fun RemovableFilterChip(
 }
 
 @Composable
+private fun HomeHero(
+  monthName: String,
+  totalSpent: Double,
+  budgetLeft: Double,
+  transactionCount: Int,
+  store: AppStore,
+  modifier: Modifier = Modifier,
+) {
+  Column(
+    modifier = modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(20.dp))
+      .background(DimoColors.inverse)
+      .padding(22.dp),
+  ) {
+    Text(
+      text = "Spent in $monthName",
+      style = DimoFont.body(13f),
+      color = DimoColors.sideMuted,
+      modifier = Modifier.padding(bottom = 8.dp),
+    )
+    Text(
+      text = Formatting.money(totalSpent, store.currency),
+      style = DimoFont.display(34f, FontWeight.SemiBold),
+      color = DimoColors.sideText,
+      modifier = Modifier.padding(bottom = 8.dp),
+    )
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.Bottom,
+      horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      Text(
+        text = "$transactionCount transactions",
+        style = DimoFont.body(12f),
+        color = DimoColors.sideSub,
+        modifier = Modifier.weight(1f),
+      )
+      Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        Text(
+          text = "Budget left",
+          style = DimoFont.body(11f),
+          color = DimoColors.sideMuted,
+        )
+        Text(
+          text = Formatting.money(budgetLeft, store.currency),
+          style = DimoFont.display(18f, FontWeight.SemiBold),
+          color = if (budgetLeft < 0) DimoColors.danger else DimoColors.greenBright,
+        )
+      }
+    }
+  }
+}
+
+@Composable
 private fun HomeHeader(
   store: AppStore,
   onOpenSettings: () -> Unit,
@@ -447,8 +502,7 @@ private fun HomeHeader(
 ) {
   Row(
     modifier = modifier
-      .fillMaxWidth()
-      .padding(vertical = 6.dp),
+      .fillMaxWidth(),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
@@ -459,7 +513,7 @@ private fun HomeHeader(
         color = DimoColors.muted,
       )
       Text(
-        text = store.profileName.ifEmpty { "Dimo" },
+        text = store.profileName.ifEmpty { "there" },
         style = DimoFont.display(22f, FontWeight.SemiBold),
         color = DimoColors.ink,
         maxLines = 1,
@@ -467,9 +521,9 @@ private fun HomeHeader(
       )
     }
     AvatarView(
-      name = store.profileName.ifEmpty { "D" },
+      name = store.profileName.ifEmpty { "there" },
       photoUrl = store.profilePhotoUrl,
-      size = 42.dp,
+      size = 40.dp,
       modifier = Modifier.clickable(onClick = onOpenSettings),
     )
   }
@@ -525,7 +579,7 @@ private fun UpcomingBillsSheet(
   val canShowAll = all.size > thisMonth.size
   val total = upcomingTotal(bills, store)
 
-  DimoBottomSheet(onDismiss = onClose) {
+  DimoBottomSheet(onDismiss = onClose, containerColor = DimoColors.canvas) {
     Column(
       modifier = Modifier
         .fillMaxWidth()
@@ -578,7 +632,7 @@ private fun UpcomingBillsSheet(
         LazyColumn(
           modifier = Modifier
             .fillMaxWidth()
-            .heightIn(max = 460.dp),
+            .height(upcomingListHeight(bills).dp),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           items(bills, key = { "upcoming-${it.id}" }) { bill ->
@@ -671,6 +725,13 @@ private fun upcomingTotal(items: List<Recurring>, store: AppStore): Double =
     }
   }
 
+private fun upcomingListHeight(items: List<Recurring>): Int {
+  val rows = items.size * 60
+  val spacing = maxOf(0, items.size - 1) * 8
+  val estimates = items.count { it.convertedEstimateLabel != null } * 19
+  return minOf(rows + spacing + estimates, 460)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TransactionRow(
@@ -687,7 +748,7 @@ private fun TransactionRow(
       .fillMaxWidth()
       .cardSurface(
         radius = 14.dp,
-        background = if (selected) DimoColors.greenSoft else DimoColors.surface,
+        background = if (selected) DimoColors.greenSoft.copy(alpha = 0.4f) else DimoColors.surface,
         borderColor = if (selected) DimoColors.green else DimoColors.line,
       )
       .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -695,48 +756,58 @@ private fun TransactionRow(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    CategoryTintView(
-      emoji = store.categoryEmoji(transaction.emoji, transaction.categoryId, transaction.category),
-      green = transaction.green,
-    )
-    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    if (selectionActive) {
+      Box(
+        modifier = Modifier
+          .size(20.dp)
+          .clip(RoundedCornerShape(6.dp))
+          .background(if (selected) DimoColors.green else DimoColors.surface)
+          .border(
+            2.dp,
+            if (selected) DimoColors.green else DimoColors.line,
+            RoundedCornerShape(6.dp),
+          ),
+        contentAlignment = Alignment.Center,
+      ) {
+        if (selected) {
+          Icon(
+            imageVector = Icons.Filled.Check,
+            contentDescription = null,
+            tint = DimoColors.onGreen,
+            modifier = Modifier.size(10.dp),
+          )
+        }
+      }
+    } else {
+      CategoryTintView(
+        emoji = store.categoryEmoji(transaction.emoji, transaction.categoryId, transaction.category),
+        green = transaction.green,
+      )
+    }
+    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
         text = transaction.name,
-        style = DimoFont.body(15f, FontWeight.Medium),
+        style = DimoFont.body(14f, FontWeight.Medium),
         color = DimoColors.ink,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
       Text(
-        text = listOfNotNull(
-          transaction.category.takeIf { it.isNotEmpty() },
-          transaction.paymentMethod,
-          transaction.time.takeIf { it.isNotEmpty() },
-        ).joinToString(" · "),
+        text = listOf(
+          transaction.category,
+          transaction.time.uppercase(Locale.getDefault()),
+        ).filter { it.isNotEmpty() }.joinToString(" · "),
         style = DimoFont.body(12f),
         color = DimoColors.muted,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
     }
-    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-      Text(
-        text = Formatting.spent(transaction.amount, store.currency),
-        style = DimoFont.display(15f, FontWeight.SemiBold),
-        color = DimoColors.ink,
-      )
-      val source = transaction.sourceAmount
-      val sourceCurrency = transaction.sourceCurrency
-      if (source != null && sourceCurrency != null) {
-        Text(
-          text = Formatting.money(source, sourceCurrency),
-          style = DimoFont.body(11f),
-          color = DimoColors.faint,
-        )
-      } else if (selectionActive && selected) {
-        StatusBadge(label = "Selected", tone = StatusBadgeTone.Green)
-      }
-    }
+    Text(
+      text = Formatting.spent(transaction.amount, store.currency),
+      style = DimoFont.display(15f, FontWeight.SemiBold),
+      color = DimoColors.ink,
+    )
   }
 }
 

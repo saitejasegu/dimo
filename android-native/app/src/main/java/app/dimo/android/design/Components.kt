@@ -33,6 +33,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,6 +55,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.PaymentMethodOption
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Compose ports of `ios-native/Dimo/DesignSystem/Components/Components.swift`. */
 
@@ -96,6 +100,20 @@ fun AvatarView(
   val localBitmap = remember(photoBytes) {
     photoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
   }
+  var remoteBitmap by remember(photoUrl) {
+    mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+  }
+  LaunchedEffect(photoUrl) {
+    remoteBitmap = null
+    val url = photoUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+    remoteBitmap = withContext(Dispatchers.IO) {
+      runCatching {
+        URL(url).openStream().use { stream ->
+          BitmapFactory.decodeStream(stream)?.asImageBitmap()
+        }
+      }.getOrNull()
+    }
+  }
   Box(
     modifier = modifier
       .size(size)
@@ -108,17 +126,15 @@ fun AvatarView(
       style = DimoFont.display(fontSize, FontWeight.SemiBold),
       color = DimoColors.green,
     )
-    if (localBitmap != null) {
+    val bitmap = localBitmap ?: remoteBitmap
+    if (bitmap != null) {
       Image(
-        bitmap = localBitmap,
+        bitmap = bitmap,
         contentDescription = null,
         modifier = Modifier.matchParentSize(),
         contentScale = ContentScale.Crop,
       )
     }
-    // Remote photoUrl loading is left to the full store / Coil wiring.
-    @Suppress("UNUSED_VARIABLE")
-    val unusedUrl = photoUrl
   }
 }
 
