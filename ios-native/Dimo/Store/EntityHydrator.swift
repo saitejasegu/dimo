@@ -375,7 +375,12 @@ enum EntityHydrator {
         transactions,
         categories: categories
       )
-      result.monthBudgetTotals = BudgetSelectors.budgetTotals(budgetTransactions, limits: activeLimits)
+      // Spent is every transaction in the month, so the hero total and count agree
+      // with the transaction list under it and with the Stats tab. Archiving a
+      // category stops it earning a budget, it does not erase what it already spent.
+      result.monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: activeLimits)
+      // Per-category rows stay scoped: they group by name, so an archived category
+      // would otherwise donate its spend to a new active one sharing its name.
       result.categoryBudgets = BudgetSelectors.categoryBudgets(budgetTransactions, limits: activeLimits)
       result.suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
         budgetTransactions,

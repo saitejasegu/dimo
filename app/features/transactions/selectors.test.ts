@@ -150,7 +150,7 @@ describe("archived category pickers", () => {
     ]);
   });
 
-  it("drops archived-category spend from budget totals", () => {
+  it("drops archived-category spend from the per-category budget rows", () => {
     const rows = [
       { id: "1", categoryId: "dining" },
       { id: "2", categoryId: "travel" },

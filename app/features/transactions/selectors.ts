@@ -67,7 +67,10 @@ export function activeCategoryLimits(
   );
 }
 
-/** Drop spend that belongs to archived categories from budget totals. */
+/**
+ * Drop spend that belongs to archived categories from the per-category budget rows.
+ * Monthly totals deliberately keep it.
+ */
 export function transactionsForActiveCategories<
   T extends { categoryId?: string },
 >(

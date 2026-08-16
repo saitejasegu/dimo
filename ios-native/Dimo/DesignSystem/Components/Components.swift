@@ -386,7 +386,7 @@ private struct ContentHeightSheetModifier: ViewModifier {
         guard newHeight > 0, abs(newHeight - contentHeight) > 0.5 else { return }
         contentHeight = newHeight
       }
-      .background(BackgroundKeyboardDismissInstaller())
+      .dismissesKeyboardOnBackgroundTap()
       .presentationDetents([.height(contentHeight)])
   }
 }
@@ -467,6 +467,13 @@ extension View {
   /// Sizes a sheet to its laid-out content and updates the detent when that content changes.
   func contentHeightSheet() -> some View {
     modifier(ContentHeightSheetModifier())
+  }
+
+  /// Lets a tap outside any text input dismiss the keyboard. `contentHeightSheet()`
+  /// already applies this, so only sheets that choose their own detents need it —
+  /// without it a numeric keypad has no way to close.
+  func dismissesKeyboardOnBackgroundTap() -> some View {
+    background(BackgroundKeyboardDismissInstaller())
   }
 }
 

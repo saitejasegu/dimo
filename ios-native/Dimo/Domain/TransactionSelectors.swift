@@ -189,7 +189,8 @@ enum TransactionSelectors {
     })
   }
 
-  /// Drop spend that belongs to archived categories from budget totals.
+  /// Drop spend that belongs to archived categories from the per-category budget
+  /// rows. Monthly totals deliberately keep it — see `buildDerived`.
   static func transactionsForActiveCategories(
     _ transactions: [Transaction],
     categories: [CategoryEntity]

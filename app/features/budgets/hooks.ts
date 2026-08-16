@@ -16,8 +16,11 @@ export function useBudgets() {
     const limits = activeCategoryLimits(categories);
     const scoped = transactionsForActiveCategories(transactions, categories);
     return {
+      // Rows stay scoped: they group by name, so an archived category would
+      // otherwise donate its spend to a new active one sharing its name.
       budgets: categoryBudgets(scoped, limits),
-      totals: budgetTotals(scoped, limits),
+      // Totals cover all spend, matching the overview hero.
+      totals: budgetTotals(transactions, limits),
     };
   }, [transactions, categories]);
 }

@@ -111,8 +111,11 @@ fun HomeScreen(
   val filtered = TransactionSelectors.filterTransactions(store.transactions, store.filter)
   val (paged, hasMore) = TransactionSelectors.paginateTransactionsByDay(filtered, pageSize)
   val groups = TransactionSelectors.groupByDay(paged)
+  // Spent counts every transaction in the month, so the hero total and count agree
+  // with the list under it and with Stats. Archiving a category stops it earning a
+  // budget, it does not erase what it already spent.
   val totals = BudgetSelectors.budgetTotals(
-    TransactionSelectors.transactionsForActiveCategories(store.transactions, store.categories),
+    store.transactions,
     TransactionSelectors.activeCategoryLimits(store.categories),
   )
   val dailyAllowance = BudgetSelectors.dailyBudgetAllowance(totals)

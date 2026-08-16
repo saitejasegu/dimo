@@ -12,18 +12,17 @@ import {
   monthlyRecurringTotal,
   upcomingBills,
 } from "@/features/recurring/selectors";
-import {
-  activeCategoryLimits,
-  transactionsForActiveCategories,
-} from "@/features/transactions/selectors";
+import { activeCategoryLimits } from "@/features/transactions/selectors";
 
 export function useOverview() {
   const { transactions, recurring, categories, currency, rates } = useAppState();
 
   return useMemo(() => {
     const limits = activeCategoryLimits(categories);
-    const scoped = transactionsForActiveCategories(transactions, categories);
-    const totals = budgetTotals(scoped, limits);
+    // Spent counts every transaction in the month, so the hero total agrees with the
+    // list under it and with Stats. Archiving a category stops it earning a budget,
+    // it does not erase what it already spent.
+    const totals = budgetTotals(transactions, limits);
     const active = activeRecurring(recurring);
     const now = new Date();
     const monthTransactions = transactions.filter((t) => {

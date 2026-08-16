@@ -914,17 +914,18 @@ struct BudgetsScreen: View {
 private struct GlobalBudgetSheet: View {
   @Bindable var store: AppStore
   @State private var amount: String
+  @State private var initialAmount: String
   @State private var drafts: [String: String]?
   @Environment(\.dismiss) private var dismiss
 
   init(store: AppStore) {
     self.store = store
     let currentMinor = store.categories.filter { !$0.archived }.reduce(0) { $0 + ($1.monthlyBudgetMinor ?? 0) }
-    _amount = State(
-      initialValue: currentMinor > 0
-        ? String(Int((Double(currentMinor) / 100).rounded()))
-        : ""
-    )
+    let initial = currentMinor > 0
+      ? String(Int((Double(currentMinor) / 100).rounded()))
+      : ""
+    _amount = State(initialValue: initial)
+    _initialAmount = State(initialValue: initial)
     _drafts = State(initialValue: nil)
   }
 
@@ -958,15 +959,17 @@ private struct GlobalBudgetSheet: View {
 
   private var customizing: Bool { drafts != nil }
 
+  private var proposing: Bool { !customizing && amount != initialAmount }
+
   private var displayedLimits: [GlobalBudgetLimitUpdate] {
     allocation.allocations.map { item in
       let limit: Int?
       if let drafts {
         limit = Self.parseLimit(drafts[item.id])
-      } else if parsedAmount != nil {
+      } else if proposing {
         limit = item.allocatedLimit
       } else {
-        limit = nil
+        limit = Self.wholeLimit(item.currentLimit)
       }
       return GlobalBudgetLimitUpdate(id: item.id, allocatedLimit: limit)
     }
@@ -989,13 +992,13 @@ private struct GlobalBudgetSheet: View {
     if activeCategories.isEmpty {
       return "Create a category before setting a total budget."
     }
-    if !customizing && allocation.issue == .noHistory {
+    if proposing && allocation.issue == .noHistory {
       return "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split."
     }
     if !amount.isEmpty && parsedAmount == nil {
       return "Enter a whole monthly amount greater than zero."
     }
-    if parsedAmount != nil && changedCount == 0 {
+    if (proposing || customizing), parsedAmount != nil, changedCount == 0 {
       return "Your category budgets already match these amounts."
     }
     return nil
@@ -1092,10 +1095,10 @@ private struct GlobalBudgetSheet: View {
                 .overlay(
                   RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line)
                 )
-                Text(item.sixMonthSpend > 0 && !customizing ? "PROPOSED" : "BUDGET")
+                Text(item.sixMonthSpend > 0 && proposing ? "PROPOSED" : "BUDGET")
                   .font(DimoFont.body(9, weight: .semibold))
                   .kerning(0.4)
-                  .foregroundStyle(item.sixMonthSpend > 0 && !customizing ? Theme.green : Theme.muted)
+                  .foregroundStyle(item.sixMonthSpend > 0 && proposing ? Theme.green : Theme.muted)
               }
               .fixedSize(horizontal: true, vertical: false)
             }
@@ -1111,6 +1114,10 @@ private struct GlobalBudgetSheet: View {
           }
         }
       }
+      // The list is full of amount fields, and its height is capped, so the
+      // relayout when the keyboard opens reads as a scroll. Under the default
+      // mode that scroll closes the keyboard the instant a field is tapped.
+      .scrollDismissesKeyboard(.never)
       .frame(maxHeight: 360)
       .background(Theme.canvas)
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -1152,13 +1159,16 @@ private struct GlobalBudgetSheet: View {
     .padding(.horizontal, 22)
     .padding(.top, 28)
     .padding(.bottom, 22)
+    // This sheet sets its own detent, so it does not get the background
+    // tap-to-dismiss that contentHeightSheet() installs for the other sheets.
+    .dismissesKeyboardOnBackgroundTap()
     .presentationDetents([.large])
     .presentationDragIndicator(.visible)
     .presentationBackground(Theme.surface)
   }
 
   private var applyTitle: String {
-    if parsedAmount != nil && changedCount == 0 {
+    if (proposing || customizing), parsedAmount != nil, changedCount == 0 {
       return "Already applied"
     }
     return customizing ? "Apply budgets" : "Apply split"
@@ -1183,10 +1193,10 @@ private struct GlobalBudgetSheet: View {
     if let drafts {
       return drafts[item.id] ?? ""
     }
-    if parsedAmount != nil, let limit = item.allocatedLimit, limit > 0 {
-      return String(limit)
+    if proposing {
+      return Self.fieldValue(item.allocatedLimit)
     }
-    return ""
+    return Self.fieldValue(Self.wholeLimit(item.currentLimit))
   }
 
   private func handleTotalChange(_ next: String) {
@@ -1197,8 +1207,7 @@ private struct GlobalBudgetSheet: View {
   private func handleCategoryChange(_ id: String, _ next: String) {
     let value = String(next.filter(\.isNumber).prefix(15))
     var snapshot = drafts ?? Dictionary(uniqueKeysWithValues: allocation.allocations.map { item in
-      let text = item.allocatedLimit.flatMap { $0 > 0 ? String($0) : nil } ?? ""
-      return (item.id, text)
+      (item.id, categoryFieldValue(item))
     })
     snapshot[id] = value
     drafts = snapshot
@@ -1214,6 +1223,17 @@ private struct GlobalBudgetSheet: View {
           amount > 0,
           amount <= Int.max / 100 else { return nil }
     return amount
+  }
+
+  private static func wholeLimit(_ current: Double?) -> Int? {
+    guard let current, current.isFinite, current > 0 else { return nil }
+    let rounded = Int(current.rounded())
+    return rounded > 0 ? rounded : nil
+  }
+
+  private static func fieldValue(_ limit: Int?) -> String {
+    guard let limit, limit > 0 else { return "" }
+    return String(limit)
   }
 
   private static func currentDiffers(_ current: Double?, _ allocated: Int?) -> Bool {

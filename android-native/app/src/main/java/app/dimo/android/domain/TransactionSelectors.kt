@@ -189,7 +189,10 @@ object TransactionSelectors {
       category.name to category.monthlyBudgetMinor?.let { it.toDouble() / 100 }
     }
 
-  /** Drop spend that belongs to archived categories from budget totals. */
+  /**
+   * Drop spend that belongs to archived categories from the per-category budget rows.
+   * Monthly totals deliberately keep it.
+   */
   fun <T> transactionsForActiveCategories(
     transactions: List<T>,
     categories: List<CategoryEntity>,

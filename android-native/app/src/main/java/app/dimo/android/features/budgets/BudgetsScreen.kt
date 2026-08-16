@@ -53,7 +53,6 @@ import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.GlobalBudgetAllocationIssue
-import app.dimo.android.domain.GlobalBudgetCategoryAllocation
 import app.dimo.android.domain.GlobalBudgetCategoryInput
 import app.dimo.android.domain.GlobalBudgetLimitUpdate
 import app.dimo.android.domain.TransactionSelectors
@@ -92,7 +91,10 @@ fun BudgetsScreen(
     store.categories,
   )
   val activeLimits = TransactionSelectors.activeCategoryLimits(store.categories)
-  val totals = BudgetSelectors.budgetTotals(budgetTransactions, activeLimits)
+  // Totals cover all spend, matching Home. Per-category rows stay scoped: they group
+  // by name, so an archived category would otherwise donate its spend to a new active
+  // one sharing its name.
+  val totals = BudgetSelectors.budgetTotals(store.transactions, activeLimits)
   val budgets = BudgetSelectors.categoryBudgets(budgetTransactions, activeLimits)
   val categoryByName = store.categories.associateBy { it.name }
   val archivedCategories = store.categories.filter { it.archived }
@@ -381,11 +383,10 @@ private fun GlobalBudgetSheet(
 ) {
   val activeCategories = store.categories.filter { !it.archived }
   val currentMinor = activeCategories.sumOf { it.monthlyBudgetMinor ?: 0 }
-  var amount by remember {
-    mutableStateOf(
-      if (currentMinor > 0) (currentMinor.toDouble() / 100).roundToLong().toString() else "",
-    )
+  val initialAmount = remember {
+    if (currentMinor > 0) (currentMinor.toDouble() / 100).roundToLong().toString() else ""
   }
+  var amount by remember { mutableStateOf(initialAmount) }
   var drafts by remember { mutableStateOf<Map<String, String>?>(null) }
   val parsedAmount = amount.toLongOrNull()?.takeIf {
     amount.isNotEmpty() && amount.all(Char::isDigit) && it > 0 && it <= Long.MAX_VALUE / 100
@@ -400,15 +401,16 @@ private fun GlobalBudgetSheet(
     )
   }
   val customizing = drafts != null
+  val proposing = !customizing && amount != initialAmount
   val displayedLimits = allocation.allocations.map { item ->
     GlobalBudgetLimitUpdate(
       id = item.id,
       allocatedLimit = if (customizing) {
         parseGlobalBudgetLimit(drafts?.get(item.id))
-      } else if (parsedAmount != null) {
+      } else if (proposing) {
         item.allocatedLimit
       } else {
-        null
+        wholeCurrentLimit(item.currentLimit)
       },
     )
   }
@@ -421,10 +423,10 @@ private fun GlobalBudgetSheet(
     (customizing || allocation.canApply)
   val validationMessage = when {
     activeCategories.isEmpty() -> "Create a category before setting a total budget."
-    !customizing && allocation.issue == GlobalBudgetAllocationIssue.NO_HISTORY ->
+    proposing && allocation.issue == GlobalBudgetAllocationIssue.NO_HISTORY ->
       "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split."
     amount.isNotEmpty() && parsedAmount == null -> "Enter a whole monthly amount greater than zero."
-    parsedAmount != null && changedCount == 0 -> "Your category budgets already match these amounts."
+    (proposing || customizing) && parsedAmount != null && changedCount == 0 -> "Your category budgets already match these amounts."
     else -> null
   }
   val firstMonth = DateHelpers.localDate(allocation.window.start)
@@ -489,10 +491,10 @@ private fun GlobalBudgetSheet(
           val category = store.categories.firstOrNull { it.id == item.id }
           val value = if (customizing) {
             drafts?.get(item.id).orEmpty()
-          } else if (parsedAmount != null && item.allocatedLimit != null && item.allocatedLimit > 0) {
-            item.allocatedLimit.toString()
+          } else if (proposing) {
+            globalBudgetFieldValue(item.allocatedLimit)
           } else {
-            ""
+            globalBudgetFieldValue(wholeCurrentLimit(item.currentLimit))
           }
           Row(
             modifier = Modifier
@@ -558,7 +560,7 @@ private fun GlobalBudgetSheet(
                   value = value,
                   onValueChange = { next ->
                     val digits = digitsOnlyGlobalBudget(next)
-                    val snapshot = (drafts ?: snapshotGlobalBudgetLimits(allocation.allocations))
+                    val snapshot = (drafts ?: snapshotGlobalBudgetLimits(displayedLimits))
                       .toMutableMap()
                     snapshot[item.id] = digits
                     drafts = snapshot
@@ -590,9 +592,9 @@ private fun GlobalBudgetSheet(
                 )
               }
               Text(
-                text = if (item.sixMonthSpend > 0 && !customizing) "PROPOSED" else "BUDGET",
+                text = if (item.sixMonthSpend > 0 && proposing) "PROPOSED" else "BUDGET",
                 style = DimoFont.body(9f, FontWeight.SemiBold),
-                color = if (item.sixMonthSpend > 0 && !customizing) DimoColors.green else DimoColors.muted,
+                color = if (item.sixMonthSpend > 0 && proposing) DimoColors.green else DimoColors.muted,
               )
             }
           }
@@ -641,7 +643,7 @@ private fun GlobalBudgetSheet(
         )
         PrimaryButton(
           title = when {
-            parsedAmount != null && changedCount == 0 -> "Already applied"
+            (proposing || customizing) && parsedAmount != null && changedCount == 0 -> "Already applied"
             customizing -> "Apply budgets"
             else -> "Apply split"
           },
@@ -799,14 +801,19 @@ private fun parseGlobalBudgetLimit(value: String?): Long? {
 }
 
 private fun snapshotGlobalBudgetLimits(
-  allocations: List<GlobalBudgetCategoryAllocation>,
+  allocations: List<GlobalBudgetLimitUpdate>,
 ): Map<String, String> = allocations.associate { item ->
-  item.id to if (item.allocatedLimit != null && item.allocatedLimit > 0) {
-    item.allocatedLimit.toString()
-  } else {
-    ""
-  }
+  item.id to globalBudgetFieldValue(item.allocatedLimit)
 }
+
+private fun wholeCurrentLimit(current: Double?): Long? {
+  if (current == null || !current.isFinite() || current <= 0.0) return null
+  val rounded = current.roundToLong()
+  return rounded.takeIf { it > 0L }
+}
+
+private fun globalBudgetFieldValue(limit: Long?): String =
+  if (limit != null && limit > 0L) limit.toString() else ""
 
 private fun sumGlobalBudgetLimits(drafts: Map<String, String>): Long =
   drafts.values.sumOf { parseGlobalBudgetLimit(it) ?: 0L }

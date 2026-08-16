@@ -919,9 +919,10 @@ final class AppStore {
     guard var category = categories.first(where: { $0.id == id }) else { return }
     if category.archived == archived { return }
     category.archived = archived
-    write { try $0.saveEntity(entityType: .category, payload: .category(category)) }
+    let updated = category
+    write { try $0.saveEntity(entityType: .category, payload: .category(updated)) }
     closeOverlay()
-    showToast(archived ? "\(category.name) archived" : "\(category.name) restored")
+    showToast(archived ? "\(updated.name) archived" : "\(updated.name) restored")
   }
 
   func applySuggestedBudgets(_ ids: Set<String>) {

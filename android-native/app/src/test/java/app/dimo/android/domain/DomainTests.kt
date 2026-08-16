@@ -721,7 +721,7 @@ class TransactionSelectorTests : ZonedTest() {
   }
 
   @Test
-  fun budgetTotalsDropArchivedCategorySpend() {
+  fun categoryBudgetRowsDropArchivedCategorySpend() {
     val categories = listOf(
       CategoryEntity("dining", "Dining", "🍽️", null, CategoryTint.NEUTRAL, 0, false),
       CategoryEntity("travel", "Travel", "✈️", null, CategoryTint.NEUTRAL, 1, false, archived = true),

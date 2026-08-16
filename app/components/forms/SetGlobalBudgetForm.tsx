@@ -30,16 +30,21 @@ function parseLimit(value: string | undefined): number | null {
   return amount;
 }
 
+function wholeLimit(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) return null;
+  const rounded = Math.round(value);
+  return rounded > 0 ? rounded : null;
+}
+
+function fieldValue(limit: number | null): string {
+  return limit != null && limit > 0 ? String(limit) : "";
+}
+
 function snapshotLimits(
   allocations: Array<{ id: string; allocatedLimit: number | null }>,
 ): Record<string, string> {
   return Object.fromEntries(
-    allocations.map((item) => [
-      item.id,
-      item.allocatedLimit != null && item.allocatedLimit > 0
-        ? String(item.allocatedLimit)
-        : "",
-    ]),
+    allocations.map((item) => [item.id, fieldValue(item.allocatedLimit)]),
   );
 }
 
@@ -61,6 +66,7 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
   const [amount, setAmount] = useState(() =>
     currentTotal > 0 ? String(Math.round(currentTotal)) : "",
   );
+  const [initialAmount] = useState(amount);
   const [drafts, setDrafts] = useState<Record<string, string> | null>(null);
   const trimmedAmount = amount.trim();
   const validAmountText = /^\d+$/.test(trimmedAmount);
@@ -71,14 +77,15 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
     [transactions, activeCategories, validAmount, parsedAmount],
   );
   const customizing = drafts != null;
+  const proposing = !customizing && amount !== initialAmount;
   const displayedLimits = allocation.allocations.map((item) => ({
     id: item.id,
     currentLimit: item.currentLimit,
     allocatedLimit: customizing
       ? parseLimit(drafts[item.id])
-      : validAmount
+      : proposing
         ? item.allocatedLimit
-        : null,
+        : wholeLimit(item.currentLimit),
   }));
   const changedCount = displayedLimits.filter(
     (item) => item.currentLimit !== item.allocatedLimit,
@@ -91,11 +98,11 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
   let message: string | null = null;
   if (activeCategories.length === 0) {
     message = "Create a category before setting a total budget.";
-  } else if (!customizing && allocation.issue === "no-history") {
+  } else if (proposing && allocation.issue === "no-history") {
     message = "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split.";
   } else if (trimmedAmount && !validAmount) {
     message = "Enter a whole monthly amount greater than zero.";
-  } else if (validAmount && changedCount === 0) {
+  } else if ((proposing || customizing) && validAmount && changedCount === 0) {
     message = "Your category budgets already match these amounts.";
   }
 
@@ -106,7 +113,7 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
 
   function handleCategoryChange(id: string, next: string) {
     const value = digitsOnly(next);
-    const snapshot = drafts ?? snapshotLimits(allocation.allocations);
+    const snapshot = drafts ?? snapshotLimits(displayedLimits);
     const updated = { ...snapshot, [id]: value };
     setDrafts(updated);
     const total = sumLimits(updated);
@@ -144,9 +151,9 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
           const hasHistory = item.sixMonthSpend > 0;
           const value = customizing
             ? (drafts[item.id] ?? "")
-            : validAmount && item.allocatedLimit != null && item.allocatedLimit > 0
-              ? String(item.allocatedLimit)
-              : "";
+            : proposing
+              ? fieldValue(item.allocatedLimit)
+              : fieldValue(wholeLimit(item.currentLimit));
           return (
             <div
               key={item.id}
@@ -180,7 +187,7 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
                     className="w-[5.75rem] rounded-lg border border-line bg-canvas px-2 py-1.5 text-right text-sm font-semibold text-ink outline-none placeholder:text-faint"
                   />
                 </span>
-                {hasHistory && !customizing ? (
+                {hasHistory && proposing ? (
                   <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-[0.04em] text-green">
                     Proposed
                   </span>
@@ -221,7 +228,7 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
             onDone();
           }}
         >
-          {validAmount && changedCount === 0
+          {(proposing || customizing) && validAmount && changedCount === 0
             ? "Already applied"
             : customizing
               ? "Apply budgets"

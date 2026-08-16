@@ -721,7 +721,7 @@ final class TransactionSelectorTests: XCTestCase {
     )
   }
 
-  func testBudgetTotalsDropArchivedCategorySpend() {
+  func testCategoryBudgetRowsDropArchivedCategorySpend() {
     let categories = [
       CategoryEntity(id: "dining", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 0, system: false),
       CategoryEntity(id: "travel", name: "Travel", emoji: "✈️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 1, system: false, archived: true),
@@ -1233,6 +1233,51 @@ final class BudgetSelectorTests: XCTestCase {
       ).issue,
       .noCategories
     )
+  }
+
+  /// The month total is what Home shows above an unfiltered transaction list, so it
+  /// counts archived-category spend. Only the limit side ignores archived categories.
+  func testMonthTotalsCountArchivedSpendWhileRowsAndLimitsDoNot() {
+    let categories = [
+      CategoryEntity(
+        id: "dining", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: 20_000,
+        tint: .neutral, sortOrder: 0, system: false
+      ),
+      CategoryEntity(
+        id: "travel", name: "Travel", emoji: "✈️", monthlyBudgetMinor: 50_000,
+        tint: .neutral, sortOrder: 1, system: false, archived: true
+      ),
+    ]
+    let now = Int(Date().timeIntervalSince1970 * 1000)
+    let rows = [
+      Transaction(
+        id: "1", name: "A", category: "Dining", time: "", day: "", amount: 10,
+        occurredAt: now, categoryId: "dining"
+      ),
+      Transaction(
+        id: "2", name: "B", category: "Travel", time: "", day: "", amount: 20,
+        occurredAt: now, categoryId: "travel"
+      ),
+    ]
+
+    let derived = EntityHydrator.buildDerived(
+      transactions: rows,
+      recurring: [],
+      lends: [],
+      limits: TransactionSelectors.activeCategoryLimits(categories),
+      categories: categories,
+      rates: nil,
+      defaultCurrency: "INR",
+      previous: nil,
+      dirty: .all
+    )
+
+    XCTAssertEqual(derived.monthBudgetTotals.totalSpent, 30)
+    XCTAssertEqual(derived.monthBudgetTotals.transactionCount, 2)
+    XCTAssertEqual(derived.monthBudgetTotals.totalLimit, 200)
+    XCTAssertEqual(derived.monthBudgetTotals.left, 170)
+    XCTAssertEqual(derived.categoryBudgets.map(\.category), ["Dining"])
+    XCTAssertEqual(derived.categoryBudgets.first?.spent, 10)
   }
 }
 
