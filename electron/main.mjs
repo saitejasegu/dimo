@@ -18,6 +18,38 @@ const loadProductionURL = useDevServer
 /** @type {import('electron').BrowserWindow | null} */
 let mainWindow = null;
 
+/** Only allow http(s) and mailto into the OS handler — never file:/smb:/etc. */
+function isSafeExternalUrl(raw) {
+  try {
+    const parsed = new URL(raw);
+    return (
+      parsed.protocol === "https:" ||
+      parsed.protocol === "http:" ||
+      parsed.protocol === "mailto:"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedNavigation(raw) {
+  try {
+    const parsed = new URL(raw);
+    if (useDevServer) {
+      const dev = new URL(DEV_URL);
+      return (
+        parsed.origin === dev.origin ||
+        parsed.origin === "http://localhost:3000" ||
+        parsed.origin === "http://127.0.0.1:3000"
+      );
+    }
+    // electron-serve uses the app:// protocol for the static export.
+    return parsed.protocol === "app:";
+  } catch {
+    return false;
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -32,6 +64,7 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
     },
   });
 
@@ -40,9 +73,32 @@ async function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
+
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedNavigation(url)) {
+      event.preventDefault();
+      if (isSafeExternalUrl(url)) {
+        void shell.openExternal(url);
+      }
+    }
+  });
+
+  mainWindow.webContents.on("will-redirect", (event, url) => {
+    if (!isAllowedNavigation(url)) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, _permission, callback) => {
+      callback(false);
+    },
+  );
 
   if (useDevServer) {
     mainWindow.loadURL(DEV_URL);

@@ -104,6 +104,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (!clientId || !convex) return <ConfigurationRequired />;
 
+  // SECURITY: `devMode` stores the WorkOS refresh token in localStorage so the
+  // static export can refresh without a custom AuthKit API domain (HttpOnly
+  // cookies). XSS on this origin can therefore steal the session. Prefer
+  // registering a custom AuthKit hostname and dropping `devMode` in production
+  // once cookie-based sessions work for dimoapp.xyz.
   return (
     <AuthKitProvider
       clientId={clientId}
