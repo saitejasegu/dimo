@@ -113,7 +113,8 @@ function toStoredFromPull<T extends EntityType>(
     id: entityId,
     ...row,
   } as never);
-  const { id: _id, ...fields } = clean;
+  const fields = { ...clean };
+  delete (fields as { id?: string }).id;
   return {
     key: entityKey(entityType, entityId),
     workspaceId: WORKSPACE_ID,
