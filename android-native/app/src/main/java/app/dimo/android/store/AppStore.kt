@@ -79,6 +79,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * Port of `ios-native/Dimo/Store/AppStore.swift`.
@@ -422,6 +426,17 @@ class AppStore(
 
   suspend fun clearCloudWorkspace() {
     coordinator?.clearCloudWorkspace()
+  }
+
+  /** Deletes the WorkOS login identity via Convex (requires WORKOS_API_KEY). */
+  suspend fun deleteCloudIdentity(): Pair<Boolean, String?> {
+    val client = convexClient ?: return false to "Not connected to sync."
+    val json = withTimeout(30_000) {
+      client.action<JsonObject>("accountDeletion:deleteWorkOSUser", emptyMap())
+    }
+    val deleted = (json["identityDeleted"] as? JsonPrimitive)?.booleanOrNull ?: false
+    val reason = (json["reason"] as? JsonPrimitive)?.content
+    return deleted to reason
   }
 
   // MARK: - Navigation

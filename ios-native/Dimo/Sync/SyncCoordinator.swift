@@ -525,7 +525,12 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["subject"] = e.subject
       dict["snippet"] = e.snippet
       dict["internalDate"] = Double(e.internalDate)
-      dict["normalizedBodyText"] = e.normalizedBodyText
+      // Pending suggestions keep bodies on-device; only reviewed states sync text.
+      let syncBody =
+        e.state == EmailSuggestionState.added.rawValue
+        || e.state == EmailSuggestionState.dismissed.rawValue
+        || e.state == EmailSuggestionState.refundApplied.rawValue
+      dict["normalizedBodyText"] = syncBody ? e.normalizedBodyText : nil
       dict["analyzerType"] = e.analyzerType
       dict["modelVersion"] = e.modelVersion
       dict["promptVersion"] = e.promptVersion.map { Double($0) }

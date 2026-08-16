@@ -87,6 +87,7 @@ class SessionController(context: Context) {
   suspend fun deleteAccount() {
     val store = appStore ?: return
     store.clearCloudWorkspace()
+    runCatching { store.deleteCloudIdentity() }
     signOut()
   }
 

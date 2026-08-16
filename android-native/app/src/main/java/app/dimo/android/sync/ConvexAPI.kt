@@ -25,6 +25,7 @@ import app.dimo.android.data.model.TransactionEntity
 import app.dimo.android.data.model.ViewKey
 import app.dimo.android.data.model.WeekStart
 import app.dimo.android.data.model.DEFAULT_CATEGORY_EMOJI
+import app.dimo.android.data.model.EmailSuggestionState
 
 /**
  * Wire contract for the typed Convex sync API, ported from
@@ -170,7 +171,11 @@ object ConvexAPI {
         dict["subject"] = e.subject
         dict["snippet"] = e.snippet
         dict["internalDate"] = e.internalDate.toDouble()
-        dict["normalizedBodyText"] = e.normalizedBodyText
+        // Pending suggestions keep bodies on-device; only reviewed states sync text.
+        val syncBody = e.state == EmailSuggestionState.ADDED.wire ||
+          e.state == EmailSuggestionState.DISMISSED.wire ||
+          e.state == EmailSuggestionState.REFUND_APPLIED.wire
+        dict["normalizedBodyText"] = if (syncBody) e.normalizedBodyText else null
         dict["analyzerType"] = e.analyzerType
         dict["modelVersion"] = e.modelVersion
         dict["promptVersion"] = e.promptVersion?.toDouble()

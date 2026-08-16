@@ -17,10 +17,36 @@ import {
   paymentMethodOperationValidator,
   preferencesOperationValidator,
   recurringOperationValidator,
+  shouldSyncEmailBody,
   transactionOperationValidator,
+  versionValidator,
 } from "./values";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const acknowledgementValidator = v.object({
+  operationId: v.string(),
+  applied: v.boolean(),
+  revision: v.number(),
+});
+
+const pushResultValidator = v.object({
+  acknowledgements: v.array(acknowledgementValidator),
+  latestRevision: v.number(),
+});
+
+const pullMetaValidator = {
+  workspaceId: v.string(),
+  entityId: v.string(),
+  version: versionValidator,
+  deleted: v.boolean(),
+  serverRevision: v.number(),
+};
+
+const clearResultValidator = v.object({
+  deleted: v.number(),
+  hasMore: v.boolean(),
+});
 
 type AuthIdentity = {
   tokenIdentifier: string;
@@ -255,6 +281,7 @@ export const pushCategories = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(categoryOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(ctx, workspaceId, operations, "category", (op) => ({
       name: op.name,
@@ -272,6 +299,21 @@ export const pullCategories = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        name: v.string(),
+        emoji: v.optional(v.string()),
+        monthlyBudgetMinor: v.union(v.number(), v.null()),
+        tint: v.union(v.literal("green"), v.literal("neutral")),
+        sortOrder: v.number(),
+        system: v.boolean(),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -298,6 +340,7 @@ export const pushPaymentMethods = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(paymentMethodOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(ctx, workspaceId, operations, "paymentMethod", (op) => ({
       name: op.name,
@@ -313,6 +356,25 @@ export const pullPaymentMethods = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        name: v.string(),
+        type: v.union(
+          v.literal("UPI"),
+          v.literal("Card"),
+          v.literal("Wallet"),
+          v.literal("Cash"),
+          v.literal("Bank"),
+        ),
+        detail: v.string(),
+        archived: v.boolean(),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -337,6 +399,7 @@ export const pushTransactions = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(transactionOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(
       ctx,
@@ -368,6 +431,24 @@ export const pullTransactions = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        name: v.string(),
+        amountMinor: v.number(),
+        occurredAt: v.number(),
+        categoryId: v.string(),
+        paymentMethodId: v.union(v.string(), v.null()),
+        currency: v.optional(v.string()),
+        sourceCurrency: v.optional(v.string()),
+        sourceAmountMinor: v.optional(v.number()),
+        exchangeRate: v.optional(v.number()),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -397,6 +478,7 @@ export const pushRecurring = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(recurringOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(
       ctx,
@@ -428,6 +510,23 @@ export const pullRecurring = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        name: v.string(),
+        amountMinor: v.number(),
+        categoryId: v.string(),
+        paymentMethodId: v.union(v.string(), v.null()),
+        frequency: v.union(v.literal("monthly"), v.literal("yearly")),
+        anchorDate: v.string(),
+        paused: v.boolean(),
+        currency: v.optional(v.string()),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -456,6 +555,7 @@ export const pushLends = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(lendOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(
       ctx,
@@ -480,6 +580,28 @@ export const pullLends = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        contactName: v.string(),
+        contactId: v.optional(v.string()),
+        amountMinor: v.number(),
+        occurredAt: v.number(),
+        comment: v.string(),
+        kind: v.optional(
+          v.union(
+            v.literal("lent"),
+            v.literal("repaid"),
+            v.literal("borrowed"),
+            v.literal("returned"),
+          ),
+        ),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -506,6 +628,7 @@ export const pushEmailMessages = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(emailMessageOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(ctx, workspaceId, operations, "emailMessage", (op) => ({
       accountId: op.accountId,
@@ -518,7 +641,10 @@ export const pushEmailMessages = mutationGeneric({
       subject: op.subject,
       snippet: op.snippet,
       internalDate: op.internalDate,
-      normalizedBodyText: op.normalizedBodyText,
+      // Strip full bodies for pending suggestions — keep them on-device only.
+      normalizedBodyText: shouldSyncEmailBody(op.state)
+        ? op.normalizedBodyText
+        : null,
       analyzerType: op.analyzerType,
       modelVersion: op.modelVersion,
       promptVersion: op.promptVersion,
@@ -547,6 +673,51 @@ export const pullEmailMessages = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        accountId: v.string(),
+        accountEmail: v.string(),
+        gmailMessageId: v.string(),
+        threadId: v.string(),
+        rfcMessageId: v.optional(v.union(v.string(), v.null())),
+        senderName: v.optional(v.union(v.string(), v.null())),
+        senderAddress: v.string(),
+        subject: v.string(),
+        snippet: v.string(),
+        internalDate: v.number(),
+        normalizedBodyText: v.optional(v.union(v.string(), v.null())),
+        analyzerType: v.optional(v.union(v.string(), v.null())),
+        modelVersion: v.optional(v.union(v.string(), v.null())),
+        promptVersion: v.optional(v.union(v.number(), v.null())),
+        classification: v.optional(v.union(v.string(), v.null())),
+        merchant: v.optional(v.union(v.string(), v.null())),
+        amount: v.optional(v.union(v.string(), v.null())),
+        currency: v.optional(v.union(v.string(), v.null())),
+        occurredAt: v.optional(v.union(v.number(), v.null())),
+        categoryId: v.optional(v.union(v.string(), v.null())),
+        paymentMethodId: v.optional(v.union(v.string(), v.null())),
+        paymentLastFour: v.optional(v.union(v.string(), v.null())),
+        reference: v.optional(v.union(v.string(), v.null())),
+        state: v.union(
+          v.literal("added"),
+          v.literal("dismissed"),
+          v.literal("refundApplied"),
+          v.literal("pendingPurchase"),
+          v.literal("pendingRefund"),
+        ),
+        purchaseGroupId: v.optional(v.union(v.string(), v.null())),
+        linkedTransactionId: v.optional(v.union(v.string(), v.null())),
+        analyzedAt: v.optional(v.union(v.number(), v.null())),
+        reviewedAt: v.optional(v.union(v.number(), v.null())),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -566,7 +737,9 @@ export const pullEmailMessages = queryGeneric({
         subject: row.subject,
         snippet: row.snippet,
         internalDate: row.internalDate,
-        normalizedBodyText: row.normalizedBodyText,
+        normalizedBodyText: shouldSyncEmailBody(String(row.state ?? ""))
+          ? row.normalizedBodyText
+          : null,
         analyzerType: row.analyzerType,
         modelVersion: row.modelVersion,
         promptVersion: row.promptVersion,
@@ -597,6 +770,7 @@ export const pushPreferences = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(preferencesOperationValidator),
   },
+  returns: pushResultValidator,
   handler: async (ctx, { workspaceId, operations }) =>
     pushTypedBatch(
       ctx,
@@ -633,6 +807,48 @@ export const pullPreferences = queryGeneric({
     afterRevision: v.number(),
     limit: v.number(),
   },
+  returns: v.object({
+    entities: v.array(
+      v.object({
+        ...pullMetaValidator,
+        profileName: v.string(),
+        profileEmail: v.string(),
+        currency: v.union(v.literal("INR"), v.literal("USD"), v.literal("EUR")),
+        weekStart: v.union(v.literal("Mon"), v.literal("Sun")),
+        theme: v.optional(
+          v.union(v.literal("system"), v.literal("light"), v.literal("dark")),
+        ),
+        navGlassOpacity: v.optional(v.number()),
+        defaultView: v.union(
+          v.literal("home"),
+          v.literal("tx"),
+          v.literal("stats"),
+          v.literal("recurring"),
+          v.literal("budgets"),
+          v.literal("account"),
+        ),
+        defaultStatsRange: v.optional(
+          v.union(
+            v.literal("1W"),
+            v.literal("M"),
+            v.literal("3M"),
+            v.literal("6M"),
+            v.literal("1Y"),
+            v.literal("2Y"),
+          ),
+        ),
+        notifications: v.object({
+          bills: v.boolean(),
+          budget: v.boolean(),
+          weekly: v.boolean(),
+          large: v.boolean(),
+        }),
+        defaultPaymentMethodId: v.string(),
+      }),
+    ),
+    latestRevision: v.number(),
+    hasMore: v.boolean(),
+  }),
   handler: async (ctx, args) =>
     pullTypedPage(
       ctx,
@@ -659,6 +875,7 @@ export const pullPreferences = queryGeneric({
 /** Shared workspace revision for client subscriptions. */
 export const currentRevision = queryGeneric({
   args: { workspaceId: v.string() },
+  returns: v.number(),
   handler: async (ctx, { workspaceId }) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
@@ -678,6 +895,12 @@ export const ensureWorkspaceProfile = mutationGeneric({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
   },
+  returns: v.object({
+    created: v.boolean(),
+    updated: v.boolean(),
+    name: v.union(v.string(), v.null()),
+    email: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, { workspaceId, name, email }) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
@@ -744,6 +967,7 @@ export const clearWorkspace = mutationGeneric({
     entityTypes: v.array(entityTypeValidator),
     limit: v.optional(v.number()),
   },
+  returns: clearResultValidator,
   handler: async (ctx, { workspaceId, entityTypes, limit }) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;

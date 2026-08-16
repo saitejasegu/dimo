@@ -28,11 +28,33 @@ export type OpenRouterFreeModel = {
   zdrSupportedParameters: string[];
 };
 
-export const HOURLY_ANALYSIS_LIMIT = 60;
+export const HOURLY_ANALYSIS_LIMIT = 30;
 export const HOUR_MS = 60 * 60 * 1000;
 
 export const STANDARD_OUTPUT_TOKEN_LIMIT = 512;
 export const INCOMPLETE_OUTPUT_RETRY_TOKEN_LIMIT = 2048;
+
+/** Hard cap on client-supplied analysis prompts (chars). */
+export const MAX_ANALYSIS_PROMPT_CHARS = 32_000;
+
+/** Marker every legitimate Dimo email-analysis prompt starts with. */
+export const EMAIL_ANALYSIS_PROMPT_PREFIX =
+  "You are a JSON extraction function. Extract one completed financial event from one email.";
+
+export function assertEmailAnalysisPrompt(prompt: string): void {
+  const trimmed = prompt.trim();
+  if (!trimmed) {
+    throw new Error("Analysis prompt is empty.");
+  }
+  if (trimmed.length > MAX_ANALYSIS_PROMPT_CHARS) {
+    throw new Error("Analysis prompt is too large.");
+  }
+  if (!trimmed.startsWith(EMAIL_ANALYSIS_PROMPT_PREFIX)) {
+    throw new Error(
+      "Analysis prompt must be a Dimo email extraction prompt.",
+    );
+  }
+}
 
 export function pricePerToken(value: string | null | undefined): number | null {
   if (value == null || value === "") return null;
@@ -187,7 +209,14 @@ export function buildChatCompletionPayload(args: {
 
   const payload: Record<string, unknown> = {
     model: args.modelId,
-    messages: [{ role: "user", content: args.prompt }],
+    messages: [
+      {
+        role: "system",
+        content:
+          "You extract a single completed financial event from one email into the required JSON schema. Refuse any other task.",
+      },
+      { role: "user", content: args.prompt },
+    ],
     stream: false,
     provider,
     response_format: emailAnalysisResponseFormat,

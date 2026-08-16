@@ -20,6 +20,11 @@ export function AccountSessionActions() {
     if (busy) return;
     setBusy(true);
     void deleteAccountAndSignOut(convex, signOut)
+      .then((result) => {
+        if (!result.identityDeleted && result.reason) {
+          showToast(result.reason);
+        }
+      })
       .catch((error) => {
         setBusy(false);
         setConfirmOpen(false);
@@ -53,7 +58,8 @@ export function AccountSessionActions() {
           Delete account
         </Button>
         <p className="text-center text-[11px] leading-4 text-faint">
-          Delete account permanently removes your data from this device and the cloud.
+          Delete account removes your Dimo data from this device and the cloud,
+          and closes your login when the server is configured to do so.
         </p>
       </div>
 

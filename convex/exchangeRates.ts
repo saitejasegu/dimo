@@ -211,6 +211,14 @@ export const latestRow = internalQueryGeneric({
  */
 export const latest = queryGeneric({
   args: {},
+  returns: v.union(
+    v.object({
+      date: v.string(),
+      base: v.string(),
+      rates: v.record(v.string(), v.number()),
+    }),
+    v.null(),
+  ),
   handler: async (ctx) => {
     await requireIdentity(ctx);
     const latestEntry = await ctx.db
