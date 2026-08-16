@@ -5,24 +5,26 @@ import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import app.dimo.android.app.AppConfig
 import dev.convex.android.AuthProvider
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
+import kotlin.math.min
+import kotlin.math.pow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 /**
  * Port of `ios-native/Dimo/Auth/WorkOSAuthProvider.swift`, implementing the
  * Convex Android `AuthProvider` contract.
  *
- * The browser leg uses Custom Tabs instead of `ASWebAuthenticationSession`; the
- * refresh token lives in Keystore-backed storage instead of Keychain. Everything
- * else — PKCE, the `state` round-trip, the reuse of a still-valid cached session
- * on cold start — mirrors the Swift implementation.
+ * Session resilience: transient refresh failures are retried and never clear
+ * the stored refresh token; only terminal `invalid_grant` signs the user out.
  */
 class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
   private val appContext = context.applicationContext
   private val store = TokenStore(appContext)
   private val json = Json { ignoreUnknownKeys = true }
   private val lock = Any()
+  private val refreshMutex = Mutex()
 
   @Volatile
   private var cached: WorkOSSession? = null
@@ -31,12 +33,29 @@ class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
 
   val currentAccessToken: String? get() = synchronized(lock) { cached?.accessToken }
   val currentSession: WorkOSSession? get() = synchronized(lock) { cached }
+  val hasPersistedRefreshToken: Boolean get() = store.refreshToken != null
 
-  /** Cold-start restore, bounded so a hung network cannot stall the splash. */
-  suspend fun restoreSession(): WorkOSSession? = try {
-    withTimeout(RESTORE_TIMEOUT_MS) { loginFromCache {}.getOrNull() }
-  } catch (_: TimeoutCancellationException) {
-    null
+  /**
+   * Cold-start restore. Retries transient failures; clears storage only on a
+   * terminal WorkOS session end.
+   */
+  suspend fun restoreSession(): WorkOSSession? {
+    if (!hasPersistedRefreshToken) return null
+    repeat(5) { attempt ->
+      try {
+        return loginFromCache {}.getOrThrow()
+      } catch (error: AuthException) {
+        if (error.isTerminalRefresh) {
+          clearPersisted()
+          return null
+        }
+        delay((min(8.0, 2.0.pow(attempt.toDouble())) * 1000).toLong())
+      } catch (_: Throwable) {
+        delay((min(8.0, 2.0.pow(attempt.toDouble())) * 1000).toLong())
+      }
+    }
+    // Keep the refresh token so a later launch can succeed.
+    return null
   }
 
   suspend fun signIn(provider: String = "GoogleOAuth"): WorkOSSession =
@@ -52,14 +71,11 @@ class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
    * of expiry. [force] refreshes unconditionally.
    */
   suspend fun refreshIfNeeded(force: Boolean = false): WorkOSSession {
-    val current = synchronized(lock) { cached } ?: throw AuthException.NotAuthenticated
-    if (!force && current.expiresAt - System.currentTimeMillis() > EXPIRY_SKEW_MS) {
+    val current = synchronized(lock) { cached }
+    if (!force && current != null && current.expiresAt - System.currentTimeMillis() > EXPIRY_SKEW_MS) {
       return current
     }
-    val session = WorkOSAPI.refresh(current.refreshToken, AppConfig.workOSClientID)
-    persist(session)
-    onIdToken?.invoke(session.accessToken)
-    return session
+    return refreshSingleFlight()
   }
 
   // MARK: AuthProvider
@@ -78,16 +94,12 @@ class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
     onIdToken: (String?) -> Unit,
   ): Result<WorkOSSession> = runCatching {
     this.onIdToken = onIdToken
-    // Reuse a still-valid session from restore/sign-in so Convex auth does not
-    // block on a second WorkOS refresh during every cold start.
     val current = synchronized(lock) { cached }
     if (current != null && current.expiresAt - System.currentTimeMillis() > EXPIRY_SKEW_MS) {
       onIdToken(current.accessToken)
       return@runCatching current
     }
-    val refresh = store.refreshToken ?: throw AuthException.NotAuthenticated
-    val session = WorkOSAPI.refresh(refresh, AppConfig.workOSClientID)
-    persist(session)
+    val session = refreshSingleFlight()
     onIdToken(session.accessToken)
     session
   }
@@ -101,6 +113,24 @@ class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
   override fun extractIdToken(authResult: WorkOSSession): String = authResult.accessToken
 
   // MARK: Private
+
+  private suspend fun refreshSingleFlight(): WorkOSSession = refreshMutex.withLock {
+    val current = synchronized(lock) { cached }
+    if (current != null && current.expiresAt - System.currentTimeMillis() > EXPIRY_SKEW_MS) {
+      return current
+    }
+    val refreshToken = synchronized(lock) { cached?.refreshToken } ?: store.refreshToken
+      ?: throw AuthException.NotAuthenticated
+    try {
+      val session = WorkOSAPI.refresh(refreshToken, AppConfig.workOSClientID)
+      persist(session)
+      onIdToken?.invoke(session.accessToken)
+      session
+    } catch (error: AuthException) {
+      if (error.isTerminalRefresh) clearPersisted()
+      throw error
+    }
+  }
 
   private suspend fun performSignIn(context: Context, provider: String): WorkOSSession {
     val verifier = PKCE.makeVerifier()
@@ -152,7 +182,6 @@ class WorkOSAuthProvider(context: Context) : AuthProvider<WorkOSSession> {
   }
 
   private companion object {
-    const val RESTORE_TIMEOUT_MS = 10_000L
     const val EXPIRY_SKEW_MS = 60_000L
   }
 }
