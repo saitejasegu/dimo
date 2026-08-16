@@ -74,6 +74,8 @@ data class CategoryRecord(
   val tint: String,
   val sortOrder: Int,
   val system: Boolean,
+  @ColumnInfo(defaultValue = "0")
+  val archived: Boolean = false,
 ) {
   fun toStoredEntity() = StoredEntity(
     key = key,
@@ -90,6 +92,7 @@ data class CategoryRecord(
         tint = CategoryTint.fromWire(tint),
         sortOrder = sortOrder,
         system = system,
+        archived = archived,
       ),
     ),
     deleted = deleted,
@@ -112,6 +115,7 @@ data class CategoryRecord(
         tint = e.tint.wire,
         sortOrder = e.sortOrder,
         system = e.system,
+        archived = e.archived,
       )
     }
   }

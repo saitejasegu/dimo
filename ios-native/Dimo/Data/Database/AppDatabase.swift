@@ -549,6 +549,11 @@ enum AppDatabase {
         t.add(column: "backfillVersion", .integer).notNull().defaults(to: 0)
       }
     }
+    migrator.registerMigration("v14-category-archived") { db in
+      try db.alter(table: "categories") { t in
+        t.add(column: "archived", .boolean).notNull().defaults(to: false)
+      }
+    }
     return migrator
   }
 }

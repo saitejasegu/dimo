@@ -64,6 +64,11 @@ struct GlobalBudgetCategoryAllocation: Equatable, Identifiable, Sendable {
   var changed: Bool
 }
 
+struct GlobalBudgetLimitUpdate: Equatable, Sendable {
+  var id: String
+  var allocatedLimit: Int?
+}
+
 enum GlobalBudgetAllocationIssue: Equatable, Sendable {
   case invalidTotal
   case noCategories

@@ -6,11 +6,12 @@ import { deleteCategoryWarning } from "@/features/budgets/deleteCategoryWarning"
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { NewCategoryForm } from "@/components/forms/NewCategoryForm";
+import { ArchiveIconButton } from "@/components/ui/ArchiveIconButton";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 
 export function NewCategoryModal() {
   const { categoryDraft, categories, transactions, recurring } = useAppState();
-  const { closeOverlay, deleteCategory } = useAppActions();
+  const { closeOverlay, deleteCategory, setCategoryArchived } = useAppActions();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const editing = Boolean(categoryDraft.id);
 
@@ -37,11 +38,17 @@ export function NewCategoryModal() {
         width={440}
         title={editing ? "Edit category" : "New category"}
         headerRight={
-          editing ? (
-            <DeleteIconButton
-              onClick={requestDelete}
-              aria-label="Delete category"
-            />
+          editing && category ? (
+            <div className="flex items-center gap-2">
+              <ArchiveIconButton
+                archived={category.archived}
+                onClick={() => setCategoryArchived(category.id, !category.archived)}
+              />
+              <DeleteIconButton
+                onClick={requestDelete}
+                aria-label="Delete category"
+              />
+            </div>
           ) : undefined
         }
       >

@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -86,6 +87,13 @@ fun CategorySheet(
     ) {
       CategorySheetHeader(
         editing = editingId != null,
+        archived = editingId?.let { id -> store.categories.firstOrNull { it.id == id }?.archived } ?: false,
+        onArchive = {
+          editingId?.let { id ->
+            val archived = store.categories.firstOrNull { it.id == id }?.archived ?: false
+            store.setCategoryArchived(id, !archived)
+          }
+        },
         onDelete = { confirmDelete = true },
       )
 
@@ -218,6 +226,8 @@ fun CategorySheet(
 @Composable
 private fun CategorySheetHeader(
   editing: Boolean,
+  archived: Boolean,
+  onArchive: () -> Unit,
   onDelete: () -> Unit,
 ) {
   if (!editing) {
@@ -234,6 +244,7 @@ private fun CategorySheetHeader(
   Row(
     modifier = Modifier.fillMaxWidth(),
     verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(
       text = "Edit category",
@@ -241,6 +252,26 @@ private fun CategorySheetHeader(
       color = DimoColors.ink,
       modifier = Modifier.weight(1f),
     )
+    Box(
+      modifier = Modifier
+        .size(42.dp)
+        .clip(RoundedCornerShape(13.dp))
+        .background(if (archived) DimoColors.greenSoft else DimoColors.canvas)
+        .border(
+          1.dp,
+          if (archived) DimoColors.green.copy(alpha = 0.3f) else DimoColors.line,
+          RoundedCornerShape(13.dp),
+        )
+        .clickable(onClick = onArchive),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        imageVector = Icons.Filled.Archive,
+        contentDescription = if (archived) "Restore category" else "Archive category",
+        tint = if (archived) DimoColors.greenDeep else DimoColors.muted,
+        modifier = Modifier.size(17.dp),
+      )
+    }
     Box(
       modifier = Modifier
         .size(42.dp)

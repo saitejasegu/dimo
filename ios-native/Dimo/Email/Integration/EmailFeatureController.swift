@@ -695,7 +695,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       subject: message.subject,
       receivedAt: Date(timeIntervalSince1970: TimeInterval(message.internalDate) / 1_000),
       normalizedBody: body,
-      categories: categories.map { EmailCategoryOption(id: $0.id, name: $0.name) },
+      categories: categories.filter { !$0.archived }.map { EmailCategoryOption(id: $0.id, name: $0.name) },
       paymentMethods: paymentMethods.map {
         EmailPaymentMethodHint(
           id: $0.id,

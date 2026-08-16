@@ -26,6 +26,7 @@ struct WireCategory: Codable, Sendable {
   var tint: String
   var sortOrder: Double
   var system: Bool
+  var archived: Bool?
 }
 
 struct WirePaymentMethod: Codable, Sendable {
@@ -139,6 +140,7 @@ enum WirePayload {
         "tint": e.tint.rawValue,
         "sortOrder": Double(e.sortOrder),
         "system": e.system,
+        "archived": e.archived,
       ]
     case .paymentMethod(let e):
       return [
@@ -262,7 +264,8 @@ enum WirePayload {
         monthlyBudgetMinor: wire.monthlyBudgetMinor.map { Int($0) },
         tint: CategoryTint(rawValue: wire.tint) ?? .neutral,
         sortOrder: Int(wire.sortOrder),
-        system: wire.system
+        system: wire.system,
+        archived: wire.archived ?? false
       ))
     case .paymentMethod:
       let wire = try JSONDecoder().decode(WirePaymentMethod.self, from: data)

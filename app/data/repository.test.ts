@@ -5,6 +5,7 @@ import {
   DEFAULT_PREFERENCES,
   TOMBSTONE_RETENTION_DAYS,
   entityKey,
+  type CategoryEntity,
   type EmailMessageEntity,
 } from "@/data/model";
 import {
@@ -124,6 +125,22 @@ describe("local repository", () => {
     ).toBeNull();
   });
 
+  it("defaults a missing category archived flag to false", () => {
+    const payload = {
+      id: "category-test",
+      name: "Test",
+      emoji: "🧪",
+      monthlyBudgetMinor: null,
+      tint: "neutral" as const,
+      sortOrder: 10,
+      system: false,
+    };
+    expect(sanitizePayload("category", payload as CategoryEntity).archived).toBe(false);
+    expect(
+      sanitizePayload("category", { ...payload, archived: true } as CategoryEntity).archived,
+    ).toBe(true);
+  });
+
   it("enqueues bootstrap defaults only when they were never pulled from the server", async () => {
     await initializeLocalDatabase();
     expect(await db.outbox.count()).toBe(0);
@@ -142,7 +159,7 @@ describe("local repository", () => {
 
   it("atomically replaces the outbox operation for a newer entity edit", async () => {
     await initializeLocalDatabase();
-    const payload = { id: "category-test", name: "Test", emoji: "🧪", monthlyBudgetMinor: null, tint: "neutral" as const, sortOrder: 10, system: false };
+    const payload = { id: "category-test", name: "Test", emoji: "🧪", monthlyBudgetMinor: null, tint: "neutral" as const, sortOrder: 10, system: false, archived: false };
     await saveEntity("category", payload);
     const first = await db.outbox.get(entityKey("category", payload.id));
     await saveEntity("category", { ...payload, name: "Updated" });
@@ -159,6 +176,7 @@ describe("local repository", () => {
       emoji: "🙂",
       tint: "neutral" as const,
       system: false,
+      archived: false,
     };
     await saveEntities([
       {

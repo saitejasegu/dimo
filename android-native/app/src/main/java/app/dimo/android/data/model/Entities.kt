@@ -158,6 +158,7 @@ data class CategoryEntity(
   val tint: CategoryTint,
   val sortOrder: Int,
   val system: Boolean,
+  val archived: Boolean = false,
 )
 
 data class PaymentMethodEntity(

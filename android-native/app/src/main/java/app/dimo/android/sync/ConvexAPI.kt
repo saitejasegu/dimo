@@ -106,6 +106,7 @@ object ConvexAPI {
         dict["tint"] = e.tint.wire
         dict["sortOrder"] = e.sortOrder.toDouble()
         dict["system"] = e.system
+        dict["archived"] = e.archived
       }
 
       is EntityPayload.PaymentMethod -> {
@@ -234,6 +235,7 @@ object ConvexAPI {
           tint = CategoryTint.fromWire(row["tint"] as? String),
           sortOrder = row["sortOrder"].asLong().toInt(),
           system = row["system"] as? Boolean ?: false,
+          archived = row["archived"] as? Boolean ?: false,
         ),
       )
 

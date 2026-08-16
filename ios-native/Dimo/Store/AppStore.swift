@@ -452,7 +452,7 @@ final class AppStore {
     case .recurring:
       recurringDraft = RecurringDraft(
         currency: currency.rawValue,
-        category: categories.first(where: { $0.name == "Bills" })?.name ?? categories.first?.name ?? "Bills",
+        category: firstActiveCategoryName(),
         paymentMethodId: preferredPaymentMethodId(),
         anchorDate: DateHelpers.localDateKey(Date())
       )
@@ -895,7 +895,8 @@ final class AppStore {
       monthlyBudgetMinor: limit,
       tint: categoryDraft.tint,
       sortOrder: existing?.sortOrder ?? categories.count,
-      system: existing?.system ?? false
+      system: existing?.system ?? false,
+      archived: existing?.archived ?? false
     )
     write { try $0.saveEntity(entityType: .category, payload: .category(entity)) }
     closeOverlay()
@@ -914,6 +915,15 @@ final class AppStore {
     overlay = .category
   }
 
+  func setCategoryArchived(_ id: String, archived: Bool) {
+    guard var category = categories.first(where: { $0.id == id }) else { return }
+    if category.archived == archived { return }
+    category.archived = archived
+    write { try $0.saveEntity(entityType: .category, payload: .category(category)) }
+    closeOverlay()
+    showToast(archived ? "\(category.name) archived" : "\(category.name) restored")
+  }
+
   func applySuggestedBudgets(_ ids: Set<String>) {
     let suggestions = entities.suggestedBudgetUpdates
     var batch: [(EntityType, EntityPayload)] = []
@@ -927,37 +937,18 @@ final class AppStore {
     showToast("Budgets updated")
   }
 
-  func applyGlobalBudget(_ totalBudget: Int) {
-    let allocation = BudgetSelectors.globalBudgetAllocation(
-      transactions,
-      categories: categories.map {
-        GlobalBudgetCategoryInput(
-          id: $0.id,
-          name: $0.name,
-          sortOrder: $0.sortOrder,
-          monthlyBudgetMinor: $0.monthlyBudgetMinor
-        )
-      },
-      totalBudget: totalBudget
-    )
-    switch allocation.issue {
-    case .invalidTotal:
-      showToast("Enter a whole monthly budget greater than zero")
-      return
-    case .noCategories:
+  func applyGlobalBudget(_ limits: [GlobalBudgetLimitUpdate]) {
+    let active = categories.filter { !$0.archived }
+    if active.isEmpty {
       showToast("Create a category before setting a total budget")
       return
-    case .noHistory:
-      showToast("No spending history in the last 6 completed months")
-      return
-    case nil:
-      break
     }
-
     var batch: [(EntityType, EntityPayload)] = []
-    for item in allocation.allocations where item.changed {
-      guard var category = categories.first(where: { $0.id == item.id }) else { continue }
-      category.monthlyBudgetMinor = item.allocatedLimit.map { $0 * 100 }
+    for item in limits {
+      guard var category = active.first(where: { $0.id == item.id }) else { continue }
+      let monthlyBudgetMinor = item.allocatedLimit.flatMap { $0 > 0 ? $0 * 100 : nil }
+      if category.monthlyBudgetMinor == monthlyBudgetMinor { continue }
+      category.monthlyBudgetMinor = monthlyBudgetMinor
       batch.append((.category, .category(category)))
     }
     guard !batch.isEmpty else {
@@ -1019,7 +1010,8 @@ final class AppStore {
           monthlyBudgetMinor: nil,
           tint: .neutral,
           sortOrder: categories.count + batch.count,
-          system: false
+          system: false,
+          archived: false
         )
         categoryByName[key] = created
         batch.append((.category, .category(created)))
@@ -1192,6 +1184,7 @@ final class AppStore {
       categoriesExpanded: nav.categoriesExpanded,
       merchantsExpanded: nav.merchantsExpanded
     )
+    clearArchivedCategoryDrafts()
     if nav.statsRange != snapshot.statsRange {
       // A pulled default reinterprets the offset's length, so snap to current.
       nav.statsRange = snapshot.statsRange
@@ -1285,6 +1278,24 @@ final class AppStore {
       defaultPaymentMethodId: paymentMethods.first(where: \.isDefault)?.id
         ?? SeedData.cashPaymentMethod.id
     )
+  }
+
+  private func firstActiveCategoryName() -> String {
+    categories.first(where: { !$0.archived && $0.name == "Bills" })?.name
+      ?? categories.first(where: { !$0.archived })?.name
+      ?? "Bills"
+  }
+
+  private func clearArchivedCategoryDrafts() {
+    let activeNames = Set(categories.filter { !$0.archived }.map(\.name))
+    if !expenseDraft.category.isEmpty, !activeNames.contains(expenseDraft.category) {
+      expenseDraft.category = ""
+    }
+    if recurringDraft.editingId == nil,
+       !recurringDraft.category.isEmpty,
+       !activeNames.contains(recurringDraft.category) {
+      recurringDraft.category = firstActiveCategoryName()
+    }
   }
 
   private func preferredPaymentMethodId() -> String {

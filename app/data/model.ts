@@ -73,6 +73,12 @@ export interface CategoryEntity {
   tint: "green" | "neutral";
   sortOrder: number;
   system: boolean;
+  /**
+   * Hidden from new expenses, recurring bills, and budget totals.
+   * Existing records keep the category. Missing on legacy rows; sanitizer
+   * defaults that to false.
+   */
+  archived: boolean;
 }
 
 export interface PaymentMethodEntity {

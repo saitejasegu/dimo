@@ -22,8 +22,15 @@ export function BudgetsScreen() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [totalOpen, setTotalOpen] = useState(false);
   const suggestedUpdates = useMemo(
-    () => suggestedCategoryBudgetUpdates(transactions, categories),
+    () => suggestedCategoryBudgetUpdates(
+      transactions,
+      categories.filter((category) => !category.archived),
+    ),
     [transactions, categories],
+  );
+  const archivedCategories = useMemo(
+    () => categories.filter((category) => category.archived),
+    [categories],
   );
 
   return (
@@ -126,6 +133,35 @@ export function BudgetsScreen() {
           );
         })}
       </div>
+
+      {archivedCategories.length ? (
+        <div className="mt-8">
+          <div className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-muted">
+            Archived
+          </div>
+          <div className="divide-y divide-line-soft rounded-2xl border border-line">
+            {archivedCategories.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => actions.openEditCategory(category.id)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="truncate text-sm font-medium text-ink">
+                  {category.emoji ? `${category.emoji} ` : ""}
+                  {category.name}
+                </span>
+                <span className="shrink-0 rounded-full bg-canvas-deep px-2 py-0.5 text-[10px] font-medium text-muted">
+                  Archived
+                </span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] leading-4 text-muted">
+            Archived categories stay attached to past transactions.
+          </p>
+        </div>
+      ) : null}
 
       {reviewOpen ? (
         <Modal onClose={() => setReviewOpen(false)} title="Suggested budgets" width={460}>

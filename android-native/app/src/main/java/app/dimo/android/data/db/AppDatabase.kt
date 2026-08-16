@@ -14,10 +14,9 @@ import java.io.File
  * migration history to replay — the schema starts at the current iOS v6/v7 typed
  * shape.
  *
- * Version 2 adds the Email tab's tables. There is no [androidx.room.migration.Migration]
- * because every one of them is new and empty on upgrade: a destructive rebuild
- * would throw away synced entity rows and the outbox, so the migration only has
- * to create tables.
+ * Version 2 adds the Email tab's tables. Version 3 adds `categories.archived`.
+ * Destructive rebuild is not configured: it would throw away synced entity rows
+ * and the pending outbox.
  */
 @Database(
   entities = [
@@ -36,7 +35,7 @@ import java.io.File
     EmailAnalysisSettingsRecord::class,
     EmailAnalysisRetryRecord::class,
   ],
-  version = 2,
+  version = 3,
   exportSchema = true,
 )
 abstract class DimoDatabase : RoomDatabase() {

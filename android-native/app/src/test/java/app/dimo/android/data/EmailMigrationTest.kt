@@ -2,6 +2,7 @@ package app.dimo.android.data
 
 import android.content.Context
 import androidx.room.Room
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import app.dimo.android.data.db.DimoDatabase
@@ -9,19 +10,18 @@ import app.dimo.android.data.db.Migrations
 import app.dimo.android.data.model.EmailAccountRecordModel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Guards the hand-written DDL in [Migrations.MIGRATION_1_2].
+ * Guards the hand-written DDL in [Migrations].
  *
  * Room validates the on-disk schema against its exported hash when it opens a
- * migrated database, so this reconstructs a v1 file — a v2 database with the
- * email tables dropped and `user_version` rewound — and reopens it through the
- * migration. Any drift between `Migrations.kt` and the entity definitions fails
- * here rather than on a user's device during an upgrade.
+ * migrated database. These tests reconstruct an older file and reopen it through
+ * the migrator so drift fails here rather than on a user's device during upgrade.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
@@ -38,10 +38,9 @@ class EmailMigrationTest {
   )
 
   @Test
-  fun `migrating 1 to 2 produces the schema Room expects`() = runTest {
+  fun `migrating 1 to current produces the schema Room expects`() = runTest {
     context.getDatabasePath(name).also { if (it.exists()) it.delete() }
 
-    // 1. Let Room create the current schema, then keep a v1-shaped file.
     val seed = Room.databaseBuilder(context, DimoDatabase::class.java, name)
       .allowMainThreadQueries()
       .build()
@@ -49,7 +48,6 @@ class EmailMigrationTest {
     seed.close()
     rewindToVersion1()
 
-    // 2. Reopening runs the migration and then Room's own schema validation.
     val migrated = Room
       .databaseBuilder(context, DimoDatabase::class.java, name)
       .addMigrations(*Migrations.ALL)
@@ -63,22 +61,69 @@ class EmailMigrationTest {
         EmailAccountRecordModel(id = "subject-1", emailAddress = "user@example.com"),
       )
       assertEquals(1, email.accounts().size)
+      assertTrue(hasCategoryArchivedColumn(migrated.openHelper.writableDatabase))
     } finally {
       migrated.close()
       context.getDatabasePath(name).delete()
     }
   }
 
-  /** Drops everything the migration is responsible for creating. */
+  @Test
+  fun `migrating 2 to 3 adds category archived`() = runTest {
+    context.getDatabasePath(name).also { if (it.exists()) it.delete() }
+
+    val seed = Room.databaseBuilder(context, DimoDatabase::class.java, name)
+      .allowMainThreadQueries()
+      .build()
+    seed.openHelper.writableDatabase
+    seed.close()
+    rewindToVersion2()
+
+    val migrated = Room
+      .databaseBuilder(context, DimoDatabase::class.java, name)
+      .addMigrations(*Migrations.ALL)
+      .allowMainThreadQueries()
+      .build()
+
+    try {
+      assertTrue(hasCategoryArchivedColumn(migrated.openHelper.writableDatabase))
+    } finally {
+      migrated.close()
+      context.getDatabasePath(name).delete()
+    }
+  }
+
+  /** Drops email tables and the v3 category column so 1→2→3 all run. */
   private fun rewindToVersion1() {
+    openRaw { db ->
+      emailTables.forEach { db.execSQL("DROP TABLE IF EXISTS `$it`") }
+      rebuildCategoriesWithoutArchived(db)
+      db.version = 1
+    }
+  }
+
+  /** Restores the v2 categories shape so only [Migrations.MIGRATION_2_3] runs. */
+  private fun rewindToVersion2() {
+    openRaw { db ->
+      rebuildCategoriesWithoutArchived(db)
+      db.version = 2
+    }
+  }
+
+  private fun openRaw(block: (SupportSQLiteDatabase) -> Unit) {
     val configuration = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration
       .builder(context)
       .name(name)
       .callback(
-        object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(2) {
-          override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) = Unit
+        object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(3) {
+          override fun onCreate(db: SupportSQLiteDatabase) = Unit
           override fun onUpgrade(
-            db: androidx.sqlite.db.SupportSQLiteDatabase,
+            db: SupportSQLiteDatabase,
+            oldVersion: Int,
+            newVersion: Int,
+          ) = Unit
+          override fun onDowngrade(
+            db: SupportSQLiteDatabase,
             oldVersion: Int,
             newVersion: Int,
           ) = Unit
@@ -86,10 +131,54 @@ class EmailMigrationTest {
       )
       .build()
     FrameworkSQLiteOpenHelperFactory().create(configuration).use { helper ->
-      helper.writableDatabase.apply {
-        emailTables.forEach { execSQL("DROP TABLE IF EXISTS `$it`") }
-        version = 1
+      block(helper.writableDatabase)
+    }
+  }
+
+  private fun hasCategoryArchivedColumn(db: SupportSQLiteDatabase): Boolean {
+    db.query("PRAGMA table_info(`categories`)").use { cursor ->
+      val nameIndex = cursor.getColumnIndex("name")
+      while (cursor.moveToNext()) {
+        if (cursor.getString(nameIndex) == "archived") return true
       }
     }
+    return false
+  }
+
+  /**
+   * v1 and v2 categories have no `archived` column. The current Room schema
+   * includes it, so rewind has to rebuild the table before replaying migrations.
+   */
+  private fun rebuildCategoriesWithoutArchived(db: SupportSQLiteDatabase) {
+    if (!hasCategoryArchivedColumn(db)) return
+    db.execSQL("ALTER TABLE `categories` RENAME TO `categories_old`")
+    db.execSQL(
+      "CREATE TABLE IF NOT EXISTS `categories` (`key` TEXT NOT NULL, " +
+        "`workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, " +
+        "`deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, " +
+        "`name` TEXT NOT NULL, `emoji` TEXT, `monthlyBudgetMinor` INTEGER, " +
+        "`tint` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, " +
+        "`system` INTEGER NOT NULL, `versionTimestamp` INTEGER NOT NULL, " +
+        "`versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, " +
+        "PRIMARY KEY(`key`))",
+    )
+    db.execSQL(
+      "INSERT INTO `categories` (`key`, `workspaceId`, `entityId`, `deleted`, " +
+        "`serverRevision`, `name`, `emoji`, `monthlyBudgetMinor`, `tint`, " +
+        "`sortOrder`, `system`, `versionTimestamp`, `versionCounter`, " +
+        "`versionDeviceId`) SELECT `key`, `workspaceId`, `entityId`, `deleted`, " +
+        "`serverRevision`, `name`, `emoji`, `monthlyBudgetMinor`, `tint`, " +
+        "`sortOrder`, `system`, `versionTimestamp`, `versionCounter`, " +
+        "`versionDeviceId` FROM `categories_old`",
+    )
+    db.execSQL("DROP TABLE `categories_old`")
+    db.execSQL(
+      "CREATE INDEX IF NOT EXISTS `index_categories_workspaceId_entityId` " +
+        "ON `categories` (`workspaceId`, `entityId`)",
+    )
+    db.execSQL(
+      "CREATE INDEX IF NOT EXISTS `index_categories_workspaceId_serverRevision` " +
+        "ON `categories` (`workspaceId`, `serverRevision`)",
+    )
   }
 }

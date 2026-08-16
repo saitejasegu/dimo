@@ -22,6 +22,8 @@ export default defineSchema({
     tint: v.union(v.literal("green"), v.literal("neutral")),
     sortOrder: v.number(),
     system: v.boolean(),
+    /** Optional so categories written before archive existed keep syncing. */
+    archived: v.optional(v.boolean()),
   })
     .index("by_owner_workspace_entity", ["ownerId", "workspaceId", "entityId"])
     .index("by_owner_workspace_revision", ["ownerId", "workspaceId", "revision"])

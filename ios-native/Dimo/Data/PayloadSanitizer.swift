@@ -12,7 +12,8 @@ enum PayloadSanitizer {
         monthlyBudgetMinor: value.monthlyBudgetMinor.map { Int(Double($0).rounded()) },
         tint: value.tint == .green ? .green : .neutral,
         sortOrder: value.sortOrder,
-        system: value.system
+        system: value.system,
+        archived: value.archived
       ))
 
     case .paymentMethod:

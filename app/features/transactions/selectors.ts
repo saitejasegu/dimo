@@ -27,6 +27,62 @@ export function categoryNames(limits: CategoryLimits): CategoryName[] {
   return Object.keys(limits);
 }
 
+/**
+ * Active category names for expense/recurring pickers. An archived category
+ * stays in the list only when it is already selected on the record being edited.
+ */
+export function pickerCategoryNames(
+  categories: Array<{ name: string; archived?: boolean }>,
+  selectedName?: string,
+): CategoryName[] {
+  const names: CategoryName[] = [];
+  let selectedArchived: CategoryName | undefined;
+  for (const category of categories) {
+    if (!category.archived) names.push(category.name);
+    else if (selectedName && category.name === selectedName) {
+      selectedArchived = category.name;
+    }
+  }
+  if (selectedArchived) names.push(selectedArchived);
+  return names;
+}
+
+/** Budget map for categories that still participate in monthly totals. */
+export function activeCategoryLimits(
+  categories: Array<{
+    name: string;
+    monthlyBudgetMinor: number | null;
+    archived?: boolean;
+  }>,
+): CategoryLimits {
+  return Object.fromEntries(
+    categories
+      .filter((category) => !category.archived)
+      .map((category) => [
+        category.name,
+        category.monthlyBudgetMinor == null
+          ? null
+          : category.monthlyBudgetMinor / 100,
+      ]),
+  );
+}
+
+/** Drop spend that belongs to archived categories from budget totals. */
+export function transactionsForActiveCategories<
+  T extends { categoryId?: string },
+>(
+  transactions: T[],
+  categories: Array<{ id: string; archived?: boolean }>,
+): T[] {
+  const archivedIds = new Set(
+    categories.filter((category) => category.archived).map((category) => category.id),
+  );
+  if (archivedIds.size === 0) return transactions;
+  return transactions.filter(
+    (transaction) => !transaction.categoryId || !archivedIds.has(transaction.categoryId),
+  );
+}
+
 /** Category names with an "All" option prepended, for filter chips. */
 export function filterOptions(limits: CategoryLimits): (CategoryName | "All")[] {
   return ["All", ...categoryNames(limits)];

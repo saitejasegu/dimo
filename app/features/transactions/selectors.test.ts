@@ -4,6 +4,8 @@ import {
   filterTransactions,
   paginateTransactionsByDay,
   paymentMethodFilterOptions,
+  pickerCategoryNames,
+  transactionsForActiveCategories,
 } from "@/features/transactions/selectors";
 
 const transactions: Transaction[] = [
@@ -126,5 +128,40 @@ describe("paginateTransactionsByDay", () => {
       items: list.slice(0, 5),
       hasMore: false,
     });
+  });
+});
+
+describe("archived category pickers", () => {
+  const categories = [
+    { name: "Dining", archived: false },
+    { name: "Travel", archived: true },
+    { name: "Bills", archived: false },
+  ];
+
+  it("omits archived categories from new-expense pickers", () => {
+    expect(pickerCategoryNames(categories)).toEqual(["Dining", "Bills"]);
+  });
+
+  it("keeps an archived category selectable while editing a record that uses it", () => {
+    expect(pickerCategoryNames(categories, "Travel")).toEqual([
+      "Dining",
+      "Bills",
+      "Travel",
+    ]);
+  });
+
+  it("drops archived-category spend from budget totals", () => {
+    const rows = [
+      { id: "1", categoryId: "dining" },
+      { id: "2", categoryId: "travel" },
+      { id: "3", categoryId: "bills" },
+    ];
+    expect(
+      transactionsForActiveCategories(rows, [
+        { id: "dining", archived: false },
+        { id: "travel", archived: true },
+        { id: "bills" },
+      ]).map((row) => row.id),
+    ).toEqual(["1", "3"]);
   });
 });

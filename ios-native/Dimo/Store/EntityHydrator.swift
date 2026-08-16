@@ -370,11 +370,16 @@ enum EntityHydrator {
     var result = previous ?? .empty
 
     if dirty.budgets || previous == nil {
-      result.monthBudgetTotals = BudgetSelectors.budgetTotals(transactions, limits: limits)
-      result.categoryBudgets = BudgetSelectors.categoryBudgets(transactions, limits: limits)
-      result.suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
+      let activeLimits = TransactionSelectors.activeCategoryLimits(categories)
+      let budgetTransactions = TransactionSelectors.transactionsForActiveCategories(
         transactions,
-        categories: categories.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
+        categories: categories
+      )
+      result.monthBudgetTotals = BudgetSelectors.budgetTotals(budgetTransactions, limits: activeLimits)
+      result.categoryBudgets = BudgetSelectors.categoryBudgets(budgetTransactions, limits: activeLimits)
+      result.suggestedBudgetUpdates = BudgetSelectors.suggestedCategoryBudgetUpdates(
+        budgetTransactions,
+        categories: categories.filter { !$0.archived }.map { ($0.id, $0.name, $0.monthlyBudgetMinor) }
       )
     }
 

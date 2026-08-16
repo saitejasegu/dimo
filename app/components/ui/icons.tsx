@@ -54,6 +54,27 @@ export function FilterIcon({ className, size = 18 }: IconProps) {
   );
 }
 
+export function ArchiveIcon({ className, size = 18 }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 20 20"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M3 4.5h14v3H3v-3zM4.5 7.5V16a1.5 1.5 0 001.5 1.5h8A1.5 1.5 0 0015.5 16V7.5M8 11h4"
+        stroke="currentColor"
+        strokeWidth={1.6}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function TrashIcon({ className, size = 18 }: IconProps) {
   return (
     <svg

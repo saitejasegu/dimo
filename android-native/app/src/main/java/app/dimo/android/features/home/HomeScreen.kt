@@ -111,7 +111,10 @@ fun HomeScreen(
   val filtered = TransactionSelectors.filterTransactions(store.transactions, store.filter)
   val (paged, hasMore) = TransactionSelectors.paginateTransactionsByDay(filtered, pageSize)
   val groups = TransactionSelectors.groupByDay(paged)
-  val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
+  val totals = BudgetSelectors.budgetTotals(
+    TransactionSelectors.transactionsForActiveCategories(store.transactions, store.categories),
+    TransactionSelectors.activeCategoryLimits(store.categories),
+  )
   val dailyAllowance = BudgetSelectors.dailyBudgetAllowance(totals)
   val upcomingThisMonth = RecurringSelectors.upcomingBills(store.recurring, store.transactions)
   val upcomingAll = RecurringSelectors.allUpcomingBills(store.recurring, store.transactions)

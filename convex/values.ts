@@ -48,6 +48,8 @@ export const categoryValidator = v.object({
   tint: v.union(v.literal("green"), v.literal("neutral")),
   sortOrder: v.number(),
   system: v.boolean(),
+  /** Optional so categories written before archive existed keep syncing. */
+  archived: v.optional(v.boolean()),
 });
 
 export const paymentMethodValidator = v.object({
@@ -211,6 +213,8 @@ export const categoryOperationValidator = v.object({
   tint: v.union(v.literal("green"), v.literal("neutral")),
   sortOrder: v.number(),
   system: v.boolean(),
+  /** Optional so older clients that omit the field cannot un-archive on push. */
+  archived: v.optional(v.boolean()),
 });
 
 export const paymentMethodOperationValidator = v.object({

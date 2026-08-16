@@ -180,10 +180,11 @@ export function projectEntities(
       .map((entry) => payloadFromStored(entityType, entry.row as never) as T);
 
   const categories = rebuildCategories
-    ? collect<CategoryEntity & { emoji?: string }>("category")
+    ? collect<CategoryEntity & { emoji?: string; archived?: boolean }>("category")
         .map((payload) => ({
           ...payload,
           emoji: payload.emoji || DEFAULT_CATEGORY_EMOJI,
+          archived: Boolean(payload.archived),
         }))
         .sort((a, b) => a.sortOrder - b.sortOrder)
     : (previous?.categories ?? []);

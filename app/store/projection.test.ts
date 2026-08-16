@@ -70,6 +70,27 @@ describe("projectEntities", () => {
     expect(snapshot!.limits).toEqual({ Food: 500 });
   });
 
+  it("defaults a missing category archived flag to false", () => {
+    const snapshot = projectEntities(BASE_ROWS, OPTIONS)!;
+    expect(snapshot.categories[0]?.archived).toBe(false);
+  });
+
+  it("projects an archived category without dropping it from limits", () => {
+    const archived = row("category", "cat-food", {
+      name: "Food",
+      emoji: "🍜",
+      monthlyBudgetMinor: 500_00,
+      tint: "neutral",
+      sortOrder: 0,
+      system: false,
+      archived: true,
+    });
+    const snapshot = projectEntities([archived, CASH, TRANSACTION], OPTIONS)!;
+    expect(snapshot.categories[0]?.archived).toBe(true);
+    expect(snapshot.limits).toEqual({ Food: 500 });
+    expect(snapshot.transactions[0]?.category).toBe("Food");
+  });
+
   it("returns null when nothing observable changed", () => {
     const first = projectEntities(BASE_ROWS, OPTIONS);
     const second = projectEntities(BASE_ROWS, { ...OPTIONS, previous: first });

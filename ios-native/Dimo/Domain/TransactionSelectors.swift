@@ -169,4 +169,36 @@ enum TransactionSelectors {
       .prefix(limit)
       .map { MerchantSuggestion(name: $0.name, category: $0.category, paymentMethod: $0.paymentMethod, count: $0.count) }
   }
+
+  /// Active categories, plus the currently selected archived one when editing a record.
+  static func pickerCategories(
+    _ categories: [CategoryEntity],
+    selectedName: String
+  ) -> [CategoryEntity] {
+    var result = categories.filter { !$0.archived }
+    if let selected = categories.first(where: { $0.name == selectedName && $0.archived }) {
+      result.append(selected)
+    }
+    return result
+  }
+
+  /// Budget map for categories that still participate in monthly totals.
+  static func activeCategoryLimits(_ categories: [CategoryEntity]) -> CategoryLimits {
+    Dictionary(uniqueKeysWithValues: categories.filter { !$0.archived }.map {
+      ($0.name, $0.monthlyBudgetMinor.map { Double($0) / 100 })
+    })
+  }
+
+  /// Drop spend that belongs to archived categories from budget totals.
+  static func transactionsForActiveCategories(
+    _ transactions: [Transaction],
+    categories: [CategoryEntity]
+  ) -> [Transaction] {
+    let archivedIds = Set(categories.filter(\.archived).map(\.id))
+    if archivedIds.isEmpty { return transactions }
+    return transactions.filter { transaction in
+      guard let categoryId = transaction.categoryId else { return true }
+      return !archivedIds.contains(categoryId)
+    }
+  }
 }

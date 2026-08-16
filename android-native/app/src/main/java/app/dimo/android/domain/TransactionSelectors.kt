@@ -1,6 +1,7 @@
 package app.dimo.android.domain
 
 import app.dimo.android.data.model.CategoryLimits
+import app.dimo.android.data.model.CategoryEntity
 import app.dimo.android.data.model.Transaction
 import java.time.LocalDate
 
@@ -171,4 +172,39 @@ object TransactionSelectors {
       .take(limit)
       .map { MerchantSuggestion(it.name, it.category, it.paymentMethod, it.count) }
   }
+
+  /** Active categories, plus the currently selected archived one when editing a record. */
+  fun pickerCategories(
+    categories: List<CategoryEntity>,
+    selectedName: String,
+  ): List<CategoryEntity> {
+    val active = categories.filter { !it.archived }
+    val selected = categories.firstOrNull { it.name == selectedName && it.archived }
+    return if (selected != null) active + selected else active
+  }
+
+  /** Budget map for categories that still participate in monthly totals. */
+  fun activeCategoryLimits(categories: List<CategoryEntity>): CategoryLimits =
+    categories.filter { !it.archived }.associate { category ->
+      category.name to category.monthlyBudgetMinor?.let { it.toDouble() / 100 }
+    }
+
+  /** Drop spend that belongs to archived categories from budget totals. */
+  fun <T> transactionsForActiveCategories(
+    transactions: List<T>,
+    categories: List<CategoryEntity>,
+    categoryId: (T) -> String?,
+  ): List<T> {
+    val archivedIds = categories.filter { it.archived }.map { it.id }.toSet()
+    if (archivedIds.isEmpty()) return transactions
+    return transactions.filter { tx ->
+      val id = categoryId(tx)
+      id == null || id !in archivedIds
+    }
+  }
+
+  fun transactionsForActiveCategories(
+    transactions: List<Transaction>,
+    categories: List<CategoryEntity>,
+  ): List<Transaction> = transactionsForActiveCategories(transactions, categories) { it.categoryId }
 }

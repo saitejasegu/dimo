@@ -12,12 +12,18 @@ import {
   monthlyRecurringTotal,
   upcomingBills,
 } from "@/features/recurring/selectors";
+import {
+  activeCategoryLimits,
+  transactionsForActiveCategories,
+} from "@/features/transactions/selectors";
 
 export function useOverview() {
-  const { transactions, recurring, limits, currency, rates } = useAppState();
+  const { transactions, recurring, categories, currency, rates } = useAppState();
 
   return useMemo(() => {
-    const totals = budgetTotals(transactions, limits);
+    const limits = activeCategoryLimits(categories);
+    const scoped = transactionsForActiveCategories(transactions, categories);
+    const totals = budgetTotals(scoped, limits);
     const active = activeRecurring(recurring);
     const now = new Date();
     const monthTransactions = transactions.filter((t) => {
@@ -40,5 +46,5 @@ export function useOverview() {
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,
     };
-  }, [transactions, recurring, limits, currency, rates]);
+  }, [transactions, recurring, categories, currency, rates]);
 }

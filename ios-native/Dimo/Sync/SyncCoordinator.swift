@@ -481,6 +481,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["tint"] = e.tint.rawValue
       dict["sortOrder"] = Double(e.sortOrder)
       dict["system"] = e.system
+      dict["archived"] = e.archived
     case .paymentMethod(let e):
       dict["name"] = e.name
       dict["type"] = e.type.rawValue

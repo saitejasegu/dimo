@@ -641,7 +641,7 @@ class EmailFeatureController(
     subject = message.subject,
     receivedAt = message.internalDate,
     normalizedBody = body,
-    categories = categories.map { EmailCategoryOption(it.id, it.name) },
+    categories = categories.filter { !it.archived }.map { EmailCategoryOption(it.id, it.name) },
     paymentMethods = paymentMethods.map {
       EmailPaymentMethodHint(
         id = it.id,

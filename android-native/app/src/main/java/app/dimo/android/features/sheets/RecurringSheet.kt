@@ -24,6 +24,7 @@ import app.dimo.android.design.DimoFont
 import app.dimo.android.design.PaymentMethodField
 import app.dimo.android.domain.CurrencyMeta
 import app.dimo.android.domain.DateHelpers
+import app.dimo.android.domain.TransactionSelectors
 import app.dimo.android.features.common.CategoryDropdown
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.DateField
@@ -100,7 +101,7 @@ fun RecurringSheet(
       )
 
       CategoryDropdown(
-        categories = store.categories,
+        categories = TransactionSelectors.pickerCategories(store.categories, draft.category),
         selected = draft.category.takeIf { name -> store.categories.any { it.name == name } }.orEmpty(),
         onSelect = { store.recurringDraft = draft.copy(category = it) },
         onAdd = { store.openOverlay(OverlayKey.Category) },

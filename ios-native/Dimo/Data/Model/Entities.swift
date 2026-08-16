@@ -96,6 +96,43 @@ struct CategoryEntity: Codable, Hashable, Sendable, Identifiable {
   var tint: CategoryTint
   var sortOrder: Int
   var system: Bool
+  var archived: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id, name, emoji, monthlyBudgetMinor, tint, sortOrder, system, archived
+  }
+
+  init(
+    id: String,
+    name: String,
+    emoji: String,
+    monthlyBudgetMinor: Int?,
+    tint: CategoryTint,
+    sortOrder: Int,
+    system: Bool,
+    archived: Bool = false
+  ) {
+    self.id = id
+    self.name = name
+    self.emoji = emoji
+    self.monthlyBudgetMinor = monthlyBudgetMinor
+    self.tint = tint
+    self.sortOrder = sortOrder
+    self.system = system
+    self.archived = archived
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    emoji = try container.decodeIfPresent(String.self, forKey: .emoji) ?? defaultCategoryEmoji
+    monthlyBudgetMinor = try container.decodeIfPresent(Int.self, forKey: .monthlyBudgetMinor)
+    tint = try container.decodeIfPresent(CategoryTint.self, forKey: .tint) ?? .neutral
+    sortOrder = try container.decode(Int.self, forKey: .sortOrder)
+    system = try container.decodeIfPresent(Bool.self, forKey: .system) ?? false
+    archived = try container.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+  }
 }
 
 struct PaymentMethodEntity: Codable, Hashable, Sendable, Identifiable {

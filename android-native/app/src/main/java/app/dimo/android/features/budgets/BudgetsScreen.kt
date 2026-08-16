@@ -1,6 +1,7 @@
 package app.dimo.android.features.budgets
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,9 +15,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -31,6 +35,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -40,12 +47,16 @@ import app.dimo.android.data.model.Currency
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.design.ProgressBar
+import app.dimo.android.design.StatusBadge
 import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.GlobalBudgetAllocationIssue
+import app.dimo.android.domain.GlobalBudgetCategoryAllocation
 import app.dimo.android.domain.GlobalBudgetCategoryInput
+import app.dimo.android.domain.GlobalBudgetLimitUpdate
+import app.dimo.android.domain.TransactionSelectors
 import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoCard
 import app.dimo.android.features.common.DimoTextField
@@ -76,12 +87,18 @@ fun BudgetsScreen(
   var showSuggestions by remember { mutableStateOf(false) }
   var showGlobalBudget by remember { mutableStateOf(false) }
 
-  val totals = BudgetSelectors.budgetTotals(store.transactions, store.limits)
-  val budgets = BudgetSelectors.categoryBudgets(store.transactions, store.limits)
-  val categoryByName = store.categories.associateBy { it.name }
-  val suggestions = BudgetSelectors.suggestedCategoryBudgetUpdates(
+  val budgetTransactions = TransactionSelectors.transactionsForActiveCategories(
     store.transactions,
-    categories = store.categories.map {
+    store.categories,
+  )
+  val activeLimits = TransactionSelectors.activeCategoryLimits(store.categories)
+  val totals = BudgetSelectors.budgetTotals(budgetTransactions, activeLimits)
+  val budgets = BudgetSelectors.categoryBudgets(budgetTransactions, activeLimits)
+  val categoryByName = store.categories.associateBy { it.name }
+  val archivedCategories = store.categories.filter { it.archived }
+  val suggestions = BudgetSelectors.suggestedCategoryBudgetUpdates(
+    budgetTransactions,
+    categories = store.categories.filter { !it.archived }.map {
       BudgetCategoryInput(it.id, it.name, it.monthlyBudgetMinor)
     },
   )
@@ -174,6 +191,62 @@ fun BudgetsScreen(
             pct = budget.pct,
             over = budget.over,
             onEdit = { category?.let { store.openEditCategory(it.id) } },
+          )
+        }
+      }
+
+      if (archivedCategories.isNotEmpty()) {
+        item("archived-header") {
+          Text(
+            text = "Archived",
+            style = DimoFont.body(12f, FontWeight.Medium),
+            color = DimoColors.muted,
+            modifier = Modifier.padding(top = 8.dp),
+          )
+        }
+        item("archived-list") {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .clip(RoundedCornerShape(16.dp))
+              .background(DimoColors.surface)
+              .border(1.dp, DimoColors.line, RoundedCornerShape(16.dp)),
+          ) {
+            archivedCategories.forEachIndexed { index, category ->
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clickable { store.openEditCategory(category.id) }
+                  .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+              ) {
+                Text(
+                  text = "${category.emoji} ${category.name}",
+                  style = DimoFont.body(14f, FontWeight.Medium),
+                  color = DimoColors.ink,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.weight(1f),
+                )
+                StatusBadge(label = "Archived")
+              }
+              if (index != archivedCategories.lastIndex) {
+                Box(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(DimoColors.lineSoft),
+                )
+              }
+            }
+          }
+        }
+        item("archived-footnote") {
+          Text(
+            text = "Archived categories stay attached to past transactions.",
+            style = DimoFont.body(11f),
+            color = DimoColors.muted,
           )
         }
       }
@@ -306,32 +379,52 @@ private fun GlobalBudgetSheet(
   store: AppStore,
   onClose: () -> Unit,
 ) {
-  val currentMinor = store.categories.sumOf { it.monthlyBudgetMinor ?: 0 }
+  val activeCategories = store.categories.filter { !it.archived }
+  val currentMinor = activeCategories.sumOf { it.monthlyBudgetMinor ?: 0 }
   var amount by remember {
     mutableStateOf(
       if (currentMinor > 0) (currentMinor.toDouble() / 100).roundToLong().toString() else "",
     )
   }
+  var drafts by remember { mutableStateOf<Map<String, String>?>(null) }
   val parsedAmount = amount.toLongOrNull()?.takeIf {
     amount.isNotEmpty() && amount.all(Char::isDigit) && it > 0 && it <= Long.MAX_VALUE / 100
   }
-  val allocation = remember(store.transactions, store.categories, parsedAmount) {
+  val allocation = remember(store.transactions, activeCategories, parsedAmount) {
     BudgetSelectors.globalBudgetAllocation(
       store.transactions,
-      categories = store.categories.map {
+      categories = activeCategories.map {
         GlobalBudgetCategoryInput(it.id, it.name, it.sortOrder, it.monthlyBudgetMinor)
       },
       totalBudget = parsedAmount ?: 0,
     )
   }
-  val changedCount = allocation.allocations.count { it.changed }
-  val canApply = parsedAmount != null && allocation.canApply && changedCount > 0
+  val customizing = drafts != null
+  val displayedLimits = allocation.allocations.map { item ->
+    GlobalBudgetLimitUpdate(
+      id = item.id,
+      allocatedLimit = if (customizing) {
+        parseGlobalBudgetLimit(drafts?.get(item.id))
+      } else if (parsedAmount != null) {
+        item.allocatedLimit
+      } else {
+        null
+      },
+    )
+  }
+  val changedCount = allocation.allocations.zip(displayedLimits).count { (item, displayed) ->
+    globalBudgetCurrentDiffers(item.currentLimit, displayed.allocatedLimit)
+  }
+  val canApply = activeCategories.isNotEmpty() &&
+    parsedAmount != null &&
+    changedCount > 0 &&
+    (customizing || allocation.canApply)
   val validationMessage = when {
-    store.categories.isEmpty() -> "Create a category before setting a total budget."
-    allocation.issue == GlobalBudgetAllocationIssue.NO_HISTORY ->
-      "No spending was found in the last 6 completed months. Set category budgets manually until there is enough history."
+    activeCategories.isEmpty() -> "Create a category before setting a total budget."
+    !customizing && allocation.issue == GlobalBudgetAllocationIssue.NO_HISTORY ->
+      "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split."
     amount.isNotEmpty() && parsedAmount == null -> "Enter a whole monthly amount greater than zero."
-    parsedAmount != null && changedCount == 0 -> "Your category budgets already match this split."
+    parsedAmount != null && changedCount == 0 -> "Your category budgets already match these amounts."
     else -> null
   }
   val firstMonth = DateHelpers.localDate(allocation.window.start)
@@ -355,7 +448,7 @@ private fun GlobalBudgetSheet(
       verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
       Text(
-        text = "Set one monthly total and split it using average spending from $lookbackLabel.",
+        text = "Set one monthly total to split from spending in $lookbackLabel, or edit any category — the total follows the sum.",
         style = DimoFont.body(13f),
         color = DimoColors.muted,
       )
@@ -364,7 +457,10 @@ private fun GlobalBudgetSheet(
         FieldLabel("Monthly total")
         DimoTextField(
           value = amount,
-          onValueChange = { next -> amount = next.filter(Char::isDigit).take(15) },
+          onValueChange = { next ->
+            amount = digitsOnlyGlobalBudget(next)
+            drafts = null
+          },
           placeholder = "Amount",
           keyboardType = KeyboardType.Number,
           leading = {
@@ -391,6 +487,13 @@ private fun GlobalBudgetSheet(
       ) {
         items(allocation.allocations, key = { "global-${it.id}" }) { item ->
           val category = store.categories.firstOrNull { it.id == item.id }
+          val value = if (customizing) {
+            drafts?.get(item.id).orEmpty()
+          } else if (parsedAmount != null && item.allocatedLimit != null && item.allocatedLimit > 0) {
+            item.allocatedLimit.toString()
+          } else {
+            ""
+          }
           Row(
             modifier = Modifier
               .fillMaxWidth()
@@ -435,24 +538,62 @@ private fun GlobalBudgetSheet(
             }
             Column(
               horizontalAlignment = Alignment.End,
-              verticalArrangement = Arrangement.spacedBy(3.dp),
+              verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-              Text(
-                text = if (parsedAmount != null && item.allocatedLimit != null) {
-                  Formatting.money(item.allocatedLimit.toDouble(), store.currency)
-                } else {
-                  "—"
-                },
-                style = DimoFont.display(14f, FontWeight.SemiBold),
-                color = if (item.sixMonthSpend > 0) DimoColors.ink else DimoColors.faint,
-              )
-              if (item.sixMonthSpend > 0) {
+              Row(
+                modifier = Modifier
+                  .clip(RoundedCornerShape(8.dp))
+                  .border(1.dp, DimoColors.line, RoundedCornerShape(8.dp))
+                  .background(DimoColors.canvas)
+                  .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
                 Text(
-                  text = "PROPOSED",
-                  style = DimoFont.body(9f, FontWeight.SemiBold),
-                  color = DimoColors.green,
+                  text = Formatting.currencySymbol(store.currency),
+                  style = DimoFont.body(13f),
+                  color = DimoColors.muted,
+                )
+                BasicTextField(
+                  value = value,
+                  onValueChange = { next ->
+                    val digits = digitsOnlyGlobalBudget(next)
+                    val snapshot = (drafts ?: snapshotGlobalBudgetLimits(allocation.allocations))
+                      .toMutableMap()
+                    snapshot[item.id] = digits
+                    drafts = snapshot
+                    val total = sumGlobalBudgetLimits(snapshot)
+                    amount = if (total > 0) total.toString() else ""
+                  },
+                  singleLine = true,
+                  textStyle = DimoFont.body(14f, FontWeight.SemiBold).copy(
+                    color = DimoColors.ink,
+                    textAlign = TextAlign.End,
+                  ),
+                  cursorBrush = SolidColor(DimoColors.green),
+                  keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                  modifier = Modifier
+                    .width(92.dp)
+                    .semantics { contentDescription = "${item.name} monthly budget" },
+                  decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterEnd) {
+                      if (value.isEmpty()) {
+                        Text(
+                          text = "0",
+                          style = DimoFont.body(14f, FontWeight.SemiBold),
+                          color = DimoColors.faint,
+                        )
+                      }
+                      inner()
+                    }
+                  },
                 )
               }
+              Text(
+                text = if (item.sixMonthSpend > 0 && !customizing) "PROPOSED" else "BUDGET",
+                style = DimoFont.body(9f, FontWeight.SemiBold),
+                color = if (item.sixMonthSpend > 0 && !customizing) DimoColors.green else DimoColors.muted,
+              )
             }
           }
         }
@@ -472,7 +613,7 @@ private fun GlobalBudgetSheet(
       }
 
       Text(
-        text = "Applying this split replaces every category budget. You can still edit individual categories afterward; the total will follow their new sum.",
+        text = "Changing the total proposes a new split. Editing a category updates the total to match. Apply replaces every category budget with the amounts shown here.",
         style = DimoFont.body(12f),
         color = DimoColors.muted,
         modifier = Modifier
@@ -499,10 +640,15 @@ private fun GlobalBudgetSheet(
             .padding(vertical = 15.dp),
         )
         PrimaryButton(
-          title = if (parsedAmount != null && changedCount == 0) "Already applied" else "Apply split",
+          title = when {
+            parsedAmount != null && changedCount == 0 -> "Already applied"
+            customizing -> "Apply budgets"
+            else -> "Apply split"
+          },
           enabled = canApply,
           onClick = {
-            parsedAmount?.let(store::applyGlobalBudget)
+            if (!canApply) return@PrimaryButton
+            store.applyGlobalBudget(displayedLimits)
             onClose()
           },
           modifier = Modifier.weight(0.72f),
@@ -518,9 +664,10 @@ private fun SuggestedBudgetsSheet(
   onClose: () -> Unit,
 ) {
   val suggestions = remember(store.transactions, store.categories) {
+    val active = store.categories.filter { !it.archived }
     BudgetSelectors.suggestedCategoryBudgetUpdates(
-      store.transactions,
-      categories = store.categories.map {
+      TransactionSelectors.transactionsForActiveCategories(store.transactions, store.categories),
+      categories = active.map {
         BudgetCategoryInput(it.id, it.name, it.monthlyBudgetMinor)
       },
     )
@@ -638,4 +785,34 @@ private fun SuggestedBudgetsSheet(
       }
     }
   }
+}
+
+private fun digitsOnlyGlobalBudget(value: String, max: Int = 15): String =
+  value.filter(Char::isDigit).take(max)
+
+private fun parseGlobalBudgetLimit(value: String?): Long? {
+  if (value.isNullOrEmpty()) return null
+  if (!value.all(Char::isDigit)) return null
+  val amount = value.toLongOrNull() ?: return null
+  if (amount <= 0L || amount > Long.MAX_VALUE / 100) return null
+  return amount
+}
+
+private fun snapshotGlobalBudgetLimits(
+  allocations: List<GlobalBudgetCategoryAllocation>,
+): Map<String, String> = allocations.associate { item ->
+  item.id to if (item.allocatedLimit != null && item.allocatedLimit > 0) {
+    item.allocatedLimit.toString()
+  } else {
+    ""
+  }
+}
+
+private fun sumGlobalBudgetLimits(drafts: Map<String, String>): Long =
+  drafts.values.sumOf { parseGlobalBudgetLimit(it) ?: 0L }
+
+private fun globalBudgetCurrentDiffers(current: Double?, allocated: Long?): Boolean = when {
+  current == null && allocated == null -> false
+  current == null || allocated == null -> true
+  else -> current != allocated.toDouble()
 }

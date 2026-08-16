@@ -41,7 +41,10 @@ struct AddExpenseSheet: View {
         }
 
         CategoryDropdown(
-          categories: store.categories,
+          categories: TransactionSelectors.pickerCategories(
+            store.categories,
+            selectedName: store.expenseDraft.category
+          ),
           selected: store.expenseDraft.category,
           onSelect: { store.expenseDraft.category = $0 },
           onAdd: { store.openOverlay(.category) }
@@ -239,7 +242,7 @@ struct ExpenseEditorSheet: View {
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.muted)
             CategoryDropdown(
-              categories: store.categories,
+              categories: TransactionSelectors.pickerCategories(store.categories, selectedName: category),
               selected: category,
               onSelect: { category = $0 },
               onAdd: openCategoryCreator,
@@ -1135,7 +1138,10 @@ struct AddRecurringSheet: View {
         VStack(alignment: .leading, spacing: 6) {
           recurringLabel("Category")
           CategoryDropdown(
-            categories: store.categories,
+            categories: TransactionSelectors.pickerCategories(
+              store.categories,
+              selectedName: store.recurringDraft.category
+            ),
             selected: store.recurringDraft.category,
             onSelect: { store.recurringDraft.category = $0 },
             onAdd: { store.openOverlay(.category) }
@@ -1483,19 +1489,39 @@ struct NewCategorySheet: View {
     .presentationBackground(Theme.surface)
     .overlay(alignment: .topTrailing) {
       if store.categoryDraft.editingId != nil {
-        Button { confirmDeleteCategory = true } label: {
-          Image(systemName: "trash")
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(Theme.danger)
-            .frame(width: 42, height: 42)
-            .background(Theme.dangerSoft)
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay(
-              RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .stroke(Theme.dangerLine, lineWidth: 1)
-            )
+        HStack(spacing: 8) {
+          Button {
+            guard let id = store.categoryDraft.editingId else { return }
+            store.setCategoryArchived(id, archived: !editingIsArchived)
+          } label: {
+            Image(systemName: "archivebox")
+              .font(.system(size: 17, weight: .semibold))
+              .foregroundStyle(editingIsArchived ? Theme.greenDeep : Theme.muted)
+              .frame(width: 42, height: 42)
+              .background(editingIsArchived ? Theme.greenSoft : Theme.canvas)
+              .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+              .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                  .stroke(editingIsArchived ? Theme.green.opacity(0.3) : Theme.line, lineWidth: 1)
+              )
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel(editingIsArchived ? "Restore category" : "Archive category")
+
+          Button { confirmDeleteCategory = true } label: {
+            Image(systemName: "trash")
+              .font(.system(size: 17, weight: .semibold))
+              .foregroundStyle(Theme.danger)
+              .frame(width: 42, height: 42)
+              .background(Theme.dangerSoft)
+              .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+              .overlay(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                  .stroke(Theme.dangerLine, lineWidth: 1)
+              )
+          }
+          .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
         .padding(.top, 14)
         .padding(.trailing, 22)
       }
@@ -1516,6 +1542,11 @@ struct NewCategorySheet: View {
 
   private var canSave: Bool {
     !store.categoryDraft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var editingIsArchived: Bool {
+    guard let id = store.categoryDraft.editingId else { return false }
+    return store.categories.first(where: { $0.id == id })?.archived ?? false
   }
 
   private var suggestedBudget: Double? {
@@ -1655,7 +1686,7 @@ struct TxDetailSheet: View {
           )
 
         CategoryDropdown(
-          categories: store.categories,
+          categories: TransactionSelectors.pickerCategories(store.categories, selectedName: category),
           selected: category,
           onSelect: { category = $0 },
           onAdd: { store.openOverlay(.category) }

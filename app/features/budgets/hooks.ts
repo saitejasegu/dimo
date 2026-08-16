@@ -4,15 +4,20 @@ import {
   budgetTotals,
   categoryBudgets,
 } from "@/features/budgets/selectors";
+import {
+  activeCategoryLimits,
+  transactionsForActiveCategories,
+} from "@/features/transactions/selectors";
 
 export function useBudgets() {
-  const { transactions, limits } = useAppState();
+  const { transactions, categories } = useAppState();
 
-  return useMemo(
-    () => ({
-      budgets: categoryBudgets(transactions, limits),
-      totals: budgetTotals(transactions, limits),
-    }),
-    [transactions, limits],
-  );
+  return useMemo(() => {
+    const limits = activeCategoryLimits(categories);
+    const scoped = transactionsForActiveCategories(transactions, categories);
+    return {
+      budgets: categoryBudgets(scoped, limits),
+      totals: budgetTotals(scoped, limits),
+    };
+  }, [transactions, categories]);
 }

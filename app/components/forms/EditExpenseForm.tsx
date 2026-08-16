@@ -11,7 +11,7 @@ import { currencySymbol } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { localDateKey, localDateTimeTimestamp, localTimeKey } from "@/lib/dates";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { categoryNames } from "@/features/transactions/selectors";
+import { pickerCategoryNames } from "@/features/transactions/selectors";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
@@ -41,7 +41,7 @@ export function EditExpenseForm({
   transaction: Transaction;
   size: "mobile" | "web";
 }) {
-  const { currency, limits, paymentMethods, weekStart } = useAppState();
+  const { currency, paymentMethods, categories, weekStart } = useAppState();
   const actions = useAppActions();
   const defaultMethod =
     paymentMethods.find((method) => method.isDefault && !method.archived) ??
@@ -130,7 +130,7 @@ export function EditExpenseForm({
 
       {!mobile ? <p className="mb-2 text-xs text-muted">Category</p> : null}
       <CategoryChips
-        categories={categoryNames(limits)}
+        categories={pickerCategoryNames(categories, category)}
         value={category}
         onChange={setCategory}
         className="mb-4"

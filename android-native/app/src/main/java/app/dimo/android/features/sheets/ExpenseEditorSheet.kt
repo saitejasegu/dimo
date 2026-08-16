@@ -225,7 +225,7 @@ fun ExpenseEditorSheet(
         verticalAlignment = Alignment.Top,
       ) {
         CategoryDropdown(
-          categories = store.categories,
+          categories = TransactionSelectors.pickerCategories(store.categories, categoryName),
           selected = categoryName,
           onSelect = { next ->
             categoryName = next

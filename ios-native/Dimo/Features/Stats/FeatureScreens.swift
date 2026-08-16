@@ -752,6 +752,9 @@ struct BudgetsScreen: View {
           ForEach(budgets) { budget in
             budgetCard(budget)
           }
+          if !archivedCategories.isEmpty {
+            archivedSection(archivedCategories)
+          }
         }
         .padding(.horizontal, 22)
         .padding(.top, 16)
@@ -769,6 +772,10 @@ struct BudgetsScreen: View {
     .sheet(isPresented: $totalOpen) {
       GlobalBudgetSheet(store: store)
     }
+  }
+
+  private var archivedCategories: [CategoryEntity] {
+    entities.categories.filter(\.archived)
   }
 
   private func hero(_ totals: BudgetTotals) -> some View {
@@ -850,6 +857,52 @@ struct BudgetsScreen: View {
     .buttonStyle(.plain)
   }
 
+  private func archivedSection(_ archivedCategories: [CategoryEntity]) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Archived")
+        .font(DimoFont.body(12, weight: .medium))
+        .foregroundStyle(Theme.muted)
+        .padding(.top, 8)
+      VStack(spacing: 0) {
+        ForEach(archivedCategories) { category in
+          Button {
+            store.openEditCategory(category.id)
+          } label: {
+            HStack {
+              Text("\(category.emoji) \(category.name)")
+                .font(DimoFont.body(14, weight: .medium))
+                .foregroundStyle(Theme.ink)
+                .lineLimit(1)
+              Spacer()
+              Text("Archived")
+                .font(DimoFont.body(10, weight: .medium))
+                .foregroundStyle(Theme.muted)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Theme.canvasDeep)
+                .clipShape(Capsule())
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+          }
+          .buttonStyle(.plain)
+          if category.id != archivedCategories.last?.id {
+            Divider().overlay(Theme.lineSoft)
+          }
+        }
+      }
+      .background(Theme.surface)
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(Theme.line, lineWidth: 1)
+      )
+      Text("Archived categories stay attached to past transactions.")
+        .font(DimoFont.body(11))
+        .foregroundStyle(Theme.muted)
+    }
+  }
+
   private var daysToGo: Int {
     let cal = Calendar.current
     let now = Date()
@@ -861,16 +914,22 @@ struct BudgetsScreen: View {
 private struct GlobalBudgetSheet: View {
   @Bindable var store: AppStore
   @State private var amount: String
+  @State private var drafts: [String: String]?
   @Environment(\.dismiss) private var dismiss
 
   init(store: AppStore) {
     self.store = store
-    let currentMinor = store.categories.reduce(0) { $0 + ($1.monthlyBudgetMinor ?? 0) }
+    let currentMinor = store.categories.filter { !$0.archived }.reduce(0) { $0 + ($1.monthlyBudgetMinor ?? 0) }
     _amount = State(
       initialValue: currentMinor > 0
         ? String(Int((Double(currentMinor) / 100).rounded()))
         : ""
     )
+    _drafts = State(initialValue: nil)
+  }
+
+  private var activeCategories: [CategoryEntity] {
+    store.categories.filter { !$0.archived }
   }
 
   private var parsedAmount: Int? {
@@ -885,7 +944,7 @@ private struct GlobalBudgetSheet: View {
   private var allocation: GlobalBudgetAllocation {
     BudgetSelectors.globalBudgetAllocation(
       store.transactions,
-      categories: store.categories.map {
+      categories: activeCategories.map {
         GlobalBudgetCategoryInput(
           id: $0.id,
           name: $0.name,
@@ -897,26 +956,47 @@ private struct GlobalBudgetSheet: View {
     )
   }
 
+  private var customizing: Bool { drafts != nil }
+
+  private var displayedLimits: [GlobalBudgetLimitUpdate] {
+    allocation.allocations.map { item in
+      let limit: Int?
+      if let drafts {
+        limit = Self.parseLimit(drafts[item.id])
+      } else if parsedAmount != nil {
+        limit = item.allocatedLimit
+      } else {
+        limit = nil
+      }
+      return GlobalBudgetLimitUpdate(id: item.id, allocatedLimit: limit)
+    }
+  }
+
   private var changedCount: Int {
-    allocation.allocations.filter(\.changed).count
+    zip(allocation.allocations, displayedLimits).filter { item, displayed in
+      Self.currentDiffers(item.currentLimit, displayed.allocatedLimit)
+    }.count
   }
 
   private var canApply: Bool {
-    parsedAmount != nil && allocation.canApply && changedCount > 0
+    !activeCategories.isEmpty
+      && parsedAmount != nil
+      && changedCount > 0
+      && (customizing || allocation.canApply)
   }
 
   private var validationMessage: String? {
-    if store.categories.isEmpty {
+    if activeCategories.isEmpty {
       return "Create a category before setting a total budget."
     }
-    if allocation.issue == .noHistory {
-      return "No spending was found in the last 6 completed months. Set category budgets manually until there is enough history."
+    if !customizing && allocation.issue == .noHistory {
+      return "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split."
     }
     if !amount.isEmpty && parsedAmount == nil {
       return "Enter a whole monthly amount greater than zero."
     }
     if parsedAmount != nil && changedCount == 0 {
-      return "Your category budgets already match this split."
+      return "Your category budgets already match these amounts."
     }
     return nil
   }
@@ -928,7 +1008,7 @@ private struct GlobalBudgetSheet: View {
         .foregroundStyle(Theme.ink)
         .frame(maxWidth: .infinity, alignment: .center)
 
-      Text("Set one monthly total and split it using average spending from \(lookbackLabel).")
+      Text("Set one monthly total to split from spending in \(lookbackLabel), or edit any category — the total follows the sum.")
         .font(DimoFont.body(13))
         .foregroundStyle(Theme.muted)
         .fixedSize(horizontal: false, vertical: true)
@@ -943,7 +1023,7 @@ private struct GlobalBudgetSheet: View {
             .foregroundStyle(Theme.muted)
           TextField("Amount", text: Binding(
             get: { amount },
-            set: { amount = String($0.filter(\.isNumber).prefix(15)) }
+            set: { handleTotalChange($0) }
           ))
             .font(DimoFont.body(15))
             .keyboardType(.numberPad)
@@ -989,22 +1069,33 @@ private struct GlobalBudgetSheet: View {
                   .lineLimit(2)
               }
               Spacer(minLength: 8)
-              VStack(alignment: .trailing, spacing: 3) {
-                Text(
-                  parsedAmount != nil
-                    ? item.allocatedLimit.map {
-                      Formatting.money(Double($0), currency: store.currency)
-                    } ?? "—"
-                    : "—"
-                )
-                  .font(DimoFont.display(14, weight: .semibold))
-                  .foregroundStyle(item.sixMonthSpend > 0 ? Theme.ink : Theme.faint)
-                if item.sixMonthSpend > 0 {
-                  Text("PROPOSED")
-                    .font(DimoFont.body(9, weight: .semibold))
-                    .kerning(0.5)
-                    .foregroundStyle(Theme.green)
+              VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 4) {
+                  Text(Formatting.currencySymbol(store.currency))
+                    .font(DimoFont.body(13))
+                    .foregroundStyle(Theme.muted)
+                  TextField("0", text: Binding(
+                    get: { categoryFieldValue(item) },
+                    set: { handleCategoryChange(item.id, $0) }
+                  ))
+                    .font(DimoFont.body(14, weight: .semibold))
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.plain)
+                    .frame(width: 72)
+                    .accessibilityLabel("\(item.name) monthly budget")
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Theme.canvas)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                  RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line)
+                )
+                Text(item.sixMonthSpend > 0 && !customizing ? "PROPOSED" : "BUDGET")
+                  .font(DimoFont.body(9, weight: .semibold))
+                  .kerning(0.4)
+                  .foregroundStyle(item.sixMonthSpend > 0 && !customizing ? Theme.green : Theme.muted)
               }
               .fixedSize(horizontal: true, vertical: false)
             }
@@ -1025,7 +1116,7 @@ private struct GlobalBudgetSheet: View {
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
       .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
 
-      Text("Applying this split replaces every category budget. You can still edit individual categories afterward; the total will follow their new sum.")
+      Text("Changing the total proposes a new split. Editing a category updates the total to match. Apply replaces every category budget with the amounts shown here.")
         .font(DimoFont.body(12))
         .foregroundStyle(Theme.muted)
         .padding(13)
@@ -1043,9 +1134,9 @@ private struct GlobalBudgetSheet: View {
           .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
           .buttonStyle(.plain)
 
-        Button(parsedAmount != nil && changedCount == 0 ? "Already applied" : "Apply split") {
-          guard let parsedAmount, canApply else { return }
-          store.applyGlobalBudget(parsedAmount)
+        Button(applyTitle) {
+          guard canApply else { return }
+          store.applyGlobalBudget(displayedLimits)
           dismiss()
         }
         .font(DimoFont.body(15, weight: .semibold))
@@ -1066,6 +1157,13 @@ private struct GlobalBudgetSheet: View {
     .presentationBackground(Theme.surface)
   }
 
+  private var applyTitle: String {
+    if parsedAmount != nil && changedCount == 0 {
+      return "Already applied"
+    }
+    return customizing ? "Apply budgets" : "Apply split"
+  }
+
   private var lookbackLabel: String {
     let calendar = Calendar.current
     let first = Date(timeIntervalSince1970: Double(allocation.window.start) / 1000)
@@ -1079,6 +1177,51 @@ private struct GlobalBudgetSheet: View {
       return "\(month.string(from: first))–\(monthYear.string(from: last))"
     }
     return "\(monthYear.string(from: first))–\(monthYear.string(from: last))"
+  }
+
+  private func categoryFieldValue(_ item: GlobalBudgetCategoryAllocation) -> String {
+    if let drafts {
+      return drafts[item.id] ?? ""
+    }
+    if parsedAmount != nil, let limit = item.allocatedLimit, limit > 0 {
+      return String(limit)
+    }
+    return ""
+  }
+
+  private func handleTotalChange(_ next: String) {
+    amount = String(next.filter(\.isNumber).prefix(15))
+    drafts = nil
+  }
+
+  private func handleCategoryChange(_ id: String, _ next: String) {
+    let value = String(next.filter(\.isNumber).prefix(15))
+    var snapshot = drafts ?? Dictionary(uniqueKeysWithValues: allocation.allocations.map { item in
+      let text = item.allocatedLimit.flatMap { $0 > 0 ? String($0) : nil } ?? ""
+      return (item.id, text)
+    })
+    snapshot[id] = value
+    drafts = snapshot
+    let total = snapshot.values.reduce(0) { $0 + (Self.parseLimit($1) ?? 0) }
+    amount = total > 0 ? String(total) : ""
+  }
+
+  private static func parseLimit(_ value: String?) -> Int? {
+    guard let value,
+          !value.isEmpty,
+          value.allSatisfy(\.isNumber),
+          let amount = Int(value),
+          amount > 0,
+          amount <= Int.max / 100 else { return nil }
+    return amount
+  }
+
+  private static func currentDiffers(_ current: Double?, _ allocated: Int?) -> Bool {
+    switch (current, allocated) {
+    case (nil, nil): return false
+    case (nil, _), (_, nil): return true
+    case let (current?, allocated?): return current != Double(allocated)
+    }
   }
 }
 

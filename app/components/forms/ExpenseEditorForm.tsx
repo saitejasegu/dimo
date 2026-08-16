@@ -27,7 +27,7 @@ import {
   type Transaction,
 } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { categoryNames } from "@/features/transactions/selectors";
+import { pickerCategoryNames } from "@/features/transactions/selectors";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
@@ -256,8 +256,8 @@ export function ExpenseEditorForm({
     expenseDraft,
     currency,
     rates,
-    limits,
     paymentMethods,
+    categories,
     transactions,
     weekStart,
   } = useAppState();
@@ -506,7 +506,7 @@ export function ExpenseEditorForm({
           <p className="mb-1.5 text-xs text-muted">Category</p>
           <CategoryChips
             selectedFirst
-            categories={categoryNames(limits)}
+            categories={pickerCategoryNames(categories, category)}
             value={category}
             onChange={setCategory}
             menuClassName="left-0 right-auto w-[calc(200%+0.75rem)]"

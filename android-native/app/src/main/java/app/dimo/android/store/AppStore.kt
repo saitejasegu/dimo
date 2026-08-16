@@ -40,8 +40,7 @@ import app.dimo.android.data.model.ViewKey
 import app.dimo.android.data.model.WeekStart
 import app.dimo.android.domain.BudgetCategoryInput
 import app.dimo.android.domain.BudgetSelectors
-import app.dimo.android.domain.GlobalBudgetAllocationIssue
-import app.dimo.android.domain.GlobalBudgetCategoryInput
+import app.dimo.android.domain.GlobalBudgetLimitUpdate
 import app.dimo.android.domain.DateHelpers
 import app.dimo.android.domain.ExchangeRates
 import app.dimo.android.domain.Formatting
@@ -451,8 +450,8 @@ class AppStore(
       OverlayKey.Recurring -> {
         recurringDraft = RecurringDraft(
           currency = currency.wire,
-          category = categories.firstOrNull { it.name == "Bills" }?.name
-            ?: categories.firstOrNull()?.name
+          category = categories.firstOrNull { !it.archived && it.name == "Bills" }?.name
+            ?: categories.firstOrNull { !it.archived }?.name
             ?: "Bills",
           paymentMethodId = preferredPaymentMethodId(),
           anchorDate = DateHelpers.localDateKey(LocalDate.now(DateHelpers.zone())),
@@ -932,6 +931,7 @@ class AppStore(
       tint = categoryDraft.tint,
       sortOrder = existing?.sortOrder ?: categories.size,
       system = existing?.system ?: false,
+      archived = existing?.archived ?: false,
     )
     val isNew = categoryDraft.editingId == null
     viewModelScope.launch {
@@ -953,10 +953,20 @@ class AppStore(
     overlay = OverlayKey.Category
   }
 
+  fun setCategoryArchived(id: String, archived: Boolean) {
+    val current = categories.firstOrNull { it.id == id } ?: return
+    if (current.archived == archived) return
+    viewModelScope.launch {
+      repository?.saveEntity(EntityPayload.Category(current.copy(archived = archived)))
+      closeOverlay()
+      showToast(if (archived) "${current.name} archived" else "${current.name} restored")
+    }
+  }
+
   fun applySuggestedBudgets(ids: Set<String>) {
     val suggestions = BudgetSelectors.suggestedCategoryBudgetUpdates(
       transactions,
-      categories = categories.map {
+      categories = categories.filter { !it.archived }.map {
         BudgetCategoryInput(it.id, it.name, it.monthlyBudgetMinor)
       },
     )
@@ -976,41 +986,18 @@ class AppStore(
     }
   }
 
-  fun applyGlobalBudget(totalBudget: Long) {
-    val allocation = BudgetSelectors.globalBudgetAllocation(
-      transactions,
-      categories = categories.map {
-        GlobalBudgetCategoryInput(
-          id = it.id,
-          name = it.name,
-          sortOrder = it.sortOrder,
-          monthlyBudgetMinor = it.monthlyBudgetMinor,
-        )
-      },
-      totalBudget = totalBudget,
-    )
-    when (allocation.issue) {
-      GlobalBudgetAllocationIssue.INVALID_TOTAL -> {
-        showToast("Enter a whole monthly budget greater than zero")
-        return
-      }
-      GlobalBudgetAllocationIssue.NO_CATEGORIES -> {
-        showToast("Create a category before setting a total budget")
-        return
-      }
-      GlobalBudgetAllocationIssue.NO_HISTORY -> {
-        showToast("No spending history in the last 6 completed months")
-        return
-      }
-      null -> Unit
+  fun applyGlobalBudget(limits: List<GlobalBudgetLimitUpdate>) {
+    val active = categories.filter { !it.archived }
+    if (active.isEmpty()) {
+      showToast("Create a category before setting a total budget")
+      return
     }
-
-    val batch = allocation.allocations.mapNotNull { item ->
-      if (!item.changed) return@mapNotNull null
-      val category = categories.firstOrNull { it.id == item.id } ?: return@mapNotNull null
-      EntityPayload.Category(
-        category.copy(monthlyBudgetMinor = item.allocatedLimit?.times(100)),
-      )
+    val byId = active.associateBy { it.id }
+    val batch = limits.mapNotNull { item ->
+      val category = byId[item.id] ?: return@mapNotNull null
+      val monthlyBudgetMinor = item.allocatedLimit?.takeIf { it > 0 }?.times(100)
+      if (category.monthlyBudgetMinor == monthlyBudgetMinor) return@mapNotNull null
+      EntityPayload.Category(category.copy(monthlyBudgetMinor = monthlyBudgetMinor))
     }
     if (batch.isEmpty()) {
       showToast("Budgets already match this split")
@@ -1065,6 +1052,7 @@ class AppStore(
           tint = CategoryTint.NEUTRAL,
           sortOrder = categories.size + batch.size,
           system = false,
+          archived = false,
         )
         categoryByName[key] = created
         batch.add(EntityPayload.Category(created))
@@ -1378,7 +1366,27 @@ class AppStore(
     if (profileName.isEmpty()) profileName = prefs.profileName
     if (profileEmail.isEmpty()) profileEmail = prefs.profileEmail
     dataReady = true
+    clearArchivedCategoryDrafts()
     updateEmailDomain()
+  }
+
+  private fun firstActiveCategoryName(): String =
+    categories.firstOrNull { !it.archived && it.name == "Bills" }?.name
+      ?: categories.firstOrNull { !it.archived }?.name
+      ?: "Bills"
+
+  private fun clearArchivedCategoryDrafts() {
+    val activeNames = categories.filter { !it.archived }.map { it.name }.toSet()
+    if (expenseDraft.category.isNotEmpty() && expenseDraft.category !in activeNames) {
+      expenseDraft = expenseDraft.copy(category = "")
+    }
+    if (
+      recurringDraft.editingId == null &&
+      recurringDraft.category.isNotEmpty() &&
+      recurringDraft.category !in activeNames
+    ) {
+      recurringDraft = recurringDraft.copy(category = firstActiveCategoryName())
+    }
   }
 
   private fun currentPreferences(): PreferencesEntity = PreferencesEntity(

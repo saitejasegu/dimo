@@ -139,7 +139,7 @@ struct EmailSuggestionReview: View {
       reviewField("Category") {
         Picker("Category", selection: categorySelection) {
           Text("Choose a category").tag("")
-          ForEach(categories) { category in
+          ForEach(availableCategories) { category in
             Text("\(category.emoji) \(category.name)").tag(category.id)
           }
         }
@@ -237,6 +237,10 @@ struct EmailSuggestionReview: View {
       get: { draft.paymentMethodID ?? "" },
       set: { draft.paymentMethodID = $0.isEmpty ? nil : $0 }
     )
+  }
+
+  private var availableCategories: [CategoryEntity] {
+    categories.filter { !$0.archived || $0.id == draft.categoryID }
   }
 
   private var availablePaymentMethods: [PaymentMethodOption] {

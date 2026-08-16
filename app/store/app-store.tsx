@@ -70,7 +70,6 @@ import {
   type TransactionCsvRow,
 } from "@/features/transactions/csv";
 import {
-  globalBudgetAllocation,
   suggestedCategoryBudgetUpdates,
 } from "@/features/budgets/selectors";
 import {
@@ -133,8 +132,11 @@ export interface AppActions {
   setCategoryLimit: (limit: string) => void;
   openEditCategory: (id: ID) => void;
   saveCategory: () => void;
+  setCategoryArchived: (id: ID, archived: boolean) => void;
   applySuggestedBudgets: (categoryIds: string[]) => void;
-  applyGlobalBudget: (totalBudget: number) => void;
+  applyGlobalBudget: (
+    limits: Array<{ id: string; allocatedLimit: number | null }>,
+  ) => void;
   deleteCategory: () => void;
   setProfileName: (name: string) => void;
   setProfileEmail: (email: string) => void; saveProfile: () => void;
@@ -296,6 +298,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
             id: crypto.randomUUID(), name: row.category, emoji: categoryEmojiForName(row.category),
             monthlyBudgetMinor: null, tint: "neutral",
             sortOrder: state.categories.length + newCategories.length, system: false,
+            archived: false,
           };
           categoriesByName.set(key, category);
           newCategories.push(category);
@@ -566,6 +569,7 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         tint: "neutral",
         sortOrder: state.categories.length,
         system: false,
+        archived: false,
       };
       persist(saveEntity("category", entity), () => {
         dispatch({ type: "CLOSE_OVERLAY" });
@@ -573,10 +577,24 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         dispatch({ type: "SHOW_TOAST", message: `${name} category added` });
       });
     },
+    setCategoryArchived: (id, archived) => {
+      const current = getState().categories.find((category) => category.id === id);
+      if (!current || current.archived === archived) return;
+      persist(saveEntity("category", { ...current, archived }), () => {
+        dispatch({ type: "CLOSE_OVERLAY" });
+        dispatch({
+          type: "SHOW_TOAST",
+          message: archived ? `${current.name} archived` : `${current.name} restored`,
+        });
+      });
+    },
     applySuggestedBudgets: (categoryIds) => {
       const state = getState();
       const selected = new Set(categoryIds);
-      const updates = suggestedCategoryBudgetUpdates(state.transactions, state.categories)
+      const updates = suggestedCategoryBudgetUpdates(
+        state.transactions,
+        state.categories.filter((category) => !category.archived),
+      )
         .filter((update) => selected.has(update.id));
       if (updates.length === 0) {
         dispatch({ type: "SHOW_TOAST", message: "No budgets selected" });
@@ -607,42 +625,26 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         },
       );
     },
-    applyGlobalBudget: (totalBudget) => {
+    applyGlobalBudget: (limits) => {
       const state = getState();
-      const allocation = globalBudgetAllocation(
-        state.transactions,
-        state.categories,
-        totalBudget,
-      );
-      if (allocation.issue === "invalid-total") {
-        dispatch({
-          type: "SHOW_TOAST",
-          message: "Enter a whole monthly budget greater than zero",
-        });
-        return;
-      }
-      if (allocation.issue === "no-categories") {
+      const active = state.categories.filter((category) => !category.archived);
+      if (active.length === 0) {
         dispatch({
           type: "SHOW_TOAST",
           message: "Create a category before setting a total budget",
         });
         return;
       }
-      if (allocation.issue === "no-history") {
-        dispatch({
-          type: "SHOW_TOAST",
-          message: "No spending history in the last 6 completed months",
-        });
-        return;
-      }
 
-      const byId = new Map(state.categories.map((category) => [category.id, category]));
-      const updates = allocation.allocations.flatMap((item) => {
-        if (!item.changed) return [];
+      const byId = new Map(active.map((category) => [category.id, category]));
+      const updates = limits.flatMap((item) => {
         const current = byId.get(item.id);
         if (!current) return [];
         const monthlyBudgetMinor =
-          item.allocatedLimit == null ? null : item.allocatedLimit * 100;
+          item.allocatedLimit == null || item.allocatedLimit <= 0
+            ? null
+            : item.allocatedLimit * 100;
+        if (current.monthlyBudgetMinor === monthlyBudgetMinor) return [];
         return [{
           entityType: "category" as const,
           payload: { ...current, monthlyBudgetMinor },

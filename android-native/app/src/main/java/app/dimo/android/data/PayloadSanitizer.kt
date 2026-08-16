@@ -43,6 +43,7 @@ object PayloadSanitizer {
           value.copy(
             emoji = value.emoji.ifEmpty { DEFAULT_CATEGORY_EMOJI },
             tint = if (value.tint == CategoryTint.GREEN) CategoryTint.GREEN else CategoryTint.NEUTRAL,
+            archived = value.archived,
           ),
         )
       }

@@ -212,6 +212,7 @@ export function sanitizePayload<T extends EntityType>(
         tint: value.tint === "green" ? "green" : "neutral",
         sortOrder: Number(value.sortOrder) || 0,
         system: Boolean(value.system),
+        archived: Boolean(value.archived),
       } as EntityPayloadMap[T];
     }
     case "paymentMethod": {

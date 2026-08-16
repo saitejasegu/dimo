@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { globalBudgetAllocation } from "@/features/budgets/selectors";
-import { money } from "@/lib/format";
+import { currencySymbol, money } from "@/lib/format";
 import { useAppActions, useAppState } from "@/store/app-store";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
@@ -18,51 +18,115 @@ function lookbackLabel(start: number, end: number) {
     : `${monthYear.format(first)}–${monthYear.format(last)}`;
 }
 
+function digitsOnly(value: string, max = 15): string {
+  return value.replace(/\D/g, "").slice(0, max);
+}
+
+function parseLimit(value: string | undefined): number | null {
+  if (value == null || value.trim() === "") return null;
+  if (!/^\d+$/.test(value.trim())) return null;
+  const amount = Number(value.trim());
+  if (!Number.isSafeInteger(amount) || amount <= 0) return null;
+  return amount;
+}
+
+function snapshotLimits(
+  allocations: Array<{ id: string; allocatedLimit: number | null }>,
+): Record<string, string> {
+  return Object.fromEntries(
+    allocations.map((item) => [
+      item.id,
+      item.allocatedLimit != null && item.allocatedLimit > 0
+        ? String(item.allocatedLimit)
+        : "",
+    ]),
+  );
+}
+
+function sumLimits(drafts: Record<string, string>): number {
+  return Object.values(drafts).reduce((sum, value) => sum + (parseLimit(value) ?? 0), 0);
+}
+
 export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
   const { categories, transactions, currency } = useAppState();
   const { applyGlobalBudget } = useAppActions();
-  const currentTotal = categories.reduce(
+  const activeCategories = useMemo(
+    () => categories.filter((category) => !category.archived),
+    [categories],
+  );
+  const currentTotal = activeCategories.reduce(
     (sum, category) => sum + (category.monthlyBudgetMinor ?? 0) / 100,
     0,
   );
   const [amount, setAmount] = useState(() =>
     currentTotal > 0 ? String(Math.round(currentTotal)) : "",
   );
+  const [drafts, setDrafts] = useState<Record<string, string> | null>(null);
   const trimmedAmount = amount.trim();
   const validAmountText = /^\d+$/.test(trimmedAmount);
   const parsedAmount = validAmountText ? Number(trimmedAmount) : 0;
   const validAmount = Number.isSafeInteger(parsedAmount) && parsedAmount > 0;
   const allocation = useMemo(
-    () => globalBudgetAllocation(transactions, categories, validAmount ? parsedAmount : 0),
-    [transactions, categories, validAmount, parsedAmount],
+    () => globalBudgetAllocation(transactions, activeCategories, validAmount ? parsedAmount : 0),
+    [transactions, activeCategories, validAmount, parsedAmount],
   );
-  const changedCount = allocation.allocations.filter((item) => item.changed).length;
-  const canApply = validAmount && allocation.canApply && changedCount > 0;
+  const customizing = drafts != null;
+  const displayedLimits = allocation.allocations.map((item) => ({
+    id: item.id,
+    currentLimit: item.currentLimit,
+    allocatedLimit: customizing
+      ? parseLimit(drafts[item.id])
+      : validAmount
+        ? item.allocatedLimit
+        : null,
+  }));
+  const changedCount = displayedLimits.filter(
+    (item) => item.currentLimit !== item.allocatedLimit,
+  ).length;
+  const canApply = activeCategories.length > 0
+    && validAmount
+    && changedCount > 0
+    && (customizing || allocation.canApply);
 
   let message: string | null = null;
-  if (categories.length === 0) {
+  if (activeCategories.length === 0) {
     message = "Create a category before setting a total budget.";
-  } else if (allocation.issue === "no-history") {
-    message = "No spending was found in the last 6 completed months. Set category budgets manually until there is enough history.";
+  } else if (!customizing && allocation.issue === "no-history") {
+    message = "No spending was found in the last 6 completed months. Enter amounts on each category below, or wait until there is enough history for a split.";
   } else if (trimmedAmount && !validAmount) {
     message = "Enter a whole monthly amount greater than zero.";
   } else if (validAmount && changedCount === 0) {
-    message = "Your category budgets already match this split.";
+    message = "Your category budgets already match these amounts.";
+  }
+
+  function handleTotalChange(next: string) {
+    setAmount(digitsOnly(next));
+    setDrafts(null);
+  }
+
+  function handleCategoryChange(id: string, next: string) {
+    const value = digitsOnly(next);
+    const snapshot = drafts ?? snapshotLimits(allocation.allocations);
+    const updated = { ...snapshot, [id]: value };
+    setDrafts(updated);
+    const total = sumLimits(updated);
+    setAmount(total > 0 ? String(total) : "");
   }
 
   return (
     <div>
       <p className="mb-4 text-[13px] leading-relaxed text-muted">
-        Set one monthly total and split it using average spending from{" "}
+        Set one monthly total to split from spending in{" "}
         <span className="font-medium text-body">
           {lookbackLabel(allocation.window.start, allocation.window.end)}
-        </span>.
+        </span>
+        , or edit any category — the total follows the sum.
       </p>
 
       <TextField
         label="Monthly total"
         value={amount}
-        onChange={setAmount}
+        onChange={handleTotalChange}
         placeholder={`${currency} amount`}
         inputMode="numeric"
         autoFocus
@@ -76,8 +140,13 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
 
       <div className="my-5 max-h-[46vh] overflow-y-auto overscroll-contain rounded-2xl border border-line">
         {allocation.allocations.map((item, index) => {
-          const category = categories.find((candidate) => candidate.id === item.id);
+          const category = activeCategories.find((candidate) => candidate.id === item.id);
           const hasHistory = item.sixMonthSpend > 0;
+          const value = customizing
+            ? (drafts[item.id] ?? "")
+            : validAmount && item.allocatedLimit != null && item.allocatedLimit > 0
+              ? String(item.allocatedLimit)
+              : "";
           return (
             <div
               key={item.id}
@@ -98,18 +167,29 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
                     : "No spending history · no allocation"}
                 </span>
               </span>
-              <span className="shrink-0 text-right">
-                <span className={`block text-sm font-semibold ${hasHistory ? "text-ink" : "text-faint"}`}>
-                  {hasHistory && validAmount && item.allocatedLimit != null
-                    ? money(item.allocatedLimit, currency)
-                    : "—"}
+              <label className="shrink-0 text-right">
+                <span className="flex items-center justify-end gap-1">
+                  <span className="text-sm text-muted">{currencySymbol(currency)}</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(event) => handleCategoryChange(item.id, event.target.value)}
+                    placeholder="0"
+                    aria-label={`${item.name} monthly budget`}
+                    className="w-[5.75rem] rounded-lg border border-line bg-canvas px-2 py-1.5 text-right text-sm font-semibold text-ink outline-none placeholder:text-faint"
+                  />
                 </span>
-                {hasHistory ? (
+                {hasHistory && !customizing ? (
                   <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-[0.04em] text-green">
                     Proposed
                   </span>
-                ) : null}
-              </span>
+                ) : (
+                  <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-[0.04em] text-muted">
+                    Budget
+                  </span>
+                )}
+              </label>
             </div>
           );
         })}
@@ -121,8 +201,8 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
       </div>
 
       <p className="mb-5 rounded-xl bg-canvas-deep px-3.5 py-3 text-xs leading-relaxed text-muted">
-        Applying this split replaces every category budget. You can still edit individual
-        categories afterward; the total will follow their new sum.
+        Changing the total proposes a new split. Editing a category updates the total to
+        match. Apply replaces every category budget with the amounts shown here.
       </p>
 
       <div className="flex gap-3">
@@ -134,11 +214,18 @@ export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
           enabled={canApply}
           onClick={() => {
             if (!canApply) return;
-            applyGlobalBudget(parsedAmount);
+            applyGlobalBudget(displayedLimits.map((item) => ({
+              id: item.id,
+              allocatedLimit: item.allocatedLimit,
+            })));
             onDone();
           }}
         >
-          {validAmount && changedCount === 0 ? "Already applied" : "Apply split"}
+          {validAmount && changedCount === 0
+            ? "Already applied"
+            : customizing
+              ? "Apply budgets"
+              : "Apply split"}
         </Button>
       </div>
     </div>

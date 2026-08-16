@@ -84,12 +84,14 @@ function sanitizeDecimal(value: string): string {
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "HYDRATE_DATA": {
+      const activeCategories = action.data.categories.filter((c) => !c.archived);
       const categoryNames = new Set(action.data.categories.map((c) => c.name));
-      const fallbackCategory = action.data.categories[0]?.name ?? "";
-      const expenseCategory = categoryNames.has(state.expenseDraft.category)
+      const activeNames = new Set(activeCategories.map((c) => c.name));
+      const fallbackCategory = activeCategories[0]?.name ?? "";
+      const expenseCategory = activeNames.has(state.expenseDraft.category)
         ? state.expenseDraft.category
         : "";
-      const recurringCategory = categoryNames.has(state.recurringDraft.category)
+      const recurringCategory = activeNames.has(state.recurringDraft.category)
         ? state.recurringDraft.category
         : fallbackCategory;
       const filter = state.filter.filter((category) => categoryNames.has(category));

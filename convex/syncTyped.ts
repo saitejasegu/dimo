@@ -135,7 +135,7 @@ async function pushTypedBatch<T extends TypedOpBase>(
   workspaceId: string,
   operations: T[],
   entityType: EntityTypeName,
-  toTypedFields: (op: T) => Record<string, unknown>,
+  toTypedFields: (op: T, current: Record<string, unknown> | null) => Record<string, unknown>,
   options?: {
     validate?: (op: T) => void;
     onApplied?: (op: T) => void;
@@ -171,6 +171,10 @@ async function pushTypedBatch<T extends TypedOpBase>(
       !current || compareVersions(operation.version, current.version as Version) > 0;
     if (applied) {
       revision += 1;
+      const typedFields = toTypedFields(
+        operation,
+        current as Record<string, unknown> | null,
+      );
       const typedRow = {
         ownerId,
         workspaceId,
@@ -178,13 +182,13 @@ async function pushTypedBatch<T extends TypedOpBase>(
         version: operation.version,
         deleted: operation.deleted,
         revision,
-        ...toTypedFields(operation),
+        ...typedFields,
       };
       await writeTyped(ctx, entityType, typedRow);
       if (entityType === "preferences" && !operation.deleted) {
         profileUpdate = {
           ...profileUpdate,
-          ...profileFromPreferences(toTypedFields(operation)),
+          ...profileFromPreferences(typedFields),
         };
       }
       options?.onApplied?.(operation);
@@ -256,13 +260,14 @@ export const pushCategories = mutationGeneric({
     operations: v.array(categoryOperationValidator),
   },
   handler: async (ctx, { workspaceId, operations }) =>
-    pushTypedBatch(ctx, workspaceId, operations, "category", (op) => ({
+    pushTypedBatch(ctx, workspaceId, operations, "category", (op, current) => ({
       name: op.name,
       ...(op.emoji !== undefined ? { emoji: op.emoji } : {}),
       monthlyBudgetMinor: op.monthlyBudgetMinor,
       tint: op.tint,
       sortOrder: op.sortOrder,
       system: op.system,
+      archived: op.archived ?? Boolean(current?.archived),
     })),
 });
 
@@ -287,6 +292,7 @@ export const pullCategories = queryGeneric({
         tint: row.tint,
         sortOrder: row.sortOrder,
         system: row.system,
+        archived: row.archived,
       }),
     ),
 });

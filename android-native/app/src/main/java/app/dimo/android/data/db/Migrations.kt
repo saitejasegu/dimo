@@ -10,10 +10,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * pending outbox, so wiping it on upgrade would silently drop writes that have not
  * reached Convex yet.
  *
- * The statements below are copied verbatim from the exported schema in
+ * `MIGRATION_1_2` is copied verbatim from the exported schema in
  * `app/schemas/app.dimo.android.data.db.DimoDatabase/2.json`. Room validates the
- * resulting schema against that file on open, so they must stay byte-identical —
- * regenerate rather than hand-edit them.
+ * resulting schema against the exported hash on open, so those CREATE statements
+ * must stay byte-identical — regenerate rather than hand-edit them.
  */
 object Migrations {
   /** Adds the Email tab's synced entity table and its four device-local tables. */
@@ -106,5 +106,14 @@ object Migrations {
     }
   }
 
-  val ALL = arrayOf(MIGRATION_1_2)
+  /** Adds `categories.archived`. Existing rows stay active (`0`). */
+  val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL(
+        "ALTER TABLE `categories` ADD COLUMN `archived` INTEGER NOT NULL DEFAULT 0",
+      )
+    }
+  }
+
+  val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 }

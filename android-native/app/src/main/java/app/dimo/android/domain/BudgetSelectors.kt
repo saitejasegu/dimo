@@ -91,6 +91,11 @@ data class GlobalBudgetCategoryAllocation(
   val changed: Boolean,
 )
 
+data class GlobalBudgetLimitUpdate(
+  val id: String,
+  val allocatedLimit: Long?,
+)
+
 enum class GlobalBudgetAllocationIssue {
   INVALID_TOTAL,
   NO_CATEGORIES,

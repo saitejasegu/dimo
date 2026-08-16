@@ -101,6 +101,7 @@ struct CategoryRecord: TypedEntityRecord {
   var tint: String
   var sortOrder: Int
   var system: Bool
+  var archived: Bool
 
   func toStoredEntity() throws -> StoredEntity {
     StoredEntity(
@@ -116,7 +117,8 @@ struct CategoryRecord: TypedEntityRecord {
         monthlyBudgetMinor: monthlyBudgetMinor,
         tint: CategoryTint(rawValue: tint) ?? .neutral,
         sortOrder: sortOrder,
-        system: system
+        system: system,
+        archived: archived
       )),
       deleted: deleted,
       serverRevision: serverRevision
@@ -141,7 +143,8 @@ struct CategoryRecord: TypedEntityRecord {
       monthlyBudgetMinor: e.monthlyBudgetMinor,
       tint: e.tint.rawValue,
       sortOrder: e.sortOrder,
-      system: e.system
+      system: e.system,
+      archived: e.archived
     )
   }
 }

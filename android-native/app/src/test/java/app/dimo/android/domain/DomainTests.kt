@@ -2,6 +2,8 @@ package app.dimo.android.domain
 
 import app.dimo.android.data.PayloadSanitizer
 import app.dimo.android.data.SeedData
+import app.dimo.android.data.model.CategoryEntity
+import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.Currency
 import app.dimo.android.data.model.EntityPayload
 import app.dimo.android.data.model.LendKind
@@ -700,6 +702,39 @@ class TransactionSelectorTests : ZonedTest() {
 
     assertEquals(listOf("10", "12"), filtered.map { it.id })
   }
+
+  @Test
+  fun pickerOmitsArchivedUnlessSelected() {
+    val categories = listOf(
+      CategoryEntity("dining", "Dining", "🍽️", null, CategoryTint.NEUTRAL, 0, false),
+      CategoryEntity("travel", "Travel", "✈️", null, CategoryTint.NEUTRAL, 1, false, archived = true),
+      CategoryEntity("bills", "Bills", "🧾", null, CategoryTint.NEUTRAL, 2, false),
+    )
+    assertEquals(
+      listOf("Dining", "Bills"),
+      TransactionSelectors.pickerCategories(categories, "").map { it.name },
+    )
+    assertEquals(
+      listOf("Dining", "Bills", "Travel"),
+      TransactionSelectors.pickerCategories(categories, "Travel").map { it.name },
+    )
+  }
+
+  @Test
+  fun budgetTotalsDropArchivedCategorySpend() {
+    val categories = listOf(
+      CategoryEntity("dining", "Dining", "🍽️", null, CategoryTint.NEUTRAL, 0, false),
+      CategoryEntity("travel", "Travel", "✈️", null, CategoryTint.NEUTRAL, 1, false, archived = true),
+    )
+    val rows = listOf(
+      tx("1", "A", "Dining", "", 10.0).copy(categoryId = "dining"),
+      tx("2", "B", "Travel", "", 20.0).copy(categoryId = "travel"),
+    )
+    assertEquals(
+      listOf("1"),
+      TransactionSelectors.transactionsForActiveCategories(rows, categories).map { it.id },
+    )
+  }
 }
 
 class SanitizerTests : ZonedTest() {
@@ -723,6 +758,23 @@ class SanitizerTests : ZonedTest() {
     assertEquals(40, value.navGlassOpacity)
     assertEquals(ViewKey.HOME, value.defaultView)
     assertEquals(SeedData.CASH_PAYMENT_METHOD.id, value.defaultPaymentMethodId)
+  }
+
+  @Test
+  fun sanitizeCategoryPreservesArchived() {
+    val category = CategoryEntity(
+      id = "c1",
+      name = "Travel",
+      emoji = "",
+      monthlyBudgetMinor = null,
+      tint = CategoryTint.GREEN,
+      sortOrder = 1,
+      system = false,
+      archived = true,
+    )
+    val value = (PayloadSanitizer.sanitize(EntityPayload.Category(category)) as EntityPayload.Category).value
+    assertTrue(value.archived)
+    assertEquals(app.dimo.android.data.model.DEFAULT_CATEGORY_EMOJI, value.emoji)
   }
 
   @Test

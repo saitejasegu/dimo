@@ -183,7 +183,9 @@ fun EmailPurchaseReviewSheet(
 
       EmailSectionLabel("Category")
       EmailChipRow(
-        options = store.categories.map { it.id to "${it.emoji} ${it.name}" },
+        options = store.categories
+          .filter { !it.archived || it.id == working.categoryId }
+          .map { it.id to "${it.emoji} ${it.name}" },
         selectedId = working.categoryId,
         onSelect = { working = working.copy(categoryId = it) },
       )

@@ -540,4 +540,57 @@ describe("typed sync cross-table ordering", () => {
     });
     expect(typed.entities[0].deleted).toBe(true);
   });
+
+  it("preserves category archive when an older client omits the field", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|category-archive",
+    });
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "cat-archive",
+          workspaceId: "global",
+          entityId: "category-1",
+          version: { timestamp: 100, counter: 0, deviceId: "web" },
+          deleted: false,
+          name: "Dining",
+          emoji: "🍽️",
+          monthlyBudgetMinor: null,
+          tint: "neutral",
+          sortOrder: 0,
+          system: false,
+          archived: true,
+        },
+      ],
+    });
+
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "cat-rename",
+          workspaceId: "global",
+          entityId: "category-1",
+          version: { timestamp: 200, counter: 0, deviceId: "ios" },
+          deleted: false,
+          name: "Food",
+          emoji: "🍽️",
+          monthlyBudgetMinor: 10_000,
+          tint: "neutral",
+          sortOrder: 0,
+          system: false,
+        },
+      ],
+    });
+
+    const pulled = await t.query(pullCategories, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(pulled.entities).toHaveLength(1);
+    expect(pulled.entities[0].name).toBe("Food");
+    expect(pulled.entities[0].archived).toBe(true);
+  });
 });

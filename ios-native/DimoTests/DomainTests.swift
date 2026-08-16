@@ -704,6 +704,37 @@ final class TransactionSelectorTests: XCTestCase {
 
     XCTAssertEqual(filtered.map(\.id), ["10", "12"])
   }
+
+  func testPickerOmitsArchivedUnlessSelected() {
+    let categories = [
+      CategoryEntity(id: "dining", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 0, system: false),
+      CategoryEntity(id: "travel", name: "Travel", emoji: "✈️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 1, system: false, archived: true),
+      CategoryEntity(id: "bills", name: "Bills", emoji: "🧾", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 2, system: false),
+    ]
+    XCTAssertEqual(
+      TransactionSelectors.pickerCategories(categories, selectedName: "").map(\.name),
+      ["Dining", "Bills"]
+    )
+    XCTAssertEqual(
+      TransactionSelectors.pickerCategories(categories, selectedName: "Travel").map(\.name),
+      ["Dining", "Bills", "Travel"]
+    )
+  }
+
+  func testBudgetTotalsDropArchivedCategorySpend() {
+    let categories = [
+      CategoryEntity(id: "dining", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 0, system: false),
+      CategoryEntity(id: "travel", name: "Travel", emoji: "✈️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 1, system: false, archived: true),
+    ]
+    let rows = [
+      Transaction(id: "1", name: "A", category: "Dining", time: "", day: "", amount: 10, categoryId: "dining"),
+      Transaction(id: "2", name: "B", category: "Travel", time: "", day: "", amount: 20, categoryId: "travel"),
+    ]
+    XCTAssertEqual(
+      TransactionSelectors.transactionsForActiveCategories(rows, categories: categories).map(\.id),
+      ["1"]
+    )
+  }
 }
 
 final class SanitizerTests: XCTestCase {
@@ -728,6 +759,31 @@ final class SanitizerTests: XCTestCase {
     XCTAssertEqual(value.navGlassOpacity, 40)
     XCTAssertEqual(value.defaultView, .home)
     XCTAssertEqual(value.defaultPaymentMethodId, SeedData.cashPaymentMethod.id)
+  }
+
+  func testCategoryEntityDecodesMissingArchivedAsFalse() throws {
+    let json = Data(#"{"id":"c1","name":"Food","emoji":"🍕","tint":"neutral","sortOrder":0,"system":false}"#.utf8)
+    let entity = try JSONDecoder().decode(CategoryEntity.self, from: json)
+    XCTAssertFalse(entity.archived)
+  }
+
+  func testSanitizeCategoryPreservesArchived() {
+    let category = CategoryEntity(
+      id: "c1",
+      name: "Travel",
+      emoji: "",
+      monthlyBudgetMinor: nil,
+      tint: .green,
+      sortOrder: 1,
+      system: false,
+      archived: true
+    )
+    let clean = PayloadSanitizer.sanitize(entityType: .category, payload: .category(category))
+    guard case .category(let value) = clean else {
+      return XCTFail("expected category")
+    }
+    XCTAssertTrue(value.archived)
+    XCTAssertEqual(value.emoji, defaultCategoryEmoji)
   }
 
   func testSanitizeTransactionAmount() {

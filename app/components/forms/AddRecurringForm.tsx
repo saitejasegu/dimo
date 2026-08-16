@@ -5,7 +5,7 @@ import { paymentMethodLabel, type Frequency } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { localDateKey, nextOccurrence, occurrencesThrough } from "@/lib/dates";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { categoryNames } from "@/features/transactions/selectors";
+import { pickerCategoryNames } from "@/features/transactions/selectors";
 import { TextField } from "@/components/ui/TextField";
 import { DateField } from "@/components/ui/DateField";
 import { Chip } from "@/components/ui/Chip";
@@ -28,7 +28,7 @@ export function AddRecurringForm({
   onCancel,
   fillFrequency = false,
 }: AddRecurringFormProps) {
-  const { recurringDraft, recurring, limits, paymentMethods, transactions } = useAppState();
+  const { recurringDraft, recurring, paymentMethods, categories, transactions } = useAppState();
   const actions = useAppActions();
   const [backfillCount, setBackfillCount] = useState<number | null>(null);
 
@@ -157,7 +157,7 @@ export function AddRecurringForm({
 
       <p className="mb-1.5 text-xs text-muted">Category</p>
       <CategoryChips
-        categories={categoryNames(limits)}
+        categories={pickerCategoryNames(categories, recurringDraft.category)}
         value={recurringDraft.category}
         onChange={actions.setRecurringCategory}
         className="mb-3.5"

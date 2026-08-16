@@ -50,6 +50,36 @@ describe("store hydration", () => {
     expect(pulled.defaultStatsRange).toBe("3M");
     expect(pulled.statsRange).toBe("6M");
   });
+
+  it("clears new-expense drafts that point at an archived category", () => {
+    const withDraft = {
+      ...createInitialState(),
+      expenseDraft: {
+        ...createInitialState().expenseDraft,
+        category: "Travel",
+      },
+    };
+    const next = reducer(withDraft, {
+      type: "HYDRATE_DATA",
+      data: {
+        ...hydratedData("1Y"),
+        categories: [
+          {
+            id: "c1",
+            name: "Travel",
+            emoji: "✈️",
+            monthlyBudgetMinor: null,
+            tint: "neutral",
+            sortOrder: 0,
+            system: false,
+            archived: true,
+          },
+        ],
+        limits: { Travel: null },
+      },
+    });
+    expect(next.expenseDraft.category).toBe("");
+  });
 });
 
 describe("legacy navigation", () => {
