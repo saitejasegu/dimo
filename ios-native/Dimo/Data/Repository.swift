@@ -80,9 +80,9 @@ final class Repository: @unchecked Sendable {
             payload: .preferences(SeedData.defaultPreferences)
           )
         }
-        // Requeue operations that a previous build permanently blocked (e.g. the
-        // ArgumentValidationError from transactions/recurring that omitted
-        // paymentMethodId) so they retry through the corrected encoding.
+        // Requeue operations that a previous build permanently blocked (e.g.
+        // nullable paymentMethodId/monthlyBudgetMinor fields that were omitted)
+        // so they retry through the corrected encoding or compatible backend.
         try db.execute(
           sql: "UPDATE outbox SET status = ?, lastError = NULL, attempts = 0 WHERE status = ?",
           arguments: [OutboxStatus.pending.rawValue, OutboxStatus.blocked.rawValue]

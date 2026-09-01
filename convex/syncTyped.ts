@@ -263,7 +263,12 @@ export const pushCategories = mutationGeneric({
     pushTypedBatch(ctx, workspaceId, operations, "category", (op, current) => ({
       name: op.name,
       ...(op.emoji !== undefined ? { emoji: op.emoji } : {}),
-      monthlyBudgetMinor: op.monthlyBudgetMinor,
+      // A released iOS encoder dropped this key when its value was nil. Preserve
+      // an existing budget for omitted legacy writes and use null for a new row.
+      monthlyBudgetMinor:
+        op.monthlyBudgetMinor !== undefined
+          ? op.monthlyBudgetMinor
+          : (current?.monthlyBudgetMinor ?? null),
       tint: op.tint,
       sortOrder: op.sortOrder,
       system: op.system,

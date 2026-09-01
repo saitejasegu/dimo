@@ -30,7 +30,7 @@ func compareVersions(_ a: LogicalVersion, _ b: LogicalVersion) -> Int {
 
 let workspaceID = "global"
 let defaultCategoryEmoji = "🙂"
-let bootstrapVersion = 4
+let bootstrapVersion = 5
 /// Bump when a new legacy-row repair is added so every device runs it once. The
 /// repairs scan whole tables, which is why they no longer run on every sync.
 let backfillVersion = 1

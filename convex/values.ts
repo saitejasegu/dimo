@@ -209,7 +209,8 @@ export const categoryOperationValidator = v.object({
   ...typedOpMeta,
   name: v.string(),
   emoji: v.optional(v.string()),
-  monthlyBudgetMinor: v.union(v.number(), v.null()),
+  /** Optional so released native clients that encoded nil as an omitted key keep syncing. */
+  monthlyBudgetMinor: v.optional(v.union(v.number(), v.null())),
   tint: v.union(v.literal("green"), v.literal("neutral")),
   sortOrder: v.number(),
   system: v.boolean(),

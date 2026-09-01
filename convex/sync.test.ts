@@ -593,4 +593,84 @@ describe("typed sync cross-table ordering", () => {
     expect(pulled.entities[0].name).toBe("Food");
     expect(pulled.entities[0].archived).toBe(true);
   });
+
+  it("accepts a released iOS category operation that omits a nil monthly budget", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|ios-nil-category-budget",
+    });
+
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "cat-create",
+          workspaceId: "global",
+          entityId: "category-gifts",
+          version: { timestamp: 100, counter: 0, deviceId: "ios" },
+          deleted: false,
+          name: "Gifts",
+          emoji: "🎁",
+          tint: "neutral",
+          sortOrder: 14,
+          system: false,
+          archived: false,
+        },
+      ],
+    });
+
+    let pulled = await t.query(pullCategories, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(pulled.entities[0].monthlyBudgetMinor).toBeNull();
+
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "cat-budget",
+          workspaceId: "global",
+          entityId: "category-gifts",
+          version: { timestamp: 200, counter: 0, deviceId: "web" },
+          deleted: false,
+          name: "Gifts",
+          emoji: "🎁",
+          monthlyBudgetMinor: 25_000,
+          tint: "neutral",
+          sortOrder: 14,
+          system: false,
+          archived: false,
+        },
+      ],
+    });
+    await t.mutation(pushCategories, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "cat-ios-rename",
+          workspaceId: "global",
+          entityId: "category-gifts",
+          version: { timestamp: 300, counter: 0, deviceId: "ios" },
+          deleted: false,
+          name: "Presents",
+          emoji: "🎁",
+          tint: "neutral",
+          sortOrder: 14,
+          system: false,
+          archived: false,
+        },
+      ],
+    });
+
+    pulled = await t.query(pullCategories, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(pulled.entities[0]).toMatchObject({
+      name: "Presents",
+      monthlyBudgetMinor: 25_000,
+    });
+  });
 });

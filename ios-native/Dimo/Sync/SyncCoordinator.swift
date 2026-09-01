@@ -477,7 +477,12 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     case .category(let e):
       dict["name"] = e.name
       dict["emoji"] = e.emoji
-      dict["monthlyBudgetMinor"] = e.monthlyBudgetMinor.map { Double($0) }
+      // Dictionary subscript assignment removes an optional-valued key when the
+      // value is nil. updateValue keeps the key so ConvexMobile encodes JSON null.
+      _ = dict.updateValue(
+        e.monthlyBudgetMinor.map { Double($0) },
+        forKey: "monthlyBudgetMinor"
+      )
       dict["tint"] = e.tint.rawValue
       dict["sortOrder"] = Double(e.sortOrder)
       dict["system"] = e.system
@@ -492,7 +497,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["amountMinor"] = Double(e.amountMinor)
       dict["occurredAt"] = Double(e.occurredAt)
       dict["categoryId"] = e.categoryId
-      dict["paymentMethodId"] = e.paymentMethodId
+      _ = dict.updateValue(e.paymentMethodId, forKey: "paymentMethodId")
       if let currency = e.currency, !currency.isEmpty { dict["currency"] = currency }
       if let sourceCurrency = e.sourceCurrency, !sourceCurrency.isEmpty {
         dict["sourceCurrency"] = sourceCurrency
@@ -503,7 +508,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["name"] = e.name
       dict["amountMinor"] = Double(e.amountMinor)
       dict["categoryId"] = e.categoryId
-      dict["paymentMethodId"] = e.paymentMethodId
+      _ = dict.updateValue(e.paymentMethodId, forKey: "paymentMethodId")
       dict["frequency"] = e.frequency.rawValue
       dict["anchorDate"] = e.anchorDate
       dict["paused"] = e.paused

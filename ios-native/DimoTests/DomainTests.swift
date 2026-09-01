@@ -544,6 +544,48 @@ final class RepositoryBootstrapTests: XCTestCase {
     XCTAssertEqual(try repo.pendingOutbox(limit: 200).count, pendingBefore + 1)
   }
 
+  func testBootstrapUpgradeRequeuesPreviouslyBlockedOperations() throws {
+    let userId = "test-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repo = Repository(db: queue)
+    try repo.initializeLocalDatabase()
+
+    let category = CategoryEntity(
+      id: "category-gifts",
+      name: "Gifts",
+      emoji: "🎁",
+      monthlyBudgetMinor: nil,
+      tint: .neutral,
+      sortOrder: 14,
+      system: false
+    )
+    try repo.saveEntity(entityType: .category, payload: .category(category))
+    var blocked = try XCTUnwrap(
+      repo.pendingOutbox(limit: 100).first { $0.entityId == category.id }
+    )
+    blocked.status = .blocked
+    blocked.lastError = "ArgumentValidationError: missing monthlyBudgetMinor"
+    blocked.attempts = 1
+    try repo.updateOutbox(blocked)
+    try queue.write { db in
+      guard var device = try DeviceMetaRecord.fetchOne(db, key: "device") else {
+        return XCTFail("missing device metadata")
+      }
+      device.bootstrapVersion = bootstrapVersion - 1
+      try device.update(db)
+    }
+
+    try repo.initializeLocalDatabase()
+
+    let retried = try XCTUnwrap(
+      repo.pendingOutbox(limit: 100).first { $0.entityId == category.id }
+    )
+    XCTAssertEqual(retried.status, .pending)
+    XCTAssertEqual(retried.attempts, 0)
+    XCTAssertNil(retried.lastError)
+  }
+
   func testBackfillsLegacyRecurringCurrencyFromPreferences() throws {
     let userId = "test-\(UUID().uuidString)"
     let queue = try AppDatabase.activate(userId: userId)
