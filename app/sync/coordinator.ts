@@ -22,6 +22,7 @@ import {
   onLocalWrite,
   purgeExpiredTombstones,
   runPendingBackfills,
+  sanitizePayload,
   tombstoneSweepDue,
 } from "@/data/repository";
 
@@ -104,15 +105,16 @@ function toStoredFromPull<T extends EntityType>(
   row: Record<string, unknown>,
 ): StoredRowMap[T] {
   const entityId = String(row.entityId);
-  const fields = { ...row };
-  delete fields.workspaceId;
-  delete fields.entityId;
-  const version = fields.version as LogicalVersion;
-  const deleted = Boolean(fields.deleted);
-  const serverRevision = Number(fields.serverRevision) || 0;
-  delete fields.version;
-  delete fields.deleted;
-  delete fields.serverRevision;
+  const version = row.version as LogicalVersion;
+  const deleted = Boolean(row.deleted);
+  const serverRevision = Number(row.serverRevision) || 0;
+  // Same allowlist as local writes — drop unexpected cloud fields before IndexedDB.
+  const clean = sanitizePayload(entityType, {
+    id: entityId,
+    ...row,
+  } as never);
+  const fields = { ...clean };
+  delete (fields as { id?: string }).id;
   return {
     key: entityKey(entityType, entityId),
     workspaceId: WORKSPACE_ID,

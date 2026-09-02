@@ -117,9 +117,20 @@ export const lendValidator = v.object({
   kind: v.optional(lendKindValidator),
 });
 
-/** Native-owned reviewed Gmail suggestion. Includes the full normalized body
- * text. OAuth credentials are never included. `normalizedBodyText` is optional
- * so rows written before body sync still validate. */
+/**
+ * Pending suggestions keep the body on-device for analysis/retry; only
+ * reviewed/dismissed states may sync the full `normalizedBodyText` to Convex.
+ */
+export function shouldSyncEmailBody(state: string): boolean {
+  return (
+    state === "added" || state === "dismissed" || state === "refundApplied"
+  );
+}
+
+/** Native-owned Gmail suggestion. Full body text syncs only for reviewed
+ * states (`shouldSyncEmailBody`). OAuth credentials are never included.
+ * `normalizedBodyText` is optional so rows written before body sync still
+ * validate. */
 export const emailMessageValidator = v.object({
   id: v.string(),
   accountId: v.string(),

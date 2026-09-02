@@ -73,6 +73,7 @@ final class SessionController {
   func deleteAccount() async throws {
     guard let store = appStore else { return }
     try await store.clearCloudWorkspace()
+    _ = try? await store.deleteCloudIdentity()
     try await signOut()
   }
 

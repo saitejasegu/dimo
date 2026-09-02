@@ -102,13 +102,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
   const redirectUri = new URL("/callback", origin).toString();
 
+  // Prefer a custom AuthKit API hostname (HttpOnly cookies). Without it the
+  // static export must use localStorage refresh tokens via `devMode`.
+  // AuthKit also auto-enables localStorage on localhost/127.0.0.1.
+  const apiHostname = process.env.NEXT_PUBLIC_WORKOS_API_HOSTNAME?.trim() || undefined;
+
   if (!clientId || !convex) return <ConfigurationRequired />;
 
   return (
     <AuthKitProvider
       clientId={clientId}
       redirectUri={redirectUri}
-      devMode
+      {...(apiHostname ? { apiHostname } : { devMode: true as const })}
       onRedirectCallback={() => window.history.replaceState({}, "", "/")}
     >
       <ConvexProviderWithAuthKit client={convex} useAuth={useAuth}>

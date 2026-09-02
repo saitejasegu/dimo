@@ -1,6 +1,31 @@
 {
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://api.workos.com https://*.workos.com; script-src 'self' 'unsafe-inline' https://va.vercel-scripts.com https://*.vercel-scripts.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.convex.cloud wss://*.convex.cloud https://api.workos.com https://*.workos.com https://vitals.vercel-insights.com https://*.vercel-insights.com https://va.vercel-scripts.com; frame-src https://api.workos.com https://*.workos.com; worker-src 'self' blob:"
+        }
+      ]
+    },
+    {
       "source": "/version.json",
       "headers": [
         {

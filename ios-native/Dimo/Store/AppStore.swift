@@ -426,6 +426,23 @@ final class AppStore {
     try await coordinator?.clearCloudWorkspace()
   }
 
+  /// Deletes the WorkOS login identity via Convex (requires WORKOS_API_KEY).
+  @discardableResult
+  func deleteCloudIdentity() async throws -> (identityDeleted: Bool, reason: String?) {
+    guard let client = convexClient else {
+      return (false, "Not connected to sync.")
+    }
+    struct DeleteIdentityResult: Decodable {
+      var identityDeleted: Bool
+      var reason: String?
+    }
+    let result: DeleteIdentityResult = try await client.action(
+      "accountDeletion:deleteWorkOSUser",
+      with: [String: (any ConvexEncodable)?]()
+    )
+    return (result.identityDeleted, result.reason)
+  }
+
   // MARK: - Navigation
 
   func setView(_ view: ViewKey) {

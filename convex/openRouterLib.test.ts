@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  EMAIL_ANALYSIS_PROMPT_PREFIX,
+  assertEmailAnalysisPrompt,
   buildChatCompletionPayload,
   filterFreeModels,
   isFreePricing,
@@ -137,5 +139,17 @@ describe("openRouterLib", () => {
     );
     expect(payload.temperature).toBe(0);
     expect(payload.reasoning).toEqual({ effort: "low", exclude: true });
+    const messages = payload.messages as Array<{ role: string; content: string }>;
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[1]?.content).toBe("analyze this");
+  });
+
+  it("accepts only Dimo email-analysis prompts", () => {
+    expect(() => assertEmailAnalysisPrompt("hack the planet")).toThrow(
+      /Dimo email extraction/,
+    );
+    expect(() =>
+      assertEmailAnalysisPrompt(`${EMAIL_ANALYSIS_PROMPT_PREFIX}\n\nFrom: a@b.c`),
+    ).not.toThrow();
   });
 });

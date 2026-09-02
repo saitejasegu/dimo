@@ -369,6 +369,45 @@ describe("Convex typed sync protocol", () => {
     expect(emails.latestRevision).toBe(2);
   });
 
+  it("strips normalizedBodyText for pending email suggestions", async () => {
+    const t = convexTest(schema, modules).withIdentity({
+      tokenIdentifier: "https://api.workos.com/|user-a",
+    });
+    await t.mutation(pushEmailMessages, {
+      workspaceId: "global",
+      operations: [
+        {
+          operationId: "email-pending",
+          workspaceId: "global",
+          entityId: "10:accountsub:msg-pending",
+          version: { timestamp: 100, counter: 0, deviceId: "device-a" },
+          deleted: false,
+          accountId: "accountsub",
+          accountEmail: "user@example.com",
+          gmailMessageId: "msg-pending",
+          threadId: "thread-1",
+          senderAddress: "store@example.com",
+          subject: "Receipt",
+          snippet: "Paid 10.00",
+          internalDate: 100,
+          normalizedBodyText: "SECRET pending body",
+          state: "pendingPurchase",
+          createdAt: 100,
+          updatedAt: 100,
+        },
+      ],
+    });
+
+    const emails = await t.query(pullEmailMessages, {
+      workspaceId: "global",
+      afterRevision: 0,
+      limit: 100,
+    });
+    expect(emails.entities).toHaveLength(1);
+    expect(emails.entities[0].normalizedBodyText).toBeNull();
+    expect(emails.entities[0].state).toBe("pendingPurchase");
+  });
+
   it("stores name and email on the workspace from auth and preferences", async () => {
     const t = convexTest(schema, modules).withIdentity({
       tokenIdentifier: "https://api.workos.com/|user-a",

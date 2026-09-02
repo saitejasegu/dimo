@@ -8,6 +8,7 @@ import {
   HOUR_MS,
   HOURLY_ANALYSIS_LIMIT,
   STANDARD_OUTPUT_TOKEN_LIMIT,
+  assertEmailAnalysisPrompt,
   buildChatCompletionPayload,
   filterFreeModels,
   type OpenRouterCatalogModel,
@@ -207,12 +208,7 @@ export const analyzeEmail = actionGeneric({
     const identity = await requireIdentity(ctx);
     const apiKey = requireOpenRouterApiKey();
 
-    if (!args.prompt.trim()) {
-      throw new Error("Analysis prompt is empty.");
-    }
-    if (args.prompt.length > 200_000) {
-      throw new Error("Analysis prompt is too large.");
-    }
+    assertEmailAnalysisPrompt(args.prompt);
 
     const slot: {
       allowed: boolean;

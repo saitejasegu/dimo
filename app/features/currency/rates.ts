@@ -164,3 +164,13 @@ export function cacheRates(table: RateTable) {
     // Storage full / unavailable — non-fatal, we keep the in-memory table.
   }
 }
+
+/** Drop the offline rate cache (call on sign-out / account wipe). */
+export function clearCachedRates() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(CACHE_KEY);
+  } catch {
+    // Storage unavailable — non-fatal.
+  }
+}
