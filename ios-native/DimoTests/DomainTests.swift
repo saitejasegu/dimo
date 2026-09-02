@@ -4539,6 +4539,33 @@ final class AuthProviderKindTests: XCTestCase {
     XCTAssertEqual(AuthProviderKind.apple.workOSProvider, "AppleOAuth")
     XCTAssertEqual(AuthProviderKind.google.workOSProvider, "GoogleOAuth")
   }
+
+  func testRefreshFailuresClassifyTerminalVersusTransient() {
+    let invalidGrant = #"{"error":"invalid_grant","error_description":"expired"}"#.data(using: .utf8)!
+    let terminal = AuthError.fromHTTP(status: 400, data: invalidGrant)
+    XCTAssertTrue(terminal.isTerminalRefresh)
+
+    let rateLimited = AuthError.fromHTTP(status: 429, data: Data("slow down".utf8))
+    XCTAssertTrue(AuthError.isTransient(rateLimited))
+    XCTAssertFalse(rateLimited.isTerminalRefresh)
+
+    let serverError = AuthError.fromHTTP(status: 503, data: Data())
+    XCTAssertTrue(AuthError.isTransient(serverError))
+
+    let timeout = URLError(.timedOut)
+    XCTAssertTrue(AuthError.isTransient(timeout))
+  }
+
+  func testJwtExpiryReadsIntegerExpClaims() {
+    // {"exp": 1700000000}
+    let payload = Data("{\"exp\":1700000000}".utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+    let token = "hdr.\(payload).sig"
+    let expiry = WorkOSAPI.jwtExpiry(token)
+    XCTAssertEqual(expiry?.timeIntervalSince1970, 1_700_000_000)
+  }
 }
 
 final class StatsPeriodNavigationTests: XCTestCase {

@@ -13,6 +13,9 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   private let lock = NSLock()
   private var cached: WorkOSSession?
   private var onIdToken: (@Sendable (String?) -> Void)?
+  /// Single-flight refresh so concurrent TokenRefresher + cold-start paths
+  /// cannot race WorkOS refresh-token rotation past the 30s grace window.
+  private var refreshTask: Task<WorkOSSession, Error>?
 
   /// Provider used for the most recent successful sign-in, so a fresh `login`
   /// does not silently force Google on someone who signed up with Apple.
@@ -29,26 +32,40 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
     lock.withLock { cached }
   }
 
-  func restoreSession() async -> WorkOSSession? {
-    do {
-      return try await withThrowingTaskGroup(of: WorkOSSession.self) { group in
-        group.addTask { [self] in
-          try await loginFromCache(onIdToken: { _ in })
-        }
-        group.addTask {
-          try await Task.sleep(for: .seconds(10))
-          throw URLError(.timedOut)
-        }
+  var hasPersistedRefreshToken: Bool {
+    KeychainStore.get(account: refreshAccount) != nil
+  }
 
-        defer { group.cancelAll() }
-        guard let session = try await group.next() else {
-          throw AuthError.notAuthenticated
+  /// Cold-start restore. Retries transient network failures and only clears
+  /// Keychain on a terminal `invalid_grant` (session truly over).
+  func restoreSession() async -> WorkOSSession? {
+    guard hasPersistedRefreshToken else { return nil }
+
+    var lastTransient: Error?
+    for attempt in 0..<5 {
+      do {
+        return try await loginFromCache(onIdToken: { _ in })
+      } catch let error as AuthError where error.isTerminalRefresh {
+        // Session revoked / expired at WorkOS — must re-authenticate.
+        clearPersisted()
+        return nil
+      } catch {
+        if AuthError.isTransient(error) || error is URLError {
+          lastTransient = error
+          let delay = min(8.0, pow(2.0, Double(attempt)))
+          try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+          continue
         }
-        return session
+        // Unknown errors: keep the refresh token so a later launch can recover.
+        lastTransient = error
+        break
       }
-    } catch {
-      return nil
     }
+
+    // Still have a refresh token but WorkOS / network was unreachable. Keep
+    // Keychain so the next launch can succeed — do not force a false logout.
+    _ = lastTransient
+    return nil
   }
 
   func signIn(provider: String) async throws -> WorkOSSession {
@@ -60,17 +77,11 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   }
 
   func refreshIfNeeded(force: Bool = false) async throws -> WorkOSSession {
-    guard let current = lock.withLock({ cached }) else { throw AuthError.notAuthenticated }
-    if !force, current.expiresAt.timeIntervalSinceNow > 60 {
+    if !force, let current = lock.withLock({ cached }),
+       current.expiresAt.timeIntervalSinceNow > 60 {
       return current
     }
-    let session = try await WorkOSAPI.refresh(
-      refreshToken: current.refreshToken,
-      clientId: AppConfig.workOSClientID
-    )
-    try persist(session)
-    onIdToken?(session.accessToken)
-    return session
+    return try await refreshSingleFlight(force: force)
   }
 
   // MARK: AuthProvider
@@ -97,11 +108,7 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
       onIdToken(current.accessToken)
       return current
     }
-    guard let refresh = KeychainStore.get(account: refreshAccount) else {
-      throw AuthError.notAuthenticated
-    }
-    let session = try await WorkOSAPI.refresh(refreshToken: refresh, clientId: AppConfig.workOSClientID)
-    try persist(session)
+    let session = try await refreshSingleFlight(force: true)
     onIdToken(session.accessToken)
     return session
   }
@@ -111,6 +118,48 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   }
 
   // MARK: Private
+
+  private func refreshSingleFlight(force: Bool) async throws -> WorkOSSession {
+    if !force, let current = lock.withLock({ cached }),
+       current.expiresAt.timeIntervalSinceNow > 60 {
+      return current
+    }
+
+    let existing = lock.withLock { refreshTask }
+    if let existing {
+      return try await existing.value
+    }
+
+    let task = Task<WorkOSSession, Error> { [weak self] in
+      guard let self else { throw AuthError.notAuthenticated }
+      defer { self.lock.withLock { self.refreshTask = nil } }
+
+      let refreshToken: String
+      if let cachedToken = self.lock.withLock({ self.cached?.refreshToken }) {
+        refreshToken = cachedToken
+      } else if let stored = KeychainStore.get(account: self.refreshAccount) {
+        refreshToken = stored
+      } else {
+        throw AuthError.notAuthenticated
+      }
+
+      do {
+        let session = try await WorkOSAPI.refresh(
+          refreshToken: refreshToken,
+          clientId: AppConfig.workOSClientID
+        )
+        try self.persist(session)
+        self.onIdToken?(session.accessToken)
+        return session
+      } catch let error as AuthError where error.isTerminalRefresh {
+        self.clearPersisted()
+        throw error
+      }
+    }
+
+    lock.withLock { refreshTask = task }
+    return try await task.value
+  }
 
   private func performSignIn(provider: String) async throws -> WorkOSSession {
     let verifier = PKCE.makeVerifier()
@@ -144,6 +193,8 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
   }
 
   private func persist(_ session: WorkOSSession) throws {
+    // Persist the rotated refresh token before publishing the session so a
+    // crash mid-refresh cannot leave the retired token as the only copy.
     try KeychainStore.set(session.refreshToken, account: refreshAccount)
     let userData = try JSONEncoder().encode(session.user)
     try KeychainStore.set(String(data: userData, encoding: .utf8) ?? "", account: userAccount)
@@ -154,7 +205,11 @@ final class WorkOSAuthProvider: NSObject, AuthProvider, @unchecked Sendable {
     KeychainStore.delete(account: refreshAccount)
     KeychainStore.delete(account: userAccount)
     UserDefaults.standard.removeObject(forKey: lastProviderKey)
-    lock.withLock { cached = nil }
+    lock.withLock {
+      cached = nil
+      refreshTask?.cancel()
+      refreshTask = nil
+    }
   }
 
   @MainActor

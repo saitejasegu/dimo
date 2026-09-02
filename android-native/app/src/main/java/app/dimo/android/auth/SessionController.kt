@@ -12,6 +12,7 @@ import app.dimo.android.store.AppStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,12 +50,20 @@ class SessionController(context: Context) {
 
   suspend fun bootstrap() {
     phase = SessionPhase.Loading
-    val session = authProvider.restoreSession()
-    if (session != null) {
-      enterSignedIn(session)
-    } else {
-      phase = SessionPhase.SignedOut
+    authProvider.restoreSession()?.let {
+      enterSignedIn(it)
+      return
     }
+    // Transient network failure leaves the refresh token on disk. Retry once
+    // before showing sign-in so a flaky cold start does not look like a logout.
+    if (authProvider.hasPersistedRefreshToken) {
+      delay(2_000)
+      authProvider.restoreSession()?.let {
+        enterSignedIn(it)
+        return
+      }
+    }
+    phase = SessionPhase.SignedOut
   }
 
   suspend fun signInWithGoogle() {
@@ -104,7 +113,21 @@ class SessionController(context: Context) {
     )
     store.start()
     appStore = store
-    tokenRefresher = TokenRefresher(authProvider, scope).also { it.start() }
+    val refresher = TokenRefresher(authProvider, scope)
+    refresher.onTerminalFailure = {
+      scope.launch {
+        tokenRefresher?.stop()
+        tokenRefresher = null
+        appStore?.tearDown()
+        appStore = null
+        userId = null
+        profileName = null
+        profileEmail = null
+        phase = SessionPhase.SignedOut
+      }
+    }
+    tokenRefresher = refresher
+    refresher.start()
     phase = SessionPhase.SignedIn
   }
 }

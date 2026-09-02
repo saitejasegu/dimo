@@ -4,7 +4,11 @@ import android.net.Uri
 import android.util.Base64
 import app.dimo.android.app.AppConfig
 import java.io.IOException
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -49,13 +53,58 @@ sealed class AuthException(message: String) : Exception(message) {
   data object MissingCode : AuthException("Missing authorization code")
   data object NotAuthenticated : AuthException("Not authenticated")
   data class Server(val detail: String) : AuthException(detail)
+  /** Refresh token revoked/expired — clear storage and send user to sign-in. */
+  data class TerminalRefresh(val detail: String) : AuthException(detail)
+  /** Network / 429 / 5xx — keep storage and retry; never treat as sign-out. */
+  data class TransientRefresh(val detail: String) : AuthException(detail)
+
+  val isTerminalRefresh: Boolean
+    get() = this is TerminalRefresh || this is NotAuthenticated || this is MissingRefreshToken
+
+  companion object {
+    fun fromHttp(status: Int, body: String): AuthException {
+      val oauthError = oauthErrorCode(body)
+      if (status == 400 && oauthError == "invalid_grant") {
+        return TerminalRefresh(sanitize(body, "Session expired"))
+      }
+      if (status == 408 || status == 429 || status in 500..599) {
+        return TransientRefresh(sanitize(body, "HTTP $status"))
+      }
+      if (status in 400..499) {
+        return TerminalRefresh(sanitize(body, "HTTP $status"))
+      }
+      return TransientRefresh(sanitize(body, "HTTP $status"))
+    }
+
+    fun isTransient(error: Throwable): Boolean =
+      error is TransientRefresh || error is IOException
+
+    private fun oauthErrorCode(body: String): String? = runCatching {
+      val json = JSONObject(body)
+      when (val error = json.opt("error")) {
+        is String -> error
+        is JSONObject -> error.optString("code").ifEmpty { null }
+        else -> null
+      }
+    }.getOrNull()
+
+    private fun sanitize(body: String, fallback: String): String {
+      val trimmed = body.trim()
+      if (trimmed.isEmpty()) return fallback
+      return trimmed.take(200)
+    }
+  }
 }
 
 object WorkOSAPI {
   private val json = Json { ignoreUnknownKeys = true }
   private val jsonMediaType = "application/json".toMediaType()
 
-  private val client: OkHttpClient by lazy { OkHttpClient.Builder().build() }
+  private val client: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+      .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+      .build()
+  }
 
   @Serializable
   private data class TokenResponse(
@@ -89,7 +138,31 @@ object WorkOSAPI {
     )
   }
 
-  suspend fun refresh(refreshToken: String, clientId: String): WorkOSSession {
+  /** Retries transient failures; surfaces terminal `invalid_grant` immediately. */
+  suspend fun refresh(
+    refreshToken: String,
+    clientId: String,
+    maxAttempts: Int = 4,
+  ): WorkOSSession {
+    var lastError: Throwable? = null
+    repeat(maxAttempts.coerceAtLeast(1)) { attempt ->
+      try {
+        return refreshOnce(refreshToken, clientId)
+      } catch (error: AuthException) {
+        if (error.isTerminalRefresh) throw error
+        lastError = error
+      } catch (error: IOException) {
+        lastError = AuthException.TransientRefresh(error.message ?: "Network error")
+      }
+      if (attempt + 1 < maxAttempts) {
+        val delayMs = (min(8.0, 2.0.pow(attempt.toDouble())) * (0.75 + Random.nextDouble()) * 1000).toLong()
+        delay(delayMs)
+      }
+    }
+    throw lastError ?: AuthException.TransientRefresh("Refresh failed")
+  }
+
+  private suspend fun refreshOnce(refreshToken: String, clientId: String): WorkOSSession {
     val body = JSONObject(
       mapOf(
         "client_id" to clientId,
@@ -100,7 +173,6 @@ object WorkOSAPI {
     val decoded = post(body)
     return WorkOSSession(
       accessToken = decoded.accessToken,
-      // WorkOS may or may not rotate the refresh token; keep the old one if not.
       refreshToken = decoded.refreshToken ?: refreshToken,
       user = decoded.user,
       expiresAt = jwtExpiry(decoded.accessToken) ?: (System.currentTimeMillis() + 3_600_000),
@@ -144,13 +216,12 @@ object WorkOSAPI {
       client.newCall(request).execute().use { response ->
         val text = response.body?.string().orEmpty()
         if (!response.isSuccessful) {
-          throw AuthException.Server(text.ifEmpty { "HTTP ${response.code}" })
+          throw AuthException.fromHttp(response.code, text)
         }
         json.decodeFromString(TokenResponse.serializer(), text)
       }
     } catch (io: IOException) {
-      // Network failures stay retryable; they must not read as a payload error.
-      throw AuthException.Server(io.message ?: "Network error")
+      throw AuthException.TransientRefresh(io.message ?: "Network error")
     }
   }
 }

@@ -41,9 +41,19 @@ final class SessionController {
     phase = .loading
     if let session = await authProvider.restoreSession() {
       await enterSignedIn(session: session)
-    } else {
-      phase = .signedOut
+      return
     }
+    // Transient network failure leaves the refresh token in Keychain. Keep the
+    // splash briefly and retry once more before showing sign-in so a flaky
+    // cold start does not look like a logout.
+    if authProvider.hasPersistedRefreshToken {
+      try? await Task.sleep(nanoseconds: 2_000_000_000)
+      if let session = await authProvider.restoreSession() {
+        await enterSignedIn(session: session)
+        return
+      }
+    }
+    phase = .signedOut
   }
 
   func signIn(with kind: AuthProviderKind) async throws {
@@ -89,8 +99,24 @@ final class SessionController {
     )
     await store.start()
     appStore = store
-    tokenRefresher = TokenRefresher(authProvider: authProvider)
-    tokenRefresher?.start()
+    let refresher = TokenRefresher(authProvider: authProvider)
+    refresher.onTerminalFailure = { [weak self] in
+      Task { @MainActor in
+        guard let self else { return }
+        // Terminal WorkOS session end — sign out UI without deleting local DBs
+        // mid-refresh; next explicit sign-in reuses account-scoped storage.
+        self.tokenRefresher?.stop()
+        self.tokenRefresher = nil
+        await self.appStore?.tearDown()
+        self.appStore = nil
+        self.userId = nil
+        self.profileName = nil
+        self.profileEmail = nil
+        self.phase = .signedOut
+      }
+    }
+    tokenRefresher = refresher
+    refresher.start()
     phase = .signedIn
   }
 }
