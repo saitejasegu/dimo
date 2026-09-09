@@ -25,6 +25,11 @@ export function useOverview() {
     const totals = budgetTotals(transactions, limits);
     const active = activeRecurring(recurring);
     const now = new Date();
+    const upcoming = upcomingBills(recurring, transactions, undefined, now);
+    const upcomingTotal = upcoming.reduce(
+      (sum, bill) => sum + recurringAmountInDefault(bill, currency, rates),
+      0,
+    );
     const monthTransactions = transactions.filter((t) => {
       const date = new Date(t.occurredAt ?? 0);
       return (
@@ -34,13 +39,13 @@ export function useOverview() {
     });
     return {
       totals,
-      dailyAllowance: dailyBudgetAllowance(totals, now),
+      dailyAllowanceAfterUpcoming: dailyBudgetAllowance(totals, now, upcomingTotal),
       recurringTotal: monthlyRecurringTotal(recurring, (r) =>
         recurringAmountInDefault(r, currency, rates),
       ),
       activeCount: active.length,
       recent: transactions,
-      upcoming: upcomingBills(recurring, transactions),
+      upcoming,
       allUpcoming: allUpcomingBills(recurring, transactions),
       topCategories: topCategories(transactions, 4),
       transactionCount: monthTransactions.length,

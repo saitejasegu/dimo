@@ -174,11 +174,12 @@ object BudgetSelectors {
   fun dailyBudgetAllowance(
     totals: BudgetTotals,
     now: LocalDate = LocalDate.now(DateHelpers.zone()),
+    upcomingTotal: Double = 0.0,
   ): DailyBudgetAllowance? {
     if (totals.totalLimit <= 0 || totals.left < 0) return null
     val daysRemaining = now.lengthOfMonth() - now.dayOfMonth + 1
     return DailyBudgetAllowance(
-      amount = totals.left / daysRemaining,
+      amount = (totals.left - upcomingTotal).coerceAtLeast(0.0) / daysRemaining,
       daysRemaining = daysRemaining,
     )
   }

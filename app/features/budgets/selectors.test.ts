@@ -94,6 +94,22 @@ describe("dailyBudgetAllowance", () => {
     });
   });
 
+  it("reserves upcoming bills before dividing the remaining budget", () => {
+    expect(dailyBudgetAllowance(totals, new Date(2026, 7, 22), 125)).toEqual({
+      amount: 17.5,
+      daysRemaining: 10,
+    });
+  });
+
+  it("shows zero spendable money when upcoming bills consume or exceed the budget", () => {
+    for (const upcoming of [300, 400]) {
+      expect(dailyBudgetAllowance(totals, new Date(2026, 7, 22), upcoming)).toEqual({
+        amount: 0,
+        daysRemaining: 10,
+      });
+    }
+  });
+
   it("shows a zero allowance when the budget is exactly exhausted", () => {
     expect(dailyBudgetAllowance({ ...totals, left: 0 }, new Date(2026, 7, 31))).toEqual({
       amount: 0,

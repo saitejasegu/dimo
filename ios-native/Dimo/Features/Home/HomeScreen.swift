@@ -112,7 +112,7 @@ struct HomeScreen: View {
 
   private var totals: BudgetTotals { entities.monthBudgetTotals }
   private var dailyAllowance: DailyBudgetAllowance? {
-    BudgetSelectors.dailyBudgetAllowance(totals)
+    BudgetSelectors.dailyBudgetAllowance(totals, upcomingTotal: entities.upcomingThisMonthTotal)
   }
 
   private var homeList: (groups: [DayGroup], hasMore: Bool, filteredCount: Int) {
@@ -140,60 +140,51 @@ struct HomeScreen: View {
   }
 
   private var hero: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Text("Spent in \(currentMonthName)")
-        .font(DimoFont.body(13))
-        .foregroundStyle(Theme.sideMuted)
-        .padding(.bottom, 8)
-      Text(Formatting.money(totals.totalSpent, currency: entities.currency))
-        .font(DimoFont.display(34, weight: .semibold))
-        .foregroundStyle(Theme.sideText)
-        .padding(.bottom, 8)
-      HStack(alignment: .bottom, spacing: 16) {
-        Text("\(totals.transactionCount) transactions")
-          .font(DimoFont.body(12))
-          .foregroundStyle(Theme.sideSub)
-        Spacer()
-        VStack(alignment: .trailing, spacing: 2) {
-          Text("Budget left")
-            .font(DimoFont.body(11))
+    let allowance = dailyAllowance
+    return VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(alignment: .firstTextBaseline) {
+          Text(allowance == nil ? "Budget left" : "After upcoming")
             .foregroundStyle(Theme.sideMuted)
-          Text(Formatting.money(totals.left, currency: entities.currency))
-            .font(DimoFont.display(18, weight: .semibold))
-            .foregroundStyle(totals.left < 0 ? Theme.danger : Theme.greenBright)
-        }
-      }
-      if let dailyAllowance {
-        Divider()
-          .overlay(Theme.sideText.opacity(0.12))
-          .padding(.vertical, 16)
-        HStack(alignment: .center, spacing: 12) {
-          VStack(alignment: .leading, spacing: 3) {
-            Text("Available to spend per day")
-              .font(DimoFont.body(11))
-              .foregroundStyle(Theme.sideMuted)
-            Text(
-              dailyAllowance.daysRemaining == 1
-                ? "Today"
-                : "\(dailyAllowance.daysRemaining) days left, including today"
-            )
-              .font(DimoFont.body(10))
-              .foregroundStyle(Theme.sideSub)
-          }
           Spacer(minLength: 8)
-          HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(Formatting.money(dailyAllowance.amount, currency: entities.currency))
-              .font(DimoFont.display(18, weight: .semibold))
-              .foregroundStyle(Theme.greenBright)
+          if let allowance {
+            Text(allowance.daysRemaining == 1 ? "Today" : "\(allowance.daysRemaining) days left")
+              .foregroundStyle(Theme.sideSub)
+              .accessibilityLabel("\(allowance.daysRemaining) days left, including today")
+          }
+        }
+        .font(DimoFont.body(11))
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+          Text(Formatting.money(allowance?.amount ?? totals.left, currency: entities.currency))
+            .font(DimoFont.display(30, weight: .semibold))
+            .foregroundStyle(allowance == nil && totals.left < 0 ? Theme.danger : Theme.greenBright)
+          if allowance != nil {
             Text("/ day")
-              .font(DimoFont.body(10, weight: .medium))
+              .font(DimoFont.body(12, weight: .medium))
               .foregroundStyle(Theme.sideMuted)
           }
-          .fixedSize(horizontal: true, vertical: false)
         }
       }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack {
+          (Text("Spent ").foregroundStyle(Theme.sideMuted)
+            + Text(Formatting.money(totals.totalSpent, currency: entities.currency)).foregroundStyle(Theme.sideText))
+          Spacer(minLength: 8)
+          (Text("Left ").foregroundStyle(Theme.sideMuted)
+            + Text(Formatting.money(totals.left, currency: entities.currency)).foregroundStyle(totals.left < 0 ? Theme.danger : Theme.sideText))
+        }
+        .font(DimoFont.body(12, weight: .medium))
+        Text("\(currentMonthName) · \(totals.transactionCount) \(totals.transactionCount == 1 ? "transaction" : "transactions") · \(totals.pct)% used")
+          .font(DimoFont.body(10))
+          .foregroundStyle(Theme.sideSub)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(.white.opacity(0.05))
     }
-    .padding(22)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Theme.inverse)
     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -611,7 +602,7 @@ struct HomeScreen: View {
   }
 
   private var currentMonthName: String {
-    DateHelpers.formatMonthName()
+    Date().formatted(.dateTime.month(.abbreviated))
   }
 }
 

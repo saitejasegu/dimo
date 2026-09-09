@@ -9,7 +9,6 @@ import { useActivity } from "@/features/transactions/hooks";
 import { usePagedTransactions } from "@/features/transactions/usePagedTransactions";
 import { recurringAmountInDefault } from "@/features/currency/rates";
 import { Avatar } from "@/components/ui/Avatar";
-import { HeroCard } from "@/components/ui/Card";
 import { TransactionRow } from "@/components/common/TransactionRow";
 import { PaymentMethodFilter } from "@/components/common/PaymentMethodFilter";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -17,6 +16,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { FilterIcon, ChevronIcon } from "@/components/ui/icons";
 import { CategoryMultiSelect } from "@/components/common/CategoryMultiSelect";
 import { Button } from "@/components/ui/Button";
+import { BudgetSummary } from "@/components/common/BudgetSummary";
 import { UpcomingBillsPanel } from "@/components/common/UpcomingBillsPanel";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
@@ -27,7 +27,7 @@ export function HomeScreen() {
   const actions = useAppActions();
   const {
     totals,
-    dailyAllowance,
+    dailyAllowanceAfterUpcoming,
     upcoming,
     allUpcoming,
     transactionCount,
@@ -46,7 +46,6 @@ export function HomeScreen() {
   const showUpcomingSection = allUpcoming.length > 0;
 
   const initial = profile.name.charAt(0).toUpperCase();
-  const monthSub = `${transactionCount} transactions`;
   const thisMonthTotal = upcoming.reduce(
     (sum, item) =>
       sum +
@@ -67,37 +66,13 @@ export function HomeScreen() {
               <Avatar initial={initial} src={profile.photoUrl} onClick={actions.openSettings} />
             }
           />
-          <HeroCard className="mt-4 p-[22px]">
-            <div className="mb-2 text-[13px] text-side-muted">
-              Spent in {new Date().toLocaleDateString(undefined, { month: "long" })}
-            </div>
-            <div className="mb-2 font-display text-[34px] font-semibold">
-              {money(totals.totalSpent, currency)}
-            </div>
-            <div className="flex items-end justify-between gap-4">
-              <div className="text-xs text-side-sub">{monthSub}</div>
-              <div className="text-right">
-                <div className="text-[11px] text-side-muted">Budget left</div>
-                <div className={`font-display text-lg font-semibold ${totals.left < 0 ? "text-danger" : "text-green-bright"}`}>{money(totals.left, currency)}</div>
-              </div>
-            </div>
-            {dailyAllowance ? (
-              <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
-                <div>
-                  <div className="text-[11px] text-side-muted">Available to spend per day</div>
-                  <div className="mt-0.5 text-[10px] text-side-sub">
-                    {dailyAllowance.daysRemaining === 1
-                      ? "Today"
-                      : `${dailyAllowance.daysRemaining} days left, including today`}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right font-display text-lg font-semibold text-green-bright">
-                  {money(dailyAllowance.amount, currency)}
-                  <span className="ml-1 text-[10px] font-medium text-side-muted">/ day</span>
-                </div>
-              </div>
-            ) : null}
-          </HeroCard>
+          <BudgetSummary
+            totals={totals}
+            afterUpcoming={dailyAllowanceAfterUpcoming}
+            currency={currency}
+            transactionCount={transactionCount}
+            className="mt-4"
+          />
         </>
       }
     >

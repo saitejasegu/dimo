@@ -1118,6 +1118,16 @@ final class BudgetSelectorTests: XCTestCase {
     )
 
     XCTAssertEqual(
+      BudgetSelectors.dailyBudgetAllowance(totals, now: now, calendar: cal, upcomingTotal: 125),
+      DailyBudgetAllowance(amount: 17.5, daysRemaining: 10)
+    )
+    for upcoming in [300.0, 400.0] {
+      XCTAssertEqual(
+        BudgetSelectors.dailyBudgetAllowance(totals, now: now, calendar: cal, upcomingTotal: upcoming)?.amount,
+        0
+      )
+    }
+    XCTAssertEqual(
       BudgetSelectors.dailyBudgetAllowance(totals, now: now, calendar: cal),
       DailyBudgetAllowance(amount: 30, daysRemaining: 10)
     )

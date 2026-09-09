@@ -92,17 +92,19 @@ export function budgetTotals(
 
 /**
  * Average available spend for each remaining local calendar day, including today.
+ * Optionally reserve upcoming bills first; spendable money cannot fall below zero.
  * A missing budget or an already-exceeded budget has no useful daily allowance.
  */
 export function dailyBudgetAllowance(
   totals: BudgetTotals,
   now = new Date(),
+  upcomingTotal = 0,
 ): DailyBudgetAllowance | null {
   if (totals.totalLimit <= 0 || totals.left < 0) return null;
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysRemaining = lastDay - now.getDate() + 1;
   return {
-    amount: totals.left / daysRemaining,
+    amount: Math.max(0, totals.left - upcomingTotal) / daysRemaining,
     daysRemaining,
   };
 }

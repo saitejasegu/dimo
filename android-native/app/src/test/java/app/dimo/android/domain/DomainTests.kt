@@ -978,6 +978,16 @@ class BudgetSelectorTests : ZonedTest() {
     )
 
     assertEquals(
+      DailyBudgetAllowance(amount = 17.5, daysRemaining = 10),
+      BudgetSelectors.dailyBudgetAllowance(totals, LocalDate.of(2026, 8, 22), upcomingTotal = 125.0),
+    )
+    for (upcoming in listOf(300.0, 400.0)) {
+      assertEquals(
+        DailyBudgetAllowance(amount = 0.0, daysRemaining = 10),
+        BudgetSelectors.dailyBudgetAllowance(totals, LocalDate.of(2026, 8, 22), upcomingTotal = upcoming),
+      )
+    }
+    assertEquals(
       DailyBudgetAllowance(amount = 30.0, daysRemaining = 10),
       BudgetSelectors.dailyBudgetAllowance(totals, LocalDate.of(2026, 8, 22)),
     )

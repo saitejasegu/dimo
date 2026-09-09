@@ -40,6 +40,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -118,10 +120,10 @@ fun HomeScreen(
     store.transactions,
     TransactionSelectors.activeCategoryLimits(store.categories),
   )
-  val dailyAllowance = BudgetSelectors.dailyBudgetAllowance(totals)
   val upcomingThisMonth = RecurringSelectors.upcomingBills(store.recurring, store.transactions)
   val upcomingAll = RecurringSelectors.allUpcomingBills(store.recurring, store.transactions)
   val upcomingThisMonthTotal = upcomingTotal(upcomingThisMonth, store)
+  val dailyAllowance = BudgetSelectors.dailyBudgetAllowance(totals, upcomingTotal = upcomingThisMonthTotal)
   val filterActive = store.filter != TransactionFilter()
 
   Box(modifier = modifier.fillMaxSize()) {
@@ -141,9 +143,10 @@ fun HomeScreen(
         )
         Spacer(modifier = Modifier.height(16.dp))
         HomeHero(
-          monthName = LocalDate.now().month.getDisplayName(TextStyle.FULL, Locale.getDefault()),
+          monthName = LocalDate.now().month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
           totalSpent = totals.totalSpent,
           budgetLeft = totals.left,
+          budgetPercent = totals.pct,
           dailyAllowance = dailyAllowance,
           transactionCount = totals.transactionCount,
           store = store,
@@ -450,107 +453,61 @@ private fun HomeHero(
   monthName: String,
   totalSpent: Double,
   budgetLeft: Double,
+  budgetPercent: Int,
   dailyAllowance: DailyBudgetAllowance?,
   transactionCount: Int,
   store: AppStore,
   modifier: Modifier = Modifier,
 ) {
   Column(
-    modifier = modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(20.dp))
-      .background(DimoColors.inverse)
-      .padding(22.dp),
+    modifier = modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(DimoColors.inverse),
   ) {
-    Text(
-      text = "Spent in $monthName",
-      style = DimoFont.body(13f),
-      color = DimoColors.sideMuted,
-      modifier = Modifier.padding(bottom = 8.dp),
-    )
-    Text(
-      text = Formatting.money(totalSpent, store.currency),
-      style = DimoFont.display(34f, FontWeight.SemiBold),
-      color = DimoColors.sideText,
-      modifier = Modifier.padding(bottom = 8.dp),
-    )
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.Bottom,
-      horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-      Text(
-        text = "$transactionCount transactions",
-        style = DimoFont.body(12f),
-        color = DimoColors.sideSub,
-        modifier = Modifier.weight(1f),
-      )
-      Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-      ) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
-          text = "Budget left",
-          style = DimoFont.body(11f),
-          color = DimoColors.sideMuted,
+          text = if (dailyAllowance != null) "After upcoming" else "Budget left",
+          style = DimoFont.body(11f), color = DimoColors.sideMuted,
+          modifier = Modifier.weight(1f),
         )
+        if (dailyAllowance != null) {
+          Text(
+            text = if (dailyAllowance.daysRemaining == 1) "Today" else "${dailyAllowance.daysRemaining} days left",
+            style = DimoFont.body(11f), color = DimoColors.sideSub,
+            modifier = Modifier.semantics {
+              contentDescription = "${dailyAllowance.daysRemaining} days left, including today"
+            },
+          )
+        }
+      }
+      Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-          text = Formatting.money(budgetLeft, store.currency),
-          style = DimoFont.display(18f, FontWeight.SemiBold),
-          color = if (budgetLeft < 0) DimoColors.danger else DimoColors.greenBright,
+          text = Formatting.money(dailyAllowance?.amount ?: budgetLeft, store.currency),
+          style = DimoFont.display(30f, FontWeight.SemiBold),
+          color = if (dailyAllowance == null && budgetLeft < 0) DimoColors.danger else DimoColors.greenBright,
+          modifier = Modifier.alignByBaseline().weight(1f, fill = false),
         )
+        if (dailyAllowance != null) {
+          Text("/ day", style = DimoFont.body(12f, FontWeight.Medium), color = DimoColors.sideMuted,
+            modifier = Modifier.alignByBaseline())
+        }
       }
     }
-    if (dailyAllowance != null) {
-      Spacer(modifier = Modifier.height(16.dp))
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(1.dp)
-          .background(DimoColors.sideText.copy(alpha = 0.12f)),
-      )
-      Spacer(modifier = Modifier.height(16.dp))
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-      ) {
-        Column(
-          modifier = Modifier.weight(1f),
-          verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-          Text(
-            text = "Available to spend per day",
-            style = DimoFont.body(11f),
-            color = DimoColors.sideMuted,
-          )
-          Text(
-            text = if (dailyAllowance.daysRemaining == 1) {
-              "Today"
-            } else {
-              "${dailyAllowance.daysRemaining} days left, including today"
-            },
-            style = DimoFont.body(10f),
-            color = DimoColors.sideSub,
-          )
-        }
-        Row(
-          verticalAlignment = Alignment.Bottom,
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-          Text(
-            text = Formatting.money(dailyAllowance.amount, store.currency),
-            style = DimoFont.display(18f, FontWeight.SemiBold),
-            color = DimoColors.greenBright,
-          )
-          Text(
-            text = "/ day",
-            style = DimoFont.body(10f, FontWeight.Medium),
-            color = DimoColors.sideMuted,
-            modifier = Modifier.padding(bottom = 2.dp),
-          )
-        }
+    Column(
+      modifier = Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.05f))
+        .padding(horizontal = 16.dp, vertical = 8.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Spent ${Formatting.money(totalSpent, store.currency)}",
+          style = DimoFont.body(12f, FontWeight.Medium), color = DimoColors.sideText,
+          modifier = Modifier.weight(1f))
+        Text("Left ${Formatting.money(budgetLeft, store.currency)}",
+          style = DimoFont.body(12f, FontWeight.Medium),
+          color = if (budgetLeft < 0) DimoColors.danger else DimoColors.sideText,
+          modifier = Modifier.weight(1f), textAlign = TextAlign.End)
       }
+      Text("$monthName · $transactionCount ${if (transactionCount == 1) "transaction" else "transactions"} · $budgetPercent% used",
+        style = DimoFont.body(10f), color = DimoColors.sideSub)
     }
   }
 }

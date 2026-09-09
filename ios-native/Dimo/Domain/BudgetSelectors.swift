@@ -181,14 +181,15 @@ enum BudgetSelectors {
   static func dailyBudgetAllowance(
     _ totals: BudgetTotals,
     now: Date = Date(),
-    calendar: Calendar = .current
+    calendar: Calendar = .current,
+    upcomingTotal: Double = 0
   ) -> DailyBudgetAllowance? {
     guard totals.totalLimit > 0, totals.left >= 0 else { return nil }
     let day = calendar.component(.day, from: now)
     let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? day
     let daysRemaining = max(1, daysInMonth - day + 1)
     return DailyBudgetAllowance(
-      amount: totals.left / Double(daysRemaining),
+      amount: max(0, totals.left - upcomingTotal) / Double(daysRemaining),
       daysRemaining: daysRemaining
     )
   }
