@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Transaction } from "@/lib/types";
 import {
   filterTransactions,
+  merchantSuggestions,
+  suggestionCategory,
   paginateTransactionsByDay,
   paymentMethodFilterOptions,
   pickerCategoryNames,
@@ -163,5 +165,32 @@ describe("archived category pickers", () => {
         { id: "bills" },
       ]).map((row) => row.id),
     ).toEqual(["1", "3"]);
+  });
+});
+
+describe("expense suggestion categories", () => {
+  const categories = [
+    { id: "old", name: "Dining", archived: true },
+    { id: "new", name: "Dining", archived: false },
+    { id: "bills", name: "Bills", archived: false },
+  ];
+
+  it("keeps the latest category ID and rejects archived categories sharing an active name", () => {
+    const [suggestion] = merchantSuggestions([
+      { ...transactions[0], categoryId: "new", occurredAt: 1 },
+      { ...transactions[0], id: "later", categoryId: "old", occurredAt: 2 },
+    ], "caf");
+    expect(suggestion).toMatchObject({ name: "Cafe", categoryId: "old", count: 2 });
+    expect(suggestionCategory(suggestion, categories)).toBeUndefined();
+  });
+
+  it("resolves active categories by ID, including renamed categories", () => {
+    expect(suggestionCategory({ name: "Cafe", category: "Old name", categoryId: "new", count: 1 }, categories)).toBe("Dining");
+  });
+
+  it("supports legacy names and rejects missing categories", () => {
+    expect(suggestionCategory({ name: "Bill", category: "Bills", count: 1 }, categories)).toBe("Bills");
+    expect(suggestionCategory({ name: "Cafe", category: "Dining", count: 1 }, categories)).toBeUndefined();
+    expect(suggestionCategory({ name: "Cafe", category: "Dining", categoryId: "missing", count: 1 }, categories)).toBeUndefined();
   });
 });

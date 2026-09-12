@@ -144,7 +144,7 @@ object BudgetSelectors {
       limit = limit,
       hasLimit = hasLimit,
       pct = pct,
-      over = pct >= 90,
+      over = hasLimit && spent > (limit ?: 0.0),
     )
   }.sortedWith(
     compareByDescending<CategoryBudget> { it.pct }
@@ -165,7 +165,7 @@ object BudgetSelectors {
       totalLimit = totalLimit,
       pct = pct,
       left = totalLimit - totalSpent,
-      over = totalLimit > 0 && totalSpent / totalLimit >= 0.9,
+      over = totalLimit > 0 && totalSpent > totalLimit,
       transactionCount = current.size,
     )
   }

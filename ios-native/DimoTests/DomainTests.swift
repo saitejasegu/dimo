@@ -712,6 +712,36 @@ final class TransactionSelectorTests: XCTestCase {
     XCTAssertTrue(page.hasMore)
   }
 
+  func testSuggestionCategoryRequiresActiveOriginalCategory() {
+    let categories = [
+      CategoryEntity(id: "old", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 0, system: false, archived: true),
+      CategoryEntity(id: "new", name: "Dining", emoji: "🍽️", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 1, system: false),
+      CategoryEntity(id: "bills", name: "Bills", emoji: "🧾", monthlyBudgetMinor: nil, tint: .neutral, sortOrder: 2, system: false),
+    ]
+    var earlier = tx(id: "1", name: "Cafe", category: "Dining", day: "Today", amount: 1)
+    earlier.categoryId = "new"
+    earlier.occurredAt = 1
+    var later = earlier
+    later.id = "2"
+    later.categoryId = "old"
+    later.occurredAt = 2
+    let suggestion = TransactionSelectors.merchantSuggestions([earlier, later], query: "caf")[0]
+    XCTAssertEqual(suggestion.categoryId, "old")
+    XCTAssertEqual(suggestion.count, 2)
+    XCTAssertNil(TransactionSelectors.suggestionCategory(suggestion, categories: categories))
+    var active = suggestion
+    active.categoryId = "new"
+    active.category = "Old name"
+    XCTAssertEqual(TransactionSelectors.suggestionCategory(active, categories: categories), "Dining")
+    active.categoryId = "missing"
+    XCTAssertNil(TransactionSelectors.suggestionCategory(active, categories: categories))
+    active.categoryId = nil
+    active.category = "Bills"
+    XCTAssertEqual(TransactionSelectors.suggestionCategory(active, categories: categories), "Bills")
+    active.category = "Dining"
+    XCTAssertNil(TransactionSelectors.suggestionCategory(active, categories: categories))
+  }
+
   func testMerchantSuggestionsPreferPrefix() {
     let items = [
       tx(id: "1", name: "Cafe Coffee", category: "Dining", day: "Today", amount: 1),
@@ -1001,6 +1031,17 @@ final class SanitizerTests: XCTestCase {
 }
 
 final class BudgetSelectorTests: XCTestCase {
+  func testBudgetOnlyTurnsRedAboveLimit() {
+    let now = Date()
+    for spent in [90.0, 99.99, 100.0, 100.01] {
+      let rows = [Transaction(id: "a", name: "Item", category: "Dining", time: "", day: "", amount: spent, occurredAt: Int(now.timeIntervalSince1970 * 1000))]
+      XCTAssertEqual(BudgetSelectors.categoryBudgets(rows, limits: ["Dining": 100], now: now)[0].over, spent > 100)
+      XCTAssertEqual(BudgetSelectors.budgetTotals(rows, limits: ["Dining": 100], now: now).over, spent > 100)
+      XCTAssertFalse(BudgetSelectors.categoryBudgets(rows, limits: ["Dining": nil], now: now)[0].over)
+      XCTAssertFalse(BudgetSelectors.budgetTotals(rows, limits: ["Dining": nil], now: now).over)
+    }
+  }
+
   func testCategoryBudgetsSinglePassMatchesSpend() {
     let cal = Calendar(identifier: .gregorian)
     let now = cal.date(from: DateComponents(year: 2026, month: 7, day: 11))!

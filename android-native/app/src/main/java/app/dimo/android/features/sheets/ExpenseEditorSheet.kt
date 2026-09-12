@@ -198,13 +198,14 @@ fun ExpenseEditorSheet(
                 onClick = {
                   merchantFocused = false
                   name = suggestion.name
-                  if (store.categories.any { it.name == suggestion.category }) {
-                    categoryName = suggestion.category
+                  val activeCategory = TransactionSelectors.suggestionCategory(suggestion, store.categories)
+                  if (activeCategory != null) {
+                    categoryName = activeCategory
+                    val method = store.paymentMethods.firstOrNull {
+                      it.name == suggestion.paymentMethod || it.label == suggestion.paymentMethod
+                    }
+                    if (method != null) paymentMethodId = method.id
                   }
-                  val method = store.paymentMethods.firstOrNull {
-                    it.name == suggestion.paymentMethod || it.label == suggestion.paymentMethod
-                  }
-                  if (method != null) paymentMethodId = method.id
                   if (mode == ExpenseEditorMode.Add) {
                     store.expenseDraft = store.expenseDraft.copy(
                       name = suggestion.name,

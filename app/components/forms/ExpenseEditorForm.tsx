@@ -27,7 +27,7 @@ import {
   type Transaction,
 } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { pickerCategoryNames } from "@/features/transactions/selectors";
+import { pickerCategoryNames, suggestionCategory } from "@/features/transactions/selectors";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
@@ -494,7 +494,9 @@ export function ExpenseEditorForm({
         className="mb-3"
         onSelectSuggestion={(suggestion) => {
           setName(suggestion.name);
-          setCategory(suggestion.category);
+          const activeCategory = suggestionCategory(suggestion, categories);
+          if (!activeCategory) return;
+          setCategory(activeCategory);
           if (suggestion.paymentMethod && availableMethods.some((method) => paymentMethodLabel(method) === suggestion.paymentMethod)) {
             setPaymentMethod(suggestion.paymentMethod);
           }

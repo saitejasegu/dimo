@@ -26,6 +26,7 @@ struct MerchantSuggestion: Equatable, Sendable {
   var category: String
   var paymentMethod: String?
   var count: Int
+  var categoryId: String? = nil
 }
 
 enum TransactionSelectors {
@@ -133,6 +134,7 @@ enum TransactionSelectors {
       var paymentMethod: String?
       var count: Int
       var occurredAt: Int
+      var categoryId: String?
     }
     var byKey: [String: Acc] = [:]
     for t in transactions {
@@ -146,6 +148,7 @@ enum TransactionSelectors {
         if occurredAt >= existing.occurredAt {
           existing.name = name
           existing.category = t.category
+          existing.categoryId = t.categoryId
           existing.paymentMethod = t.paymentMethod
           existing.occurredAt = occurredAt
         }
@@ -153,7 +156,7 @@ enum TransactionSelectors {
       } else {
         byKey[key] = Acc(
           name: name, category: t.category, paymentMethod: t.paymentMethod,
-          count: 1, occurredAt: occurredAt
+          count: 1, occurredAt: occurredAt, categoryId: t.categoryId
         )
       }
     }
@@ -167,7 +170,17 @@ enum TransactionSelectors {
       return a.occurredAt > b.occurredAt
     }
       .prefix(limit)
-      .map { MerchantSuggestion(name: $0.name, category: $0.category, paymentMethod: $0.paymentMethod, count: $0.count) }
+      .map { MerchantSuggestion(name: $0.name, category: $0.category, paymentMethod: $0.paymentMethod, count: $0.count, categoryId: $0.categoryId) }
+  }
+
+  /// Resolve history against active categories before prefilling an expense.
+  static func suggestionCategory(_ suggestion: MerchantSuggestion, categories: [CategoryEntity]) -> String? {
+    let category = categories.first { category in
+      if let id = suggestion.categoryId { return category.id == id }
+      return category.name == suggestion.category
+    }
+    guard let category, !category.archived else { return nil }
+    return category.name
   }
 
   /// Active categories, plus the currently selected archived one when editing a record.

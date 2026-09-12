@@ -204,6 +204,7 @@ export function totalSpent(transactions: Transaction[]): number {
 
 export interface MerchantSuggestion {
   name: string;
+  categoryId?: string;
   category: CategoryName;
   paymentMethod?: PaymentMethod;
   count: number;
@@ -235,6 +236,7 @@ export function merchantSuggestions(
       byKey.set(key, {
         name,
         category: t.category,
+        categoryId: t.categoryId,
         paymentMethod: t.paymentMethod,
         count: 1,
         occurredAt,
@@ -246,6 +248,7 @@ export function merchantSuggestions(
     if (occurredAt >= existing.occurredAt) {
       existing.name = name;
       existing.category = t.category;
+      existing.categoryId = t.categoryId;
       existing.paymentMethod = t.paymentMethod;
       existing.occurredAt = occurredAt;
     }
@@ -260,10 +263,24 @@ export function merchantSuggestions(
       return b.occurredAt - a.occurredAt;
     })
     .slice(0, limit)
-    .map(({ name, category, paymentMethod, count }) => ({
+    .map(({ name, category, categoryId, paymentMethod, count }) => ({
       name,
       category,
+      categoryId,
       paymentMethod,
       count,
     }));
+}
+
+/** Resolve history against active categories before prefilling an expense. */
+export function suggestionCategory(
+  suggestion: MerchantSuggestion,
+  categories: Array<{ id: string; name: string; archived?: boolean }>,
+): CategoryName | undefined {
+  const category = categories.find((category) =>
+    suggestion.categoryId
+      ? category.id === suggestion.categoryId
+      : category.name === suggestion.category,
+  );
+  return category && !category.archived ? category.name : undefined;
 }

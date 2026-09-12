@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   categoryLookbackSpend,
+  categoryBudgets,
+  budgetTotals,
   dailyBudgetAllowance,
   globalBudgetAllocation,
   suggestedCategoryBudgetUpdates,
@@ -288,5 +290,20 @@ describe("globalBudgetAllocation", () => {
   it("reports when no categories exist", () => {
     const result = globalBudgetAllocation([], [], 500, 6, new Date(2026, 7, 10));
     expect(result).toMatchObject({ issue: "no-categories", canApply: false });
+  });
+});
+
+describe("budget overspending", () => {
+  it.each([90, 99.99, 100, 100.01])("only flags spending above the limit: %s", (spent) => {
+    const rows = [transaction("a", "dining", spent, Date.now())];
+    const limits = { Dining: 100 };
+    expect(categoryBudgets(rows, limits)[0].over).toBe(spent > 100);
+    expect(budgetTotals(rows, limits).over).toBe(spent > 100);
+  });
+
+  it("does not flag categories without a budget", () => {
+    const rows = [transaction("a", "dining", 10, Date.now())];
+    expect(categoryBudgets(rows, { Dining: null })[0].over).toBe(false);
+    expect(budgetTotals(rows, { Dining: null }).over).toBe(false);
   });
 });

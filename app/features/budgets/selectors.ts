@@ -7,7 +7,7 @@ export interface CategoryBudget {
   limit: number | null;
   hasLimit: boolean;
   pct: number;
-  /** True once spending reaches 90% of the limit. */
+  /** True only when spending exceeds the limit. */
   over: boolean;
 }
 
@@ -63,7 +63,7 @@ export function categoryBudgets(
         limit: limit ?? null,
         hasLimit,
         pct,
-        over: pct >= 90,
+        over: hasLimit && spent > (limit as number),
       };
     })
     .sort((a, b) => b.spent - a.spent);
@@ -86,7 +86,7 @@ export function budgetTotals(
     totalLimit,
     pct,
     left: totalLimit - totalSpent,
-    over: totalLimit > 0 && totalSpent / totalLimit >= 0.9,
+    over: totalLimit > 0 && totalSpent > totalLimit,
   };
 }
 

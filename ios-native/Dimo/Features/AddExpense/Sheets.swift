@@ -33,7 +33,9 @@ struct AddExpenseSheet: View {
                   selectedMerchantSuggestion = suggestion.name
                   merchantSuggestions = []
                   store.expenseDraft.name = suggestion.name
-                  store.expenseDraft.category = suggestion.category
+                  if let activeCategory = TransactionSelectors.suggestionCategory(suggestion, categories: store.categories) {
+                    store.expenseDraft.category = activeCategory
+                  }
                 }
               }
             }
@@ -229,7 +231,9 @@ struct ExpenseEditorSheet: View {
                   selectedMerchantSuggestion = suggestion.name
                   merchantSuggestions = []
                   name = suggestion.name
-                  category = suggestion.category
+                  if let activeCategory = TransactionSelectors.suggestionCategory(suggestion, categories: store.categories) {
+                    category = activeCategory
+                  }
                 }
               }
             }

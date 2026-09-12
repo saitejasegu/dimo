@@ -33,6 +33,7 @@ data class MerchantSuggestion(
   val category: String,
   val paymentMethod: String?,
   val count: Int,
+  val categoryId: String? = null,
 )
 
 object TransactionSelectors {
@@ -140,6 +141,7 @@ object TransactionSelectors {
       var paymentMethod: String?,
       var count: Int,
       var occurredAt: Long,
+      var categoryId: String?,
     )
 
     val byKey = mutableMapOf<String, Acc>()
@@ -155,11 +157,12 @@ object TransactionSelectors {
         if (occurredAt >= existing.occurredAt) {
           existing.name = name
           existing.category = t.category
+          existing.categoryId = t.categoryId
           existing.paymentMethod = t.paymentMethod
           existing.occurredAt = occurredAt
         }
       } else {
-        byKey[key] = Acc(name, t.category, t.paymentMethod, 1, occurredAt)
+        byKey[key] = Acc(name, t.category, t.paymentMethod, 1, occurredAt, t.categoryId)
       }
     }
 
@@ -170,7 +173,16 @@ object TransactionSelectors {
           .thenByDescending { it.occurredAt },
       )
       .take(limit)
-      .map { MerchantSuggestion(it.name, it.category, it.paymentMethod, it.count) }
+      .map { MerchantSuggestion(it.name, it.category, it.paymentMethod, it.count, it.categoryId) }
+  }
+
+  /** Resolve history against active categories before prefilling an expense. */
+  fun suggestionCategory(suggestion: MerchantSuggestion, categories: List<CategoryEntity>): String? {
+    val category = categories.firstOrNull {
+      if (suggestion.categoryId != null) it.id == suggestion.categoryId
+      else it.name == suggestion.category
+    }
+    return category?.takeUnless { it.archived }?.name
   }
 
   /** Active categories, plus the currently selected archived one when editing a record. */

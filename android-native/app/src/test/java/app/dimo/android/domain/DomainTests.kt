@@ -672,6 +672,25 @@ class TransactionSelectorTests : ZonedTest() {
   }
 
   @Test
+  fun suggestionCategoryRequiresActiveOriginalCategory() {
+    val categories = listOf(
+      CategoryEntity("old", "Dining", "🍽️", null, CategoryTint.NEUTRAL, 0, false, archived = true),
+      CategoryEntity("new", "Dining", "🍽️", null, CategoryTint.NEUTRAL, 1, false),
+      CategoryEntity("bills", "Bills", "🧾", null, CategoryTint.NEUTRAL, 2, false),
+    )
+    val earlier = tx("1", "Cafe", "Dining", "Today", 1.0).copy(categoryId = "new", occurredAt = 1L)
+    val later = earlier.copy(id = "2", categoryId = "old", occurredAt = 2L)
+    val suggestion = TransactionSelectors.merchantSuggestions(listOf(earlier, later), "caf").first()
+    assertEquals("old", suggestion.categoryId)
+    assertEquals(2, suggestion.count)
+    assertNull(TransactionSelectors.suggestionCategory(suggestion, categories))
+    assertEquals("Dining", TransactionSelectors.suggestionCategory(suggestion.copy(categoryId = "new", category = "Old name"), categories))
+    assertNull(TransactionSelectors.suggestionCategory(suggestion.copy(categoryId = "missing"), categories))
+    assertEquals("Bills", TransactionSelectors.suggestionCategory(suggestion.copy(categoryId = null, category = "Bills"), categories))
+    assertNull(TransactionSelectors.suggestionCategory(suggestion.copy(categoryId = null), categories))
+  }
+
+  @Test
   fun merchantSuggestionsPreferPrefix() {
     val items = listOf(
       tx("1", "Cafe Coffee", "Dining", "Today", 1.0),
@@ -854,6 +873,18 @@ class SanitizerTests : ZonedTest() {
 }
 
 class BudgetSelectorTests : ZonedTest() {
+  @Test
+  fun budgetOnlyTurnsRedAboveLimit() {
+    val now = LocalDate.of(2026, 8, 9)
+    for (spent in listOf(90.0, 99.99, 100.0, 100.01)) {
+      val rows = listOf(Transaction(id = "a", name = "Item", category = "Dining", time = "", day = "", amount = spent, occurredAt = stamp(2026, 8, 8)))
+      assertEquals(spent > 100, BudgetSelectors.categoryBudgets(rows, mapOf("Dining" to 100.0), now).first().over)
+      assertEquals(spent > 100, BudgetSelectors.budgetTotals(rows, mapOf("Dining" to 100.0), now).over)
+      assertFalse(BudgetSelectors.categoryBudgets(rows, mapOf("Dining" to null), now).first().over)
+      assertFalse(BudgetSelectors.budgetTotals(rows, mapOf("Dining" to null), now).over)
+    }
+  }
+
   @Test
   fun categoryBudgetsSortByUtilizationThenSpend() {
     fun row(id: String, category: String, amount: Double) = Transaction(
