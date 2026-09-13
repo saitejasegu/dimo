@@ -16,6 +16,8 @@
 	<dict>
 		<key>app.dimo.ios</key>
 		<string>Dimo App Store CI</string>
+		<key>app.dimo.ios.widgets</key>
+		<string>Dimo Widgets App Store CI</string>
 	</dict>
 	<key>stripSwiftSymbols</key>
 	<true/>

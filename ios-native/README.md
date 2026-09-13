@@ -83,3 +83,32 @@ Bundle id: `app.dimo.ios`.
 - Category delete tombstones linked transactions only (web also tombstones linked recurring)
 - Native **Sync now** is ordinary sync; full cloud replacement is a separate explicit action
 - Domain tests: `DimoTests/DomainTests.swift`
+
+## Spending pulse widget
+
+The medium Home Screen widget shows Day / Week totals, an equal-elapsed-period
+comparison, a spending chart, top category, and an Add expense link. Weeks start
+Monday. Day bars cover eight three-hour intervals. The toggle applies to all
+Spending pulse instances on the device. Add expense opens the existing editor;
+other taps open Stats. Links received during launch/sign-in are deferred until
+local data is ready.
+
+The app publishes a disposable, atomic snapshot of the last 21 days of local
+transactions into `group.app.dimo.ios`; the extension has no auth tokens, database
+writes, or network client. Missing currency rates are called out instead of mixing
+currencies. Updates follow local hydration/sync; WidgetKit controls refresh timing.
+Hourly timeline entries roll over day/week boundaries while the app is closed.
+Sign-out/account deletion clears the snapshot and period selection. Sensitive
+amounts/categories/chart support system privacy redaction.
+
+Before a device or TestFlight build, register `app.dimo.ios.widgets`, create the
+App Group `group.app.dimo.ios`, and enable that group on **both** app identifiers.
+Regenerate the `Dimo App Store CI` distribution profile with the App Group enabled,
+and create `Dimo Widgets App Store CI` for the extension using the same distribution
+certificate. CI downloads both; `ExportOptions.plist` maps both bundles. Local
+Debug builds use automatic signing. Run `xcodegen generate` after configuration.
+
+Simulator/device smoke check: add Spending pulse from the Home Screen widget
+picker, save/edit/delete an expense and verify totals, toggle Day/Week, tap Add
+expense with Dimo terminated, switch themes/tinted appearance, then sign out and
+verify the widget clears. The preview uses sample data only in the widget gallery.

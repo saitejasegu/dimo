@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
   @Environment(AppEnvironment.self) private var environment
+  @State private var pendingWidgetURL: URL?
 
   var body: some View {
     Group {
@@ -27,6 +28,30 @@ struct RootView: View {
       }
     }
     .tint(Theme.green)
+    .onOpenURL { url in
+      guard url.scheme == "dimo", url.host == "widget",
+        ["/add-expense", "/stats"].contains(url.path) else { return }
+      pendingWidgetURL = url
+      openPendingWidgetURL()
+    }
+    .onChange(of: environment.session.phase) { _, _ in openPendingWidgetURL() }
+  }
+
+  private func openPendingWidgetURL() {
+    guard environment.session.phase == .signedIn,
+      let store = environment.session.appStore, let url = pendingWidgetURL else { return }
+    pendingWidgetURL = nil
+    store.nav.widgetNavigationID = UUID()
+    store.detailId = nil
+    if url.path == "/add-expense" {
+      store.setView(.home)
+      store.openOverlay(.add)
+    } else {
+      store.closeOverlay()
+      store.statsRange = .oneWeek
+      store.statsPeriodOffset = 0
+      store.setView(.stats)
+    }
   }
 }
 

@@ -183,6 +183,13 @@ struct MainTabShell: View {
         tab = destination
       }
     }
+    .onChange(of: nav.widgetNavigationID) { _, _ in settingsPath = [] }
+    .onAppear {
+      if let destination = tab(for: nav.view) {
+        visitedTabs.insert(destination)
+        tab = destination
+      }
+    }
   }
 
   private var showsFAB: Bool {

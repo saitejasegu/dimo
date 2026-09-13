@@ -457,6 +457,8 @@ final class SyncStatusStore {
 @Observable
 @MainActor
 final class NavStore {
+  /// Lets the tab shell dismiss Settings even when a widget opens the current tab.
+  var widgetNavigationID: UUID?
   var view: ViewKey = .home
   var accountReturnView: ViewKey?
   var overlay: OverlayKey?

@@ -42,6 +42,7 @@ final class SessionController {
     if let session = await authProvider.restoreSession() {
       await enterSignedIn(session: session)
     } else {
+      PulseStorage.clear()
       phase = .signedOut
     }
   }

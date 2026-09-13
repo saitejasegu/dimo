@@ -34,6 +34,7 @@ final class AppStore {
   private var remoteStartTask: Task<Void, Never>?
   private var hydrateTask: Task<Void, Never>?
   private var pendingHydrateEntities: [StoredEntity]?
+  private var stopped = false
 
   // MARK: Forwarders — keep mutation call sites and sheets compiling while
   // tab screens bind directly to `entities` / `nav` / `syncStatus` / `drafts`.
@@ -214,6 +215,8 @@ final class AppStore {
   }
 
   func start() async {
+    stopped = false
+    PulseStorage.activate(owner: userId)
     do {
       let db = try AppDatabase.activate(userId: userId)
       let repo = Repository(db: db)
@@ -328,6 +331,8 @@ final class AppStore {
   }
 
   func tearDown() async {
+    stopped = true
+    PulseStorage.clear()
     remoteStartTask?.cancel()
     remoteStartTask = nil
     hydrateTask?.cancel()
@@ -1176,6 +1181,7 @@ final class AppStore {
       previous: previousDerived,
       dirty: dirty
     )
+    guard !stopped, !Task.isCancelled else { return }
     entities.apply(
       snapshot: snapshot,
       derived: derived,
@@ -1186,6 +1192,8 @@ final class AppStore {
       merchantsExpanded: nav.merchantsExpanded
     )
     clearArchivedCategoryDrafts()
+    PulsePublisher.publish(transactions: snapshot.transactions,
+      currency: snapshot.preferences.currency.rawValue, rates: entities.rates)
     if nav.statsRange != snapshot.statsRange {
       // A pulled default reinterprets the offset's length, so snap to current.
       nav.statsRange = snapshot.statsRange

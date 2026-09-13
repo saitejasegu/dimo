@@ -35,6 +35,7 @@ enum Theme {
   static let sideMuted = Color(hex: 0x8BA699)
   static let sideSub = Color(hex: 0x7D968A)
 
+  #if !DIMO_WIDGET
   static func colorScheme(for preference: ThemePreference) -> ColorScheme? {
     switch preference {
     case .system: return nil
@@ -42,6 +43,7 @@ enum Theme {
     case .dark: return .dark
     }
   }
+  #endif
 }
 
 extension Color {
