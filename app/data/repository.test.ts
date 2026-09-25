@@ -9,6 +9,8 @@ import {
   type EmailMessageEntity,
 } from "@/data/model";
 import {
+  acknowledgeOperations,
+  allStoredRows,
   backfillMissingPaymentMethodIds,
   backfillRecurringCurrencies,
   getStoredRow,
@@ -581,5 +583,84 @@ describe("tombstone retention", () => {
     await purgeExpiredTombstones(now);
     expect(tombstoneSweepDue(now)).toBe(false);
     expect(tombstoneSweepDue(now + 7 * 60 * 60 * 1000)).toBe(true);
+  });
+
+  it("hydrates only live web rows, skipping email suggestions and tombstones", async () => {
+    await initializeLocalDatabase();
+    await saveEntity("transaction", {
+      id: "tx-kept",
+      name: "Kept",
+      amountMinor: 100,
+      occurredAt: Date.now(),
+      categoryId: "category-food",
+      paymentMethodId: "payment-method-cash",
+      currency: "INR",
+    });
+    await saveEntity("transaction", {
+      id: "tx-gone",
+      name: "Gone",
+      amountMinor: 100,
+      occurredAt: Date.now(),
+      categoryId: "category-food",
+      paymentMethodId: "payment-method-cash",
+      currency: "INR",
+    });
+    await removeEntities("transaction", ["tx-gone"]);
+    await db.emailMessages.put({ key: entityKey("emailMessage", "m1"), entityId: "m1" } as never);
+    const rows = await allStoredRows();
+    expect(rows.some(({ entityType }) => entityType === "emailMessage")).toBe(false);
+    expect(rows.map(({ row }) => row.entityId)).toContain("tx-kept");
+    expect(rows.map(({ row }) => row.entityId)).not.toContain("tx-gone");
+  });
+
+  it("drops email suggestions an earlier web build pulled", async () => {
+    await initializeLocalDatabase();
+    await db.emailMessages.put({ key: entityKey("emailMessage", "m1"), entityId: "m1" } as never);
+    await db.syncMeta.update("global", {
+      pulledRevisions: { ...(await db.syncMeta.get("global"))!.pulledRevisions, emailMessage: 40 },
+    });
+    await initializeLocalDatabase();
+    expect(await db.emailMessages.count()).toBe(0);
+    expect((await db.syncMeta.get("global"))!.pulledRevisions.emailMessage).toBe(0);
+  });
+
+  it("stamps acknowledged rows with their server revision and clears the outbox", async () => {
+    await initializeLocalDatabase();
+    const payment = { id: "pm-card", name: "Card", type: "Card", detail: "", archived: false } as const;
+    await saveEntity("paymentMethod", payment);
+    const entry = (await db.outbox.get(entityKey("paymentMethod", "pm-card")))!;
+    await acknowledgeOperations("paymentMethod", [
+      { operationId: entry.operationId, applied: true, revision: 42 },
+    ]);
+    expect(await db.outbox.count()).toBe(0);
+    expect((await getStoredRow("paymentMethod", "pm-card"))!.serverRevision).toBe(42);
+  });
+
+  it("keeps an outbox entry replaced by a newer edit during the push", async () => {
+    await initializeLocalDatabase();
+    const payment = { id: "pm-card", name: "Card", type: "Card", detail: "", archived: false } as const;
+    await saveEntity("paymentMethod", payment);
+    const pushed = (await db.outbox.get(entityKey("paymentMethod", "pm-card")))!;
+    await saveEntity("paymentMethod", { ...payment, name: "Card 2" });
+    await acknowledgeOperations("paymentMethod", [
+      { operationId: pushed.operationId, applied: true, revision: 42 },
+    ]);
+    expect(await db.outbox.count()).toBe(1);
+    expect((await getStoredRow("paymentMethod", "pm-card"))!.serverRevision).toBe(0);
+  });
+
+  it("does not rewrite sync metadata for an unchanged pull cursor", async () => {
+    await initializeLocalDatabase();
+    await mergeRemotePage("category", [], 7);
+    const before = await db.syncMeta.get("global");
+    let writes = 0;
+    const count = () => {
+      writes += 1;
+    };
+    db.syncMeta.hook("updating", count);
+    await mergeRemotePage("category", [], 7);
+    db.syncMeta.hook("updating").unsubscribe(count);
+    expect(writes).toBe(0);
+    expect(await db.syncMeta.get("global")).toEqual(before);
   });
 });

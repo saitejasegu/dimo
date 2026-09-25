@@ -18,7 +18,7 @@ import { MerchantRow } from "@/components/common/MerchantRow";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function StatsScreen() {
-  const { currency } = useAppState();
+  const { currency } = useAppState("currency");
   const actions = useAppActions();
   const [selection, setSelection] = useState<StatsSelection | null>(null);
   const {

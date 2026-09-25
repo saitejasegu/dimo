@@ -28,7 +28,7 @@ export function AddRecurringForm({
   onCancel,
   fillFrequency = false,
 }: AddRecurringFormProps) {
-  const { recurringDraft, recurring, paymentMethods, categories, transactions } = useAppState();
+  const { recurringDraft, recurring, paymentMethods, categories, transactions } = useAppState("recurringDraft", "recurring", "paymentMethods", "categories", "transactions");
   const actions = useAppActions();
   const [backfillCount, setBackfillCount] = useState<number | null>(null);
 

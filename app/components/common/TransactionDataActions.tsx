@@ -21,7 +21,7 @@ function downloadCsv(contents: string, filename: string) {
 
 /** Confirmed delete-history action used in the Account action stack. */
 export function TransactionDataActions() {
-  const { transactions, recurring } = useAppState();
+  const { transactions, recurring } = useAppState("transactions", "recurring");
   const { deleteHistory, importTransactions, showToast } = useAppActions();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [importing, setImporting] = useState(false);

@@ -97,6 +97,18 @@ describe("projectEntities", () => {
     expect(second).toBeNull();
   });
 
+  it("rebuilds day-relative labels when the local day changes", () => {
+    const first = projectEntities(BASE_ROWS, { ...OPTIONS, dayKey: "2026-06-01" })!;
+    expect(
+      projectEntities(BASE_ROWS, { ...OPTIONS, previous: first, dayKey: "2026-06-01" }),
+    ).toBeNull();
+    const next = projectEntities(BASE_ROWS, { ...OPTIONS, previous: first, dayKey: "2026-06-02" })!;
+    expect(next).not.toBeNull();
+    expect(next.transactions).not.toBe(first.transactions);
+    // Types without day-relative labels are still reused.
+    expect(next.categories).toBe(first.categories);
+  });
+
   it("reuses the transaction projection when only an unrelated type changed", () => {
     const first = projectEntities(BASE_ROWS, OPTIONS)!;
     const withLend = [

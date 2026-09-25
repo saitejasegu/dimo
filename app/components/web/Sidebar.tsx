@@ -23,7 +23,7 @@ const NAV: NavDef[] = [
 ];
 
 export function Sidebar() {
-  const { view, profile, currency } = useAppState();
+  const { view, profile, currency } = useAppState("view", "profile", "currency");
   const actions = useAppActions();
   const { totals } = useBudgets();
 

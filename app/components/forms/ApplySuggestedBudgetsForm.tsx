@@ -14,7 +14,7 @@ export function ApplySuggestedBudgetsForm({
   updates: SuggestedCategoryBudgetUpdate[];
   onDone: () => void;
 }) {
-  const { currency, categories } = useAppState();
+  const { currency, categories } = useAppState("currency", "categories");
   const { applySuggestedBudgets } = useAppActions();
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
 

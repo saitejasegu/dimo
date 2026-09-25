@@ -58,6 +58,8 @@ const EMPTY_FINGERPRINTS: EntityFingerprints = {
 export interface ProjectionSnapshot {
   fingerprints: EntityFingerprints;
   ratesDate: string | null;
+  /** Local day the relative labels ("Today", "Due … · tomorrow") were computed for. */
+  dayKey: string | null;
   categories: CategoryEntity[];
   limits: CategoryLimits;
   paymentMethods: PaymentMethodOption[];
@@ -135,16 +137,21 @@ export function projectEntities(
     rates: RateTable | null;
     lastPaymentMethodId: string | null | undefined;
     previous: ProjectionSnapshot | null;
+    /** Current local day; a change rebuilds the day-relative labels. */
+    dayKey?: string | null;
   },
 ): ProjectionSnapshot | null {
   const { rates, lastPaymentMethodId, previous } = options;
+  const dayKey = options.dayKey ?? null;
   const fingerprints = computeFingerprints(rows);
   const ratesDate = rates?.date ?? null;
+  const dayChanged = previous?.dayKey !== dayKey;
 
   if (
     previous &&
     sameFingerprints(previous.fingerprints, fingerprints) &&
     previous.ratesDate === ratesDate &&
+    !dayChanged &&
     previous.lastPaymentMethod ===
       lastPaymentMethodLabel(lastPaymentMethodId, previous.paymentMethods)
   ) {
@@ -165,13 +172,16 @@ export function projectEntities(
     previousPrints.transaction !== fingerprints.transaction ||
     rebuildCategories ||
     rebuildPaymentMethods ||
-    previous?.ratesDate !== ratesDate;
+    previous?.ratesDate !== ratesDate ||
+    dayChanged;
   const rebuildRecurring =
     !previousPrints ||
     previousPrints.recurring !== fingerprints.recurring ||
     rebuildCategories ||
-    rebuildPreferences;
-  const rebuildLends = !previousPrints || previousPrints.lend !== fingerprints.lend;
+    rebuildPreferences ||
+    dayChanged;
+  const rebuildLends =
+    !previousPrints || previousPrints.lend !== fingerprints.lend || dayChanged;
 
   const active = rows.filter(({ row }) => !row.deleted);
   const collect = <T,>(entityType: EntityType): T[] =>
@@ -318,6 +328,7 @@ export function projectEntities(
   return {
     fingerprints,
     ratesDate,
+    dayKey,
     categories,
     limits,
     paymentMethods,

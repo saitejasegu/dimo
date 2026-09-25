@@ -12,7 +12,7 @@ import { TransactionDataActions } from "@/components/common/TransactionDataActio
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function SettingsScreen() {
-  const { profile, currency, theme, defaultStatsRange } = useAppState();
+  const { profile, currency, theme, defaultStatsRange } = useAppState("profile", "currency", "theme", "defaultStatsRange");
   const actions = useAppActions();
   const initial = profile.name.charAt(0).toUpperCase();
   return (

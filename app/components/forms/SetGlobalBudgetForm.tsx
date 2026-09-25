@@ -53,7 +53,7 @@ function sumLimits(drafts: Record<string, string>): number {
 }
 
 export function SetGlobalBudgetForm({ onDone }: { onDone: () => void }) {
-  const { categories, transactions, currency } = useAppState();
+  const { categories, transactions, currency } = useAppState("categories", "transactions", "currency");
   const { applyGlobalBudget } = useAppActions();
   const activeCategories = useMemo(
     () => categories.filter((category) => !category.archived),

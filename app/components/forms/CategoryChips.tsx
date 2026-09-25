@@ -23,7 +23,7 @@ export function CategoryChips({
   className?: string;
   menuClassName?: string;
 }) {
-  const { categories: categoryEntities } = useAppState();
+  const { categories: categoryEntities } = useAppState("categories");
   const { openOverlay } = useAppActions();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

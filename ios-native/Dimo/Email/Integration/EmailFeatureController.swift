@@ -1447,23 +1447,29 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         occurredAt: message.occurredAt,
         transactions: transactions
       )
-      let partialSource = [message.subject, message.snippet, message.normalizedBodyText ?? ""]
-        .joined(separator: "\n")
-      let partial = EmailSuggestionSelectors.isExplicitlyPartialRefund(partialSource)
-      let refundMatches = EmailSuggestionSelectors.refundMatches(
-        evidence: EmailRefundEvidence(
-          merchant: message.merchant,
-          amountMinor: amountMinor,
-          currency: message.currency,
-          occurredAt: occurredMilliseconds,
-          paymentLastFour: message.paymentLastFour,
-          reference: message.reference
-        ),
-        activeCurrency: currency,
-        transactions: transactions,
-        paymentMethods: paymentMethods,
-        isExplicitlyPartial: partial
-      )
+      // Only the refund review reads refund matches; scanning every purchase body
+      // for partial-refund language is the costliest step of this projection.
+      let refundMatches: EmailRefundMatchResult
+      if kind == .refund {
+        let partialSource = [message.subject, message.snippet, message.normalizedBodyText ?? ""]
+          .joined(separator: "\n")
+        refundMatches = EmailSuggestionSelectors.refundMatches(
+          evidence: EmailRefundEvidence(
+            merchant: message.merchant,
+            amountMinor: amountMinor,
+            currency: message.currency,
+            occurredAt: occurredMilliseconds,
+            paymentLastFour: message.paymentLastFour,
+            reference: message.reference
+          ),
+          activeCurrency: currency,
+          transactions: transactions,
+          paymentMethods: paymentMethods,
+          isExplicitlyPartial: EmailSuggestionSelectors.isExplicitlyPartialRefund(partialSource)
+        )
+      } else {
+        refundMatches = EmailRefundMatchResult(candidates: [], preselectedTransactionId: nil, isFullRefund: true)
+      }
       let refundCandidates = refundMatches.candidates.compactMap { match -> EmailUIRefundCandidate? in
         guard let transaction = transactions.first(where: { $0.id == match.transactionId }),
               let transactionAmountMinor = transaction.amountMinor,

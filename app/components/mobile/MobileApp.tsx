@@ -39,7 +39,7 @@ const PREFETCH = [
 ];
 
 export function MobileApp() {
-  const { view, accountReturnView, settingsReturnView, overlay, detailId } = useAppState();
+  const { view, accountReturnView, settingsReturnView, overlay, detailId } = useAppState("view", "accountReturnView", "settingsReturnView", "overlay", "detailId");
   usePrefetchOnMount(PREFETCH);
   useBrowserSwipeGuard();
 

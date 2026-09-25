@@ -7,7 +7,7 @@ import {
 } from "@/features/recurring/selectors";
 
 export function useRecurring() {
-  const { recurring, currency, rates } = useAppState();
+  const { recurring, currency, rates } = useAppState("recurring", "currency", "rates");
 
   return useMemo(() => {
     const active = activeRecurring(recurring);

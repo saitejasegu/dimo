@@ -260,7 +260,7 @@ export function ExpenseEditorForm({
     categories,
     transactions,
     weekStart,
-  } = useAppState();
+  } = useAppState("expenseDraft", "currency", "rates", "paymentMethods", "categories", "transactions", "weekStart");
   const actions = useAppActions();
   const now = new Date();
   const today = localDateKey(now);

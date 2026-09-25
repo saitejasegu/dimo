@@ -6,9 +6,9 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
   type Dispatch,
   type ReactNode,
 } from "react";
@@ -714,70 +714,209 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
   };
 }
 
+export interface AppUser {
+  id: string;
+  name: string;
+  email: string;
+  photoUrl: string | null;
+}
+
 /**
- * State, actions and sync are separate contexts so a toast, a draft keystroke or a
- * sync-status tick only re-renders the consumers that actually read that slice.
- * `actions` is built once and reads live state through a ref, so action identity is
- * stable for the lifetime of the provider and `React.memo` on rows holds.
+ * App state lives outside React so each consumer subscribes to just the fields it
+ * reads. A single context meant every keystroke in a draft, every search character
+ * and every toast re-rendered all ~40 consumers, including every mounted tab.
  */
-const AppStateContext = createContext<AppState | null>(null);
+class AppStateStore {
+  private state: AppState;
+  private user: AppUser;
+  private profile: AppState["profile"];
+  private published: AppState | null = null;
+  private listeners = new Set<() => void>();
+
+  constructor(initial: AppState, user: AppUser) {
+    this.state = initial;
+    this.user = user;
+    this.profile = { name: user.name, email: user.email, photoUrl: user.photoUrl };
+  }
+
+  /** Raw reducer state, as actions have always read it. */
+  getRaw = () => this.state;
+
+  /** Reducer state with the signed-in identity applied, as screens see it. */
+  getSnapshot = (): AppState => {
+    this.published ??= { ...this.state, profile: this.profile, defaultView: "home" };
+    return this.published;
+  };
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  dispatch = (action: Action) => {
+    const next = reducer(this.state, action);
+    if (next === this.state) return;
+    this.state = next;
+    this.emit();
+  };
+
+  setUser(user: AppUser) {
+    const current = this.user;
+    if (
+      current.name === user.name &&
+      current.email === user.email &&
+      current.photoUrl === user.photoUrl
+    ) {
+      return;
+    }
+    this.user = user;
+    this.profile = { name: user.name, email: user.email, photoUrl: user.photoUrl };
+    this.emit();
+  }
+
+  private emit() {
+    this.published = null;
+    for (const listener of this.listeners) listener();
+  }
+}
+
+/**
+ * Snapshot getter returning the same object until one of `fields` changes identity,
+ * as `useSyncExternalStore` requires of a derived snapshot.
+ */
+function fieldSnapshot<K extends keyof AppState>(store: AppStateStore, fields: K[]) {
+  let cached: { source: AppState; value: Pick<AppState, K> } | null = null;
+  return () => {
+    const source = store.getSnapshot();
+    if (cached?.source === source) return cached.value;
+    const previous = cached?.value;
+    if (previous && fields.every((key) => previous[key] === source[key])) {
+      cached = { source, value: previous };
+      return previous;
+    }
+    const value = {} as Pick<AppState, K>;
+    for (const key of fields) value[key] = source[key];
+    cached = { source, value };
+    return value;
+  };
+}
+
+/** Subscribe to `keys` of the store; re-renders only when one of them changes identity. */
+function useStoreFields<K extends keyof AppState>(
+  store: AppStateStore,
+  keys: readonly K[],
+): Pick<AppState, K> {
+  const signature = keys.join(",");
+  const getSnapshot = useMemo(
+    () => fieldSnapshot(store, signature.split(",") as K[]),
+    [store, signature],
+  );
+  return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot);
+}
+
+/** Current local calendar day; changes at midnight and when the page regains focus. */
+function useLocalDayKey() {
+  const [dayKey, setDayKey] = useState(() => localDateKey(new Date()));
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = () => setDayKey(localDateKey(new Date()));
+    const arm = () => {
+      const now = new Date();
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      timer = setTimeout(() => {
+        refresh();
+        arm();
+      }, midnight.getTime() - now.getTime() + 1000);
+    };
+    // Timers are throttled or frozen in background tabs, so re-check on return too.
+    const visible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    arm();
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, []);
+  return dayKey;
+}
+
+/** Rates change once a day on the server; don't re-query on every window focus. */
+const RATES_REFRESH_INTERVAL_MS = 60 * 60 * 1000;
+
+const AppStoreContext = createContext<AppStateStore | null>(null);
 const AppActionsContext = createContext<AppActions | null>(null);
 const SyncStateContext = createContext<SyncState | null>(null);
 
 export function AppStoreProvider({
   children,
   user,
+  authReady = true,
 }: {
   children: ReactNode;
-  user: { id: string; name: string; email: string; photoUrl: string | null };
+  user: AppUser;
+  /**
+   * False while a returning session is still being re-authenticated. Local data renders
+   * immediately; anything that talks to Convex waits until this turns true.
+   */
+  authReady?: boolean;
 }) {
   activateUserDatabase(user.id);
   const convex = useConvex();
-  // Actions must read current state without being rebuilt on every change, or every
-  // consumer re-renders whenever anything moves. `latest` is a plain holder written by
-  // the reducer as it computes each next state, so `getState()` is never stale and no
-  // ref is touched during render.
-  const [latest] = useState(() => {
-    let current = createInitialState(user.name);
-    return {
-      get: () => current,
-      track: (next: AppState) => {
-        current = next;
-        return next;
-      },
-      initial: current,
-    };
-  });
-  const trackedReducer = useMemo(
-    () => (previous: AppState, action: Action) =>
-      latest.track(reducer(previous, action)),
-    [latest],
-  );
-  const [state, dispatch] = useReducer(trackedReducer, latest.initial);
+  const [store] = useState(() => new AppStateStore(createInitialState(user.name), user));
+  const { dispatch } = store;
+  const { rates, theme, toast, toastNonce } = useStoreFields(store, [
+    "rates",
+    "theme",
+    "toast",
+    "toastNonce",
+  ]);
+  const dayKey = useLocalDayKey();
   // Previous projection, so unchanged entity types are reused rather than remapped.
   const snapshotRef = useRef<ProjectionSnapshot | null>(null);
   // Coalesced so a multi-page sync projects once instead of once per page.
   const liveEntities = useLiveQuery(() => allStoredRows(), [], undefined);
   const entities = useCoalesced(liveEntities);
-  const device = useLiveQuery(() => db.deviceMeta.get("device"), [], undefined);
+  // Only this field of deviceMeta feeds the projection. Observing the whole row
+  // re-ran the projection on every logical-clock bump, i.e. on every save.
+  const lastPaymentMethodId = useLiveQuery(
+    async () => (await db.deviceMeta.get("device"))?.lastPaymentMethodId ?? null,
+    [],
+    undefined,
+  );
   const meta = useLiveQuery(() => db.syncMeta.get(WORKSPACE_ID), [], undefined);
   const pending = useLiveQuery(() => db.outbox.where("status").equals("pending").count(), [], 0) ?? 0;
   const blocked = useLiveQuery(() => db.outbox.where("status").equals("blocked").count(), [], 0) ?? 0;
+  const [databaseReady, setDatabaseReady] = useState(false);
 
-  // Keep the latest ECB rates in state for foreign-currency entry + "today's
-  // value" display. Seed from local cache, then refresh from Convex (Frankfurter
-  // is only hit once/day by the server cron).
+  useLayoutEffect(() => {
+    store.setUser(user);
+  }, [store, user]);
+
+  // Seed the latest ECB rates from the local cache right away so foreign-currency
+  // amounts render offline and before auth resolves.
   useEffect(() => {
-    let cancelled = false;
     const cached = loadCachedRates();
     if (cached) dispatch({ type: "SET_RATES", rates: cached });
+  }, [dispatch]);
+
+  // Then refresh from Convex (Frankfurter is only hit once/day by the server cron).
+  useEffect(() => {
+    if (!authReady) return;
+    let cancelled = false;
+    let lastFetchedAt = 0;
     const load = () => {
+      if (Date.now() - lastFetchedAt < RATES_REFRESH_INTERVAL_MS) return;
       void convex
         .query(latestRatesRef, {})
-        .then((rates) => {
-          if (cancelled || !rates) return;
-          cacheRates(rates);
-          dispatch({ type: "SET_RATES", rates });
+        .then((next) => {
+          if (cancelled || !next) return;
+          lastFetchedAt = Date.now();
+          cacheRates(next);
+          dispatch({ type: "SET_RATES", rates: next });
         })
         .catch(() => {
           // Offline / auth — keep whatever cache we already seeded.
@@ -789,26 +928,41 @@ export function AppStoreProvider({
       cancelled = true;
       window.removeEventListener("focus", load);
     };
-  }, [convex]);
+  }, [convex, authReady, dispatch]);
 
   useEffect(() => {
     let cancelled = false;
     void initializeLocalDatabase()
+      .then(() => {
+        if (!cancelled) setDatabaseReady(true);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          dispatch({ type: "SHOW_TOAST", message: `Local database failed: ${String(error)}` });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!databaseReady || !authReady) return;
+    let cancelled = false;
+    const nextName = user.name.trim();
+    const nextEmail = user.email.trim();
+
+    // Pull before turning any bootstrap preference into a versioned local write.
+    // Otherwise a fresh database created after sign-out can stamp the seeded 1Y
+    // stats range with a newer version and overwrite the user's cloud preference.
+    const coordinator = startSync(convex, {
+      name: nextName || user.name,
+      email: nextEmail || user.email,
+    });
+    void coordinator
+      .request()
       .then(async () => {
         if (cancelled) return;
-        const nextName = user.name.trim();
-        const nextEmail = user.email.trim();
-
-        // Pull before turning any bootstrap preference into a versioned local write.
-        // Otherwise a fresh database created after sign-out can stamp the seeded 1Y
-        // stats range with a newer version and overwrite the user's cloud preference.
-        const coordinator = startSync(convex, {
-          name: nextName || user.name,
-          email: nextEmail || user.email,
-        });
-        await coordinator.request();
-        if (cancelled) return;
-
         // Persist AuthKit profile into an established preferences row so later
         // preference pushes also carry name/email. A zero server revision means
         // initial sync did not complete, so leave the bootstrap row untouched.
@@ -837,15 +991,16 @@ export function AppStoreProvider({
       cancelled = true;
       stopSync();
     };
-  }, [convex, user.name, user.email]);
+  }, [convex, databaseReady, authReady, user.name, user.email, dispatch]);
 
   useEffect(() => {
     if (!entities?.length) return;
     const previous = snapshotRef.current;
     const snapshot = projectEntities(entities, {
-      rates: state.rates,
-      lastPaymentMethodId: device?.lastPaymentMethodId,
+      rates,
+      lastPaymentMethodId,
       previous,
+      dayKey,
     });
     // Nothing observable changed (e.g. an email-only write, or a re-emit of the same
     // rows) — skip the dispatch so no screen re-renders.
@@ -864,33 +1019,40 @@ export function AppStoreProvider({
         lastPaymentMethod: snapshot.lastPaymentMethod,
       },
     });
-  }, [entities, device, state.rates]);
+  }, [entities, lastPaymentMethodId, rates, dayKey, dispatch]);
 
-
-  useEffect(() => { if (!state.toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [state.toast, state.toastNonce]);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => dispatch({ type: "CLEAR_TOAST" }), TOAST_DURATION_MS); return () => clearTimeout(timer); }, [toast, toastNonce, dispatch]);
   useLayoutEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
-      document.documentElement.dataset.theme = state.theme;
-      const resolved = state.theme === "system" ? (media.matches ? "dark" : "light") : state.theme;
+      document.documentElement.dataset.theme = theme;
+      const resolved = theme === "system" ? (media.matches ? "dark" : "light") : theme;
       const canvas = resolved === "dark" ? "#0c1210" : "#f5f8f6";
       document.documentElement.style.colorScheme = resolved;
       // iOS home-screen PWAs color the status-bar band from theme-color + page bg.
-      // Drop media-specific tags so OS dark mode can't force a black chrome over a light UI.
-      document.querySelectorAll('meta[name="theme-color"]').forEach((el) => el.remove());
-      const themeMeta = document.createElement("meta");
-      themeMeta.name = "theme-color";
-      themeMeta.content = canvas;
-      document.head.appendChild(themeMeta);
+      // Keep exactly one tag without a media query so OS dark mode can't force a
+      // black chrome over a light UI; update it in place rather than re-creating it.
+      const tags = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+      let themeMeta: HTMLMetaElement | null = null;
+      tags.forEach((el) => {
+        if (!themeMeta && !el.media) themeMeta = el;
+        else el.remove();
+      });
+      if (!themeMeta) {
+        themeMeta = document.createElement("meta");
+        themeMeta.name = "theme-color";
+        document.head.appendChild(themeMeta);
+      }
+      (themeMeta as HTMLMetaElement).content = canvas;
       document.documentElement.style.backgroundColor = canvas;
       document.body.style.backgroundColor = canvas;
     };
     apply();
-    if (state.theme !== "system") return;
+    if (theme !== "system") return;
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [state.theme]);
-  const actions = useMemo(() => createActions(dispatch, latest.get), [latest]);
+  }, [theme]);
+  const actions = useMemo(() => createActions(store.dispatch, store.getRaw), [store]);
   const sync: SyncState = useMemo(() => ({
     workspaceId: WORKSPACE_ID,
     lastPulledRevision: meta?.lastPulledRevision ?? 0,
@@ -902,24 +1064,23 @@ export function AppStoreProvider({
     blocked,
     configured: Boolean(process.env.NEXT_PUBLIC_CONVEX_URL),
   }), [meta, pending, blocked]);
-  const publicState = useMemo<AppState>(() => ({
-    ...state,
-    profile: { name: user.name, email: user.email, photoUrl: user.photoUrl },
-    defaultView: "home",
-  }), [state, user.name, user.email, user.photoUrl]);
   return (
-    <AppStateContext.Provider value={publicState}>
+    <AppStoreContext.Provider value={store}>
       <AppActionsContext.Provider value={actions}>
         <SyncStateContext.Provider value={sync}>{children}</SyncStateContext.Provider>
       </AppActionsContext.Provider>
-    </AppStateContext.Provider>
+    </AppStoreContext.Provider>
   );
 }
 
-export function useAppState() {
-  const state = useContext(AppStateContext);
-  if (!state) throw new Error("useAppState must be used within an AppStoreProvider");
-  return state;
+/**
+ * Read the named fields of app state. The component re-renders only when one of those
+ * fields changes, so list exactly what the component uses.
+ */
+export function useAppState<K extends keyof AppState>(...keys: [K, ...K[]]): Pick<AppState, K> {
+  const store = useContext(AppStoreContext);
+  if (!store) throw new Error("useAppState must be used within an AppStoreProvider");
+  return useStoreFields(store, keys);
 }
 
 export function useAppActions() {

@@ -14,7 +14,7 @@ const FAB_BY_VIEW: Partial<
 
 /** Floating add button for screens that create records. */
 export function Fab() {
-  const { view } = useAppState();
+  const { view } = useAppState("view");
   const { openOverlay } = useAppActions();
   const action = FAB_BY_VIEW[view];
   if (!action) return null;

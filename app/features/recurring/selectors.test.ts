@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Recurring, Transaction } from "@/lib/types";
-import { allUpcomingBills, upcomingBills } from "@/features/recurring/selectors";
+import { allUpcomingBills, upcomingBills, upcomingSchedule } from "@/features/recurring/selectors";
 
 function recurring(id: string, anchorDate: string, paused = false): Recurring {
   return {
@@ -115,5 +115,22 @@ describe("allUpcomingBills", () => {
 
     expect(upcomingBills([paused], [], undefined, now)).toEqual([]);
     expect(allUpcomingBills([paused], [], now)).toEqual([paused]);
+  });
+});
+
+describe("upcomingSchedule", () => {
+  it("matches upcomingBills and allUpcomingBills from one pass", () => {
+    const now = new Date(2026, 6, 12);
+    const recs = [
+      recurring("later", "2026-08-03"),
+      recurring("soon", "2026-07-13"),
+      recurring("paused", "2026-07-14", true),
+      recurring("charged", "2026-07-12"),
+    ];
+    const history = [occurrence("charged", "2026-07-12")];
+    const schedule = upcomingSchedule(recs, history, now);
+    expect(schedule.upcoming).toEqual(upcomingBills(recs, history, undefined, now));
+    expect(schedule.allUpcoming).toEqual(allUpcomingBills(recs, history, now));
+    expect(schedule.upcoming.map((rec) => rec.id)).toEqual(["soon"]);
   });
 });

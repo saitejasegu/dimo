@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/Button";
 const PRESETS = [1000, 2500, 5000, 10000];
 
 export function NewCategoryForm({ onCancel }: { onCancel?: () => void }) {
-  const { categoryDraft, categories, transactions, currency } = useAppState();
+  const { categoryDraft, categories, transactions, currency } = useAppState("categoryDraft", "categories", "transactions", "currency");
   const actions = useAppActions();
 
   const editing = Boolean(categoryDraft.id);

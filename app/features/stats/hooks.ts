@@ -16,7 +16,7 @@ export function useStats() {
     selectedMonth,
     merchantsExpanded,
     categoriesExpanded,
-  } = useAppState();
+  } = useAppState("transactions", "statsRange", "statsPeriodOffset", "selectedMonth", "merchantsExpanded", "categoriesExpanded");
 
   return useMemo(() => {
     const scope = statsScope(statsRange, transactions, new Date(), statsPeriodOffset);

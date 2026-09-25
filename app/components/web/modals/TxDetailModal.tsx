@@ -6,7 +6,7 @@ import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { ExpenseEditorForm } from "@/components/forms/ExpenseEditorForm";
 
 export function TxDetailModal() {
-  const { transactions, detailId } = useAppState();
+  const { transactions, detailId } = useAppState("transactions", "detailId");
   const actions = useAppActions();
   const transaction = transactions.find((item) => item.id === detailId);
   if (!transaction) return null;

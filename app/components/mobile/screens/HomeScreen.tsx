@@ -23,7 +23,7 @@ import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 export function HomeScreen() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [upcomingSheetOpen, setUpcomingSheetOpen] = useState(false);
-  const { profile, currency, rates, query, categories } = useAppState();
+  const { profile, currency, rates, query, categories } = useAppState("profile", "currency", "rates", "query", "categories");
   const actions = useAppActions();
   const {
     totals,

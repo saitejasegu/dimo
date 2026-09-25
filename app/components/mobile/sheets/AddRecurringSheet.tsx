@@ -6,7 +6,7 @@ import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { ExpenseEditorForm } from "@/components/forms/ExpenseEditorForm";
 
 export function AddRecurringSheet() {
-  const { recurringDraft, recurring } = useAppState();
+  const { recurringDraft, recurring } = useAppState("recurringDraft", "recurring");
   const actions = useAppActions();
   const item = recurring.find((candidate) => candidate.id === recurringDraft.id);
   if (!item) return null;
