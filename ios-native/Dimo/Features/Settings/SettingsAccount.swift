@@ -91,7 +91,7 @@ struct SettingsScreen: View {
       .safeAreaPadding(.bottom, 24)
     }
     .background(Theme.canvas.ignoresSafeArea())
-    .edgeSwipeBack(action: closeSettings)
+    .interactivePopGestureEnabled()
     .onAppear { environment.applyTheme(store.theme) }
     .fileImporter(
       isPresented: $importPresented,
@@ -437,7 +437,7 @@ struct AccountScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
-    .edgeSwipeBack(action: closeAccount)
+    .interactivePopGestureEnabled()
     .alert("Sign out?", isPresented: $confirmSignOut) {
       Button("Sign out", role: .destructive) {
         Task {
@@ -633,18 +633,61 @@ struct AccountScreen: View {
 }
 
 private extension View {
-  func edgeSwipeBack(action: @escaping () -> Void) -> some View {
-    simultaneousGesture(
-      DragGesture(minimumDistance: 20, coordinateSpace: .global)
-        .onEnded { value in
-          let horizontalDistance = value.translation.width
-          let verticalDistance = abs(value.translation.height)
-          guard value.startLocation.x <= 28,
-                horizontalDistance >= 80,
-                horizontalDistance > verticalDistance * 1.25
-          else { return }
-          action()
-        }
-    )
+  /// Hiding the navigation bar disables UIKit's interactive pop, so restore it:
+  /// the screen tracks the finger and commits or cancels on release.
+  func interactivePopGestureEnabled() -> some View {
+    background(InteractivePopGestureEnabler().frame(width: 0, height: 0))
+  }
+}
+
+private struct InteractivePopGestureEnabler: UIViewControllerRepresentable {
+  func makeUIViewController(context: Context) -> Controller { Controller() }
+
+  func updateUIViewController(_ uiViewController: Controller, context: Context) {}
+
+  final class Controller: UIViewController, UIGestureRecognizerDelegate {
+    /// UIKit's own delegates, handed back when this screen leaves so the
+    /// root screen keeps the default (non-popping) behavior.
+    private var originalDelegates: [ObjectIdentifier: UIGestureRecognizerDelegate] = [:]
+
+    override func viewWillAppear(_ animated: Bool) {
+      super.viewWillAppear(animated)
+      install()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+      super.viewWillDisappear(animated)
+      uninstall()
+    }
+
+    private var popRecognizers: [UIGestureRecognizer] {
+      guard let navigationController else { return [] }
+      return [
+        navigationController.interactivePopGestureRecognizer,
+        navigationController.interactiveContentPopGestureRecognizer,
+      ].compactMap { $0 }
+    }
+
+    private func install() {
+      for recognizer in popRecognizers where recognizer.delegate !== self {
+        originalDelegates[ObjectIdentifier(recognizer)] = recognizer.delegate
+        recognizer.delegate = self
+        recognizer.isEnabled = true
+      }
+    }
+
+    private func uninstall() {
+      for recognizer in popRecognizers where recognizer.delegate === self {
+        recognizer.delegate = originalDelegates[ObjectIdentifier(recognizer)]
+      }
+      originalDelegates.removeAll()
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard (navigationController?.viewControllers.count ?? 0) > 1 else { return false }
+      guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+      let velocity = pan.velocity(in: pan.view)
+      return velocity.x > abs(velocity.y)
+    }
   }
 }
