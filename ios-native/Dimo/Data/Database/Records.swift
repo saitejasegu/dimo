@@ -943,8 +943,18 @@ typealias EntityRecord = TypedEntityStoreCompat
 
 enum TypedEntityStoreCompat {
   static func fetchOne(_ db: Database, key: String) throws -> StoredEntityWrapper? {
-    guard let entity = try TypedEntityStore.fetchOne(db: db, key: key) else { return nil }
-    return StoredEntityWrapper(entity: entity)
+    // Keys name their type, so read that one table instead of probing all seven.
+    let entity = try entityType(fromKey: key).map {
+      try TypedEntityStore.fetchOne(db: db, type: $0, key: key)
+    } ?? TypedEntityStore.fetchOne(db: db, key: key)
+    return entity.map(StoredEntityWrapper.init(entity:))
+  }
+
+  /// Type segment of a `"workspace:type:id"` key, or nil when the key is not in that form.
+  static func entityType(fromKey key: String) -> EntityType? {
+    let parts = key.split(separator: ":", maxSplits: 2)
+    guard parts.count == 3 else { return nil }
+    return EntityType(rawValue: String(parts[1]))
   }
 
   static func from(_ entity: StoredEntity) throws -> StoredEntityWriter {
@@ -952,9 +962,7 @@ enum TypedEntityStoreCompat {
   }
 
   static func deleteOne(_ db: Database, key: String) throws -> Bool {
-    // Probe type from key: "global:type:id"
-    let parts = key.split(separator: ":", maxSplits: 2).map(String.init)
-    guard parts.count == 3, let type = EntityType(rawValue: parts[1]) else { return false }
+    guard let type = entityType(fromKey: key) else { return false }
     try TypedEntityStore.deleteOne(db: db, type: type, key: key)
     return true
   }

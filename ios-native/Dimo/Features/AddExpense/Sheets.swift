@@ -347,6 +347,11 @@ struct ExpenseEditorSheet: View {
       loadRecord()
       updateMerchantSuggestions(for: name)
     }
+    .task {
+      // Linked emails are a secondary reference row; load them after the sheet is up.
+      guard case .transaction(let id) = mode else { return }
+      sourceEmails = await store.loadSourceEmails(forTransactionId: id)
+    }
     .onChange(of: name) { _, value in updateMerchantSuggestions(for: value) }
     .alert("Add previous transactions?", isPresented: $historicalTransactionsPrompt) {
       Button("Add all occurrences") { saveNew(selection: .all) }
@@ -733,7 +738,6 @@ struct ExpenseEditorSheet: View {
         date = Date(timeIntervalSince1970: TimeInterval(occurredAt) / 1000)
       }
       isRecurring = false
-      sourceEmails = store.sourceEmails(forTransactionId: id)
     case .recurring(let id):
       guard let item = store.recurring.first(where: { $0.id == id }) else { return }
       entryCurrency = item.currency ?? store.currency.rawValue

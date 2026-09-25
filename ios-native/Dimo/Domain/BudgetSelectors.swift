@@ -176,6 +176,13 @@ enum BudgetSelectors {
     )
   }
 
+  /// Local calendar days left in the month, including today (never below 1).
+  static func daysRemainingInMonth(now: Date = Date(), calendar: Calendar = .current) -> Int {
+    let day = calendar.component(.day, from: now)
+    let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? day
+    return max(1, daysInMonth - day + 1)
+  }
+
   /// Average available spend for each remaining local calendar day, including today.
   /// A missing budget or an already-exceeded budget has no useful daily allowance.
   static func dailyBudgetAllowance(
@@ -185,9 +192,7 @@ enum BudgetSelectors {
     upcomingTotal: Double = 0
   ) -> DailyBudgetAllowance? {
     guard totals.totalLimit > 0, totals.left >= 0 else { return nil }
-    let day = calendar.component(.day, from: now)
-    let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? day
-    let daysRemaining = max(1, daysInMonth - day + 1)
+    let daysRemaining = daysRemainingInMonth(now: now, calendar: calendar)
     return DailyBudgetAllowance(
       amount: max(0, totals.left - upcomingTotal) / Double(daysRemaining),
       daysRemaining: daysRemaining

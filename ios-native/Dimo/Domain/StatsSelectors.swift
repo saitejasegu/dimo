@@ -208,9 +208,27 @@ enum StatsSelectors {
     now: Date = Date(),
     calendar: Calendar = .current
   ) -> Bool {
+    hasEarlierData(
+      oldestOccurredAt: transactions.lazy.map { $0.occurredAt ?? 0 }.min(),
+      range: range,
+      offset: offset,
+      now: now,
+      calendar: calendar
+    )
+  }
+
+  /// Constant-time form for callers that already track the earliest timestamp.
+  static func hasEarlierData(
+    oldestOccurredAt: Int?,
+    range: StatsRange,
+    offset: Int,
+    now: Date = Date(),
+    calendar: Calendar = .current
+  ) -> Bool {
+    guard let oldestOccurredAt else { return false }
     let anchor = statsAnchor(range, offset: offset, now: now, calendar: calendar)
     let start = rangeStart(range, now: anchor, calendar: calendar).timeIntervalSince1970 * 1000
-    return transactions.contains { Double($0.occurredAt ?? 0) < start }
+    return Double(oldestOccurredAt) < start
   }
 
   static func rangeStart(_ range: StatsRange, now: Date = Date(), calendar: Calendar = .current) -> Date {

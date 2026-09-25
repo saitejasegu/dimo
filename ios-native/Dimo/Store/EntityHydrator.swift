@@ -22,52 +22,44 @@ struct EntityTypeFingerprints: Equatable, Sendable {
     preferencesProjection: 0
   )
 
-  /// One pass with six hashers, rather than six passes over the whole batch.
+  /// Fingerprints a whole flat entity list. Observation delivers an `EntityBatch`,
+  /// which keeps these per type so an edit re-hashes only the type it touched.
   static func compute(_ entities: [StoredEntity]) -> EntityTypeFingerprints {
-    var hashers: [EntityType: Hasher] = [:]
-    var counts: [EntityType: Int] = [:]
-    var preferencesProjectionHasher = Hasher()
-    for type in [EntityType.category, .paymentMethod, .transaction, .recurring, .lend, .preferences] {
-      hashers[type] = Hasher()
-      counts[type] = 0
-    }
+    EntityBatch(entities).fingerprints
+  }
 
-    for entity in entities {
-      let type = entity.entityType
-      guard var hasher = hashers[type] else { continue }
-      counts[type, default: 0] += 1
+  /// Hash of one type's rows. Category and preference *content* feeds other types'
+  /// projections, so their payloads participate; the rest change their logical version.
+  static func hash(_ type: EntityType, rows: [StoredEntity]) -> Int {
+    var hasher = Hasher()
+    var count = 0
+    for entity in rows where entity.entityType == type {
+      count += 1
       hasher.combine(entity.entityId)
       hasher.combine(entity.version.timestamp)
       hasher.combine(entity.version.counter)
       hasher.combine(entity.deleted)
-      // Category and preference *content* feeds other types' projections, so their
-      // payloads participate in the hash; the rest change their logical version.
       if type == .preferences || type == .category {
         hasher.combine(entity.payload)
       }
-      if type == .preferences, case .preferences(let prefs) = entity.payload {
-        preferencesProjectionHasher.combine(prefs.currency)
-        preferencesProjectionHasher.combine(prefs.defaultPaymentMethodId)
+    }
+    hasher.combine(count)
+    return hasher.finalize()
+  }
+
+  /// Currency + default payment method of the preferences rows.
+  static func preferencesProjectionHash(_ rows: [StoredEntity]) -> Int {
+    var hasher = Hasher()
+    var count = 0
+    for entity in rows where entity.entityType == .preferences {
+      count += 1
+      if case .preferences(let prefs) = entity.payload {
+        hasher.combine(prefs.currency)
+        hasher.combine(prefs.defaultPaymentMethodId)
       }
-      hashers[type] = hasher
     }
-
-    func finalize(_ type: EntityType) -> Int {
-      guard var hasher = hashers[type] else { return 0 }
-      hasher.combine(counts[type] ?? 0)
-      return hasher.finalize()
-    }
-
-    preferencesProjectionHasher.combine(counts[.preferences] ?? 0)
-    return EntityTypeFingerprints(
-      category: finalize(.category),
-      paymentMethod: finalize(.paymentMethod),
-      transaction: finalize(.transaction),
-      recurring: finalize(.recurring),
-      lend: finalize(.lend),
-      preferences: finalize(.preferences),
-      preferencesProjection: preferencesProjectionHasher.finalize()
-    )
+    hasher.combine(count)
+    return hasher.finalize()
   }
 
   /// Types whose display projection depends on FX / category / payment labels.
@@ -99,10 +91,80 @@ struct EntityTypeFingerprints: Equatable, Sendable {
   }
 }
 
+/// Live UI entities grouped by type, each with its own fingerprint.
+///
+/// The six per-type observations each replace only their own slice, so a lend edit
+/// neither copies nor re-hashes every transaction before the hydrator can tell that
+/// transactions did not change.
+struct EntityBatch: Sendable {
+  static let types: [EntityType] = [
+    .category, .paymentMethod, .transaction, .recurring, .lend, .preferences,
+  ]
+
+  private(set) var rowsByType: [EntityType: [StoredEntity]] = [:]
+  private var hashes: [EntityType: Int] = [:]
+  private var preferencesProjection = EntityTypeFingerprints.preferencesProjectionHash([])
+
+  init() {}
+
+  init(_ entities: [StoredEntity]) {
+    var grouped: [EntityType: [StoredEntity]] = [:]
+    for entity in entities where Self.types.contains(entity.entityType) {
+      grouped[entity.entityType, default: []].append(entity)
+    }
+    for type in Self.types {
+      replace(type, with: grouped[type] ?? [])
+    }
+  }
+
+  mutating func replace(_ type: EntityType, with rows: [StoredEntity]) {
+    rowsByType[type] = rows
+    hashes[type] = EntityTypeFingerprints.hash(type, rows: rows)
+    if type == .preferences {
+      preferencesProjection = EntityTypeFingerprints.preferencesProjectionHash(rows)
+    }
+  }
+
+  /// True once every observed type has delivered at least once.
+  var isComplete: Bool { Self.types.allSatisfy { rowsByType[$0] != nil } }
+
+  func rows(_ type: EntityType) -> [StoredEntity] { rowsByType[type] ?? [] }
+
+  /// Every row, in type order. For tests and diagnostics; hydration reads by type.
+  var all: [StoredEntity] { Self.types.flatMap { rows($0) } }
+
+  var fingerprints: EntityTypeFingerprints {
+    func hash(_ type: EntityType) -> Int {
+      hashes[type] ?? EntityTypeFingerprints.hash(type, rows: [])
+    }
+    return EntityTypeFingerprints(
+      category: hash(.category),
+      paymentMethod: hash(.paymentMethod),
+      transaction: hash(.transaction),
+      recurring: hash(.recurring),
+      lend: hash(.lend),
+      preferences: hash(.preferences),
+      preferencesProjection: preferencesProjection
+    )
+  }
+}
+
+/// A built display row and the payload it was built from, reused while that payload
+/// and the row's display context (labels, currency, rates, calendar day) are unchanged.
+struct CachedTransactionRow: Sendable {
+  var entity: TransactionEntity
+  var row: Transaction
+}
+
 /// UI-ready entity projections produced off the main actor.
-struct EntitySnapshot: Equatable, Sendable {
+struct EntitySnapshot: Sendable {
   var fingerprints: EntityTypeFingerprints
   var ratesDate: String?
+  /// Local day the relative labels ("Today", "Yesterday", "Due in 3 days") were built
+  /// for. A new day invalidates them even when no entity changed.
+  var todayKey: String
+  /// Built transaction rows by id, so a single edit rebuilds one row instead of all.
+  var transactionRows: [String: CachedTransactionRow]
   var categories: [CategoryEntity]
   var paymentMethods: [PaymentMethodOption]
   var limits: CategoryLimits
@@ -128,7 +190,7 @@ struct DeriveDirtyFlags: Sendable {
     previous: EntitySnapshot?,
     next: EntitySnapshot
   ) -> DeriveDirtyFlags {
-    guard let previous else { return .all }
+    guard let previous, previous.todayKey == next.todayKey else { return .all }
     let fp = next.fingerprints
     let prev = previous.fingerprints
     let txOrLimitsChanged =
@@ -232,25 +294,54 @@ enum EntityHydrator {
     dataReady: Bool,
     profileName: String,
     profileEmail: String,
-    previous: EntitySnapshot?
+    previous: EntitySnapshot?,
+    now: Date = Date()
+  ) async -> EntitySnapshot? {
+    await project(
+      batch: EntityBatch(entities),
+      rates: rates,
+      currentStatsRange: currentStatsRange,
+      previousDefaultStatsRange: previousDefaultStatsRange,
+      dataReady: dataReady,
+      profileName: profileName,
+      profileEmail: profileEmail,
+      previous: previous,
+      now: now
+    )
+  }
+
+  static func project(
+    batch: EntityBatch,
+    rates: RateTable?,
+    currentStatsRange: StatsRange,
+    previousDefaultStatsRange: StatsRange,
+    dataReady: Bool,
+    profileName: String,
+    profileEmail: String,
+    previous: EntitySnapshot?,
+    now: Date = Date()
   ) async -> EntitySnapshot? {
     await withCheckedContinuation { continuation in
       queue.async {
-        let fingerprints = EntityTypeFingerprints.compute(entities)
+        let fingerprints = batch.fingerprints
         let ratesDate = rates?.date
-        // Skip rebuild when entity content and FX table are unchanged.
+        let todayKey = DateHelpers.localDateKey(now)
+        // Skip rebuild when entity content, FX table and calendar day are unchanged.
         if let previous,
            previous.fingerprints == fingerprints,
-           previous.ratesDate == ratesDate {
+           previous.ratesDate == ratesDate,
+           previous.todayKey == todayKey {
           continuation.resume(returning: nil)
           return
         }
 
         let snapshot = build(
-          entities: entities,
+          batch: batch,
           fingerprints: fingerprints,
           rates: rates,
           ratesDate: ratesDate,
+          now: now,
+          todayKey: todayKey,
           currentStatsRange: currentStatsRange,
           previousDefaultStatsRange: previousDefaultStatsRange,
           dataReady: dataReady,
@@ -297,26 +388,66 @@ enum EntityHydrator {
   /// screen or its controls change.
   static func deriveStats(
     transactions: [Transaction],
-    statsRange: StatsRange,
-    periodOffset: Int,
-    selectedMonth: String?,
-    categoriesExpanded: Bool,
-    merchantsExpanded: Bool
+    inputs: StatsInputs,
+    reusing previous: (inputs: StatsInputs, stats: StatsSnapshot)?
   ) async -> StatsSnapshot {
     await withCheckedContinuation { continuation in
       queue.async {
         continuation.resume(
-          returning: buildStats(
-            transactions: transactions,
-            statsRange: statsRange,
-            periodOffset: periodOffset,
-            selectedMonth: selectedMonth,
-            categoriesExpanded: categoriesExpanded,
-            merchantsExpanded: merchantsExpanded
-          )
+          returning: buildStats(transactions: transactions, inputs: inputs, reusing: previous)
         )
       }
     }
+  }
+
+  /// Recomputes only what `inputs` invalidated. The scope (range filter, totals,
+  /// average) depends on data and window alone; selecting a bar or expanding a list
+  /// used to redo it, plus both rankings, on every tap.
+  static func buildStats(
+    transactions: [Transaction],
+    inputs: StatsInputs,
+    reusing previous: (inputs: StatsInputs, stats: StatsSnapshot)?
+  ) -> StatsSnapshot {
+    guard let previous,
+      previous.inputs.revision == inputs.revision,
+      previous.inputs.range == inputs.range,
+      previous.inputs.periodOffset == inputs.periodOffset
+    else {
+      return buildStats(
+        transactions: transactions,
+        statsRange: inputs.range,
+        periodOffset: inputs.periodOffset,
+        selectedMonth: inputs.selectedMonth,
+        categoriesExpanded: inputs.categoriesExpanded,
+        merchantsExpanded: inputs.merchantsExpanded
+      )
+    }
+    var result = previous.stats
+    if previous.inputs.selectedMonth != inputs.selectedMonth {
+      result.trendBars = StatsSelectors.trendBars(
+        range: inputs.range,
+        transactions: result.scope.transactions,
+        selectedKey: inputs.selectedMonth,
+        offset: inputs.periodOffset
+      )
+    }
+    if previous.inputs.categoriesExpanded != inputs.categoriesExpanded {
+      let cats = StatsSelectors.statCategories(
+        scope: result.scope,
+        limit: inputs.categoriesExpanded ? expandedStatsLimit : 5
+      )
+      result.categories = cats.categories
+      result.categoriesTotal = cats.total
+    }
+    if previous.inputs.merchantsExpanded != inputs.merchantsExpanded {
+      let merchants = StatsSelectors.topMerchants(
+        scope: result.scope,
+        limit: inputs.merchantsExpanded ? expandedStatsLimit : 5
+      )
+      result.merchants = merchants.merchants
+      result.merchantsTotal = merchants.total
+    }
+    return result
   }
 
   static func buildStats(
@@ -430,10 +561,12 @@ enum EntityHydrator {
   }
 
   private static func build(
-    entities: [StoredEntity],
+    batch: EntityBatch,
     fingerprints: EntityTypeFingerprints,
     rates: RateTable?,
     ratesDate: String?,
+    now: Date,
+    todayKey: String,
     currentStatsRange: StatsRange,
     previousDefaultStatsRange: StatsRange,
     dataReady: Bool,
@@ -442,58 +575,46 @@ enum EntityHydrator {
     previous: EntitySnapshot?
   ) -> EntitySnapshot {
     let prevFp = previous?.fingerprints
-    let ratesDateChanged = previous?.ratesDate != ratesDate
+    // Relative labels are calendar-day dependent, so a new day rebuilds every row type
+    // that carries one, exactly like an FX change rebuilds money labels.
+    let dayChanged = previous?.todayKey != todayKey
+    let contextChanged = previous?.ratesDate != ratesDate || dayChanged
     let rebuildCategories = prevFp.map { $0.category != fingerprints.category } ?? true
     let rebuildPaymentMethods =
       prevFp.map { fingerprints.paymentMethodsNeedRebuild(from: $0) } ?? true
     let rebuildTransactions =
-      prevFp.map { fingerprints.transactionsNeedRebuild(from: $0, ratesDateChanged: ratesDateChanged) }
+      prevFp.map { fingerprints.transactionsNeedRebuild(from: $0, ratesDateChanged: contextChanged) }
       ?? true
     let rebuildRecurring =
-      prevFp.map { fingerprints.recurringNeedsRebuild(from: $0, ratesDateChanged: ratesDateChanged) }
+      prevFp.map { fingerprints.recurringNeedsRebuild(from: $0, ratesDateChanged: contextChanged) }
       ?? true
-    let rebuildLends = prevFp.map { $0.lend != fingerprints.lend } ?? true
+    let rebuildLends = prevFp.map { $0.lend != fingerprints.lend || dayChanged } ?? true
     let rebuildPreferences = prevFp.map { $0.preferences != fingerprints.preferences } ?? true
 
-    var nextCategories: [CategoryEntity] = []
-    var nextPaymentMethods: [PaymentMethodEntity] = []
-    var nextTransactions: [TransactionEntity] = []
-    var nextRecurring: [RecurringEntity] = []
-    var nextLends: [LendEntity] = []
-    var prefs = previous?.preferences ?? SeedData.defaultPreferences
+    func live<T>(_ type: EntityType, _ extract: (EntityPayload) -> T?) -> [T] {
+      batch.rows(type).compactMap { $0.deleted ? nil : extract($0.payload) }
+    }
 
-    let needsScan =
-      rebuildCategories || rebuildPaymentMethods || rebuildTransactions
-      || rebuildRecurring || rebuildLends || rebuildPreferences
-    if needsScan {
-      for entity in entities where !entity.deleted {
-        switch entity.payload {
-        case .category(let c):
-          if rebuildCategories { nextCategories.append(c) }
-        case .paymentMethod(let p):
-          if rebuildPaymentMethods { nextPaymentMethods.append(p) }
-        case .transaction(let t):
-          if rebuildTransactions { nextTransactions.append(t) }
-        case .recurring(let r):
-          if rebuildRecurring { nextRecurring.append(r) }
-        case .lend(let l):
-          if rebuildLends { nextLends.append(l) }
-        case .emailMessage:
-          break
-        case .preferences(let p):
-          if rebuildPreferences { prefs = p }
-        }
+    var prefs = previous?.preferences ?? SeedData.defaultPreferences
+    if rebuildPreferences {
+      let rows = live(.preferences) { payload -> PreferencesEntity? in
+        if case .preferences(let value) = payload { return value }
+        return nil
       }
+      if let last = rows.last { prefs = last }
     }
 
     let categories: [CategoryEntity]
     let limits: CategoryLimits
     if rebuildCategories {
-      nextCategories.sort { $0.sortOrder < $1.sortOrder }
-      categories = nextCategories
-      limits = Dictionary(uniqueKeysWithValues: categories.map {
+      categories = live(.category) { payload -> CategoryEntity? in
+        if case .category(let value) = payload { return value }
+        return nil
+      }
+      .sorted { $0.sortOrder < $1.sortOrder }
+      limits = Dictionary(categories.map {
         ($0.name, $0.monthlyBudgetMinor.map { Double($0) / 100 })
-      })
+      }, uniquingKeysWith: { first, _ in first })
     } else {
       categories = previous?.categories ?? []
       limits = previous?.limits ?? [:]
@@ -502,7 +623,10 @@ enum EntityHydrator {
     let paymentMethods: [PaymentMethodOption]
     if rebuildPaymentMethods {
       let defaultPM = prefs.defaultPaymentMethodId
-      paymentMethods = nextPaymentMethods
+      paymentMethods = live(.paymentMethod) { payload -> PaymentMethodEntity? in
+        if case .paymentMethod(let value) = payload { return value }
+        return nil
+      }
         .sorted { $0.name < $1.name }
         .map {
           PaymentMethodOption(
@@ -514,56 +638,58 @@ enum EntityHydrator {
       paymentMethods = previous?.paymentMethods ?? []
     }
 
-    let categoryById = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
-    let pmById = Dictionary(uniqueKeysWithValues: paymentMethods.map { ($0.id, $0) })
-    let formatters = Formatters()
+    let categoryById = Dictionary(categories.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    let pmById = Dictionary(paymentMethods.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    let formatters = Formatters(now: now)
     let defaultCurrency = prefs.currency.rawValue
 
     let transactions: [Transaction]
+    let transactionRows: [String: CachedTransactionRow]
     if rebuildTransactions {
-      transactions = nextTransactions
+      // Rows only need rebuilding when their own payload changed, unless something
+      // every row reads (category labels, payment labels, currency, FX, day) did.
+      let rowContextChanged = prevFp.map {
+        $0.category != fingerprints.category
+          || $0.paymentMethod != fingerprints.paymentMethod
+          || $0.preferencesProjection != fingerprints.preferencesProjection
+      } ?? true
+      let reusable = rowContextChanged || contextChanged ? [:] : (previous?.transactionRows ?? [:])
+      var rows: [String: CachedTransactionRow] = [:]
+      let entities = live(.transaction) { payload -> TransactionEntity? in
+        if case .transaction(let value) = payload { return value }
+        return nil
+      }
+      rows.reserveCapacity(entities.count)
+      transactions = entities
         .sorted { $0.occurredAt > $1.occurredAt }
         .map { tx -> Transaction in
-          let cat = categoryById[tx.categoryId]
-          let pm = tx.paymentMethodId.flatMap { pmById[$0] }
-          let sourceAmount = tx.sourceCurrency.flatMap { code in
-            tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
+          if let cached = reusable[tx.id], cached.entity == tx {
+            rows[tx.id] = cached
+            return cached.row
           }
-          let amountCurrency = tx.currency ?? defaultCurrency
-          let categoryName = cat?.name ?? "Unknown"
-          return Transaction(
-            id: tx.id,
-            name: tx.name,
-            category: categoryName,
-            time: formatters.time(tx.occurredAt),
-            day: formatters.day(tx.occurredAt),
-            amount: ExchangeRates.transactionAmountInDefault(
-              amountMinor: tx.amountMinor,
-              currency: tx.currency,
-              defaultCurrency: defaultCurrency,
-              rates: rates
-            ),
-            paymentMethod: pm?.label,
-            green: cat?.tint == .green,
-            emoji: cat?.emoji,
-            amountMinor: tx.amountMinor,
-            occurredAt: tx.occurredAt,
-            categoryId: tx.categoryId,
-            paymentMethodId: tx.paymentMethodId,
-            currency: amountCurrency,
-            sourceCurrency: tx.sourceCurrency,
-            sourceAmount: sourceAmount,
-            searchText: "\(tx.name) \(categoryName)".lowercased(),
-            dayKey: formatters.dayKey(tx.occurredAt)
+          let row = makeTransactionRow(
+            tx,
+            category: categoryById[tx.categoryId],
+            paymentMethod: tx.paymentMethodId.flatMap { pmById[$0] },
+            defaultCurrency: defaultCurrency,
+            rates: rates,
+            formatters: formatters
           )
+          rows[tx.id] = CachedTransactionRow(entity: tx, row: row)
+          return row
         }
+      transactionRows = rows
     } else {
       transactions = previous?.transactions ?? []
+      transactionRows = previous?.transactionRows ?? [:]
     }
 
     let lends: [Lend]
     if rebuildLends {
-      lends = nextLends
+      lends = live(.lend) { payload -> LendEntity? in
+        if case .lend(let value) = payload { return value }
+        return nil
+      }
         .sorted { $0.occurredAt > $1.occurredAt }
         .map { lend in
           Lend(
@@ -585,11 +711,16 @@ enum EntityHydrator {
 
     let recurring: [Recurring]
     if rebuildRecurring {
-      nextRecurring.sort {
-        DateHelpers.nextOccurrence(anchorDate: $0.anchorDate, frequency: $0.frequency)
-          < DateHelpers.nextOccurrence(anchorDate: $1.anchorDate, frequency: $1.frequency)
+      // Resolve each next occurrence once; computing it inside the comparator repeated
+      // the date walk O(n log n) times.
+      let ordered = live(.recurring) { payload -> RecurringEntity? in
+        if case .recurring(let value) = payload { return value }
+        return nil
       }
-      recurring = nextRecurring.map { rec -> Recurring in
+        .map { (next: DateHelpers.nextOccurrence(anchorDate: $0.anchorDate, frequency: $0.frequency), rec: $0) }
+        .sorted { $0.next < $1.next }
+        .map(\.rec)
+      recurring = ordered.map { rec -> Recurring in
         let cat = categoryById[rec.categoryId]
         let sourceCurrency = rec.currency
         let convertedEstimateLabel: String?
@@ -642,6 +773,8 @@ enum EntityHydrator {
     return EntitySnapshot(
       fingerprints: fingerprints,
       ratesDate: ratesDate,
+      todayKey: todayKey,
+      transactionRows: transactionRows,
       categories: categories,
       paymentMethods: paymentMethods,
       limits: limits,
@@ -655,6 +788,50 @@ enum EntityHydrator {
     )
   }
 
+  private static func makeTransactionRow(
+    _ tx: TransactionEntity,
+    category cat: CategoryEntity?,
+    paymentMethod pm: PaymentMethodOption?,
+    defaultCurrency: String,
+    rates: RateTable?,
+    formatters: Formatters
+  ) -> Transaction {
+    let sourceAmount = tx.sourceCurrency.flatMap { code in
+      tx.sourceAmountMinor.map { ExchangeRates.toMajorUnits($0, code) }
+    }
+    let amountCurrency = tx.currency ?? defaultCurrency
+    let categoryName = cat?.name ?? "Unknown"
+    let amount = ExchangeRates.transactionAmountInDefault(
+      amountMinor: tx.amountMinor,
+      currency: tx.currency,
+      defaultCurrency: defaultCurrency,
+      rates: rates
+    )
+    return Transaction(
+      id: tx.id,
+      name: tx.name,
+      category: categoryName,
+      time: formatters.time(tx.occurredAt),
+      day: formatters.day(tx.occurredAt),
+      amount: amount,
+      paymentMethod: pm?.label,
+      green: cat?.tint == .green,
+      emoji: cat?.emoji,
+      amountMinor: tx.amountMinor,
+      occurredAt: tx.occurredAt,
+      categoryId: tx.categoryId,
+      paymentMethodId: tx.paymentMethodId,
+      currency: amountCurrency,
+      sourceCurrency: tx.sourceCurrency,
+      sourceAmount: sourceAmount,
+      searchText: "\(tx.name) \(categoryName)".lowercased(),
+      dayKey: formatters.dayKey(tx.occurredAt),
+      spentLabel: Formatting.spent(amount, currency: Currency(rawValue: defaultCurrency) ?? .INR)
+    )
+  }
+
+  /// Per-build formatters. "Today", "Yesterday" and the current year are resolved
+  /// once per build instead of once per row.
   private struct Formatters {
     let timeFormatter: DateFormatter = {
       let formatter = DateFormatter()
@@ -677,7 +854,18 @@ enum EntityHydrator {
 
     /// Reuses one `Calendar`; `Calendar.current` allocates a fresh value per access,
     /// which is measurable when it runs once per transaction.
-    let calendar = Calendar.current
+    let calendar: Calendar
+    let todayKey: String
+    let yesterdayKey: String?
+    let currentYear: Int
+
+    init(now: Date, calendar: Calendar = .current) {
+      self.calendar = calendar
+      todayKey = DateHelpers.localDateKey(now, calendar: calendar)
+      yesterdayKey = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now))
+        .map { DateHelpers.localDateKey($0, calendar: calendar) }
+      currentYear = calendar.component(.year, from: now)
+    }
 
     func time(_ timestamp: Int) -> String {
       let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
@@ -691,16 +879,13 @@ enum EntityHydrator {
       )
     }
 
-    func day(_ timestamp: Int, now: Date = Date(), calendar: Calendar = .current) -> String {
+    func day(_ timestamp: Int) -> String {
       let date = Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000)
-      let today = DateHelpers.localDateKey(now, calendar: calendar)
       let key = DateHelpers.localDateKey(date, calendar: calendar)
-      if key == today { return "Today" }
-      guard let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)) else {
-        return key
-      }
-      if key == DateHelpers.localDateKey(yesterday, calendar: calendar) { return "Yesterday" }
-      let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+      if key == todayKey { return "Today" }
+      guard let yesterdayKey else { return key }
+      if key == yesterdayKey { return "Yesterday" }
+      let sameYear = calendar.component(.year, from: date) == currentYear
       return (sameYear ? daySameYear : dayOtherYear).string(from: date)
     }
   }

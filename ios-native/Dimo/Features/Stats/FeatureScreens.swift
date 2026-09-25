@@ -142,7 +142,7 @@ struct StatsScreen: View {
   private func periodNav(_ scope: StatsScope) -> some View {
     let isCurrent = nav.statsPeriodOffset == 0
     let canGoBack = StatsSelectors.hasEarlierData(
-      entities.transactions,
+      oldestOccurredAt: entities.oldestTransactionAt,
       range: nav.statsRange,
       offset: nav.statsPeriodOffset
     )
@@ -216,7 +216,7 @@ struct StatsScreen: View {
 
         if horizontal > 0 {
           let canGoBack = StatsSelectors.hasEarlierData(
-            entities.transactions,
+            oldestOccurredAt: entities.oldestTransactionAt,
             range: nav.statsRange,
             offset: nav.statsPeriodOffset
           )
@@ -450,7 +450,7 @@ private struct StatsTransactionListSheet: View {
           .lineLimit(1)
       }
       Spacer()
-      Text(Formatting.spent(tx.amount, currency: entities.currency))
+      Text(tx.spentText(currency: entities.currency))
         .font(DimoFont.display(15, weight: .semibold))
         .foregroundStyle(Theme.ink)
     }
@@ -809,7 +809,7 @@ struct BudgetsScreen: View {
       }
       .frame(height: 8)
       .padding(.bottom, 8)
-      Text("\(Formatting.money(totals.left, currency: entities.currency)) left · \(daysToGo) days to go")
+      Text("\(Formatting.money(totals.left, currency: entities.currency)) left · \(daysToGo) \(daysToGo == 1 ? "day" : "days") to go")
         .font(DimoFont.body(12))
         .foregroundStyle(Theme.sideSub)
     }
@@ -903,11 +903,9 @@ struct BudgetsScreen: View {
     }
   }
 
+  /// Counts today, matching the Home allowance ("6 days left, including today").
   private var daysToGo: Int {
-    let cal = Calendar.current
-    let now = Date()
-    let daysInMonth = cal.range(of: .day, in: .month, for: now)?.count ?? 30
-    return daysInMonth - cal.component(.day, from: now)
+    BudgetSelectors.daysRemainingInMonth()
   }
 }
 

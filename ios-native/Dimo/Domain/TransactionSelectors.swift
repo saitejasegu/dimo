@@ -44,33 +44,53 @@ enum TransactionSelectors {
     Array(Set(transactions.compactMap(\.paymentMethod))).sorted()
   }
 
+  /// A filter with its query lowercased, dates keyed and categories hashed once, so
+  /// matching a row costs only comparisons.
+  ///
   /// Matches against `searchText` and `dayKey`, both precomputed during hydration, so
   /// a keystroke no longer lowercases two strings and formats a date key per row.
   /// Rows built outside the hydrator carry empty derived fields and fall back to
   /// computing them, so filtering stays correct wherever a `Transaction` comes from.
-  static func filterTransactions(_ transactions: [Transaction], filter: TransactionFilter) -> [Transaction] {
-    let q = filter.query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let startKey = filter.startDate.map { DateHelpers.localDateKey($0) }
-    let endKey = filter.endDate.map { DateHelpers.localDateKey($0) }
-    let categorySet = filter.categories.isEmpty ? nil : Set(filter.categories)
-    let calendar = Calendar.current
-    return transactions.filter { t in
-      let matchesCategory = categorySet?.contains(t.category) ?? true
-      let matchesPayment = filter.paymentMethod == "All" || t.paymentMethod == filter.paymentMethod
-      let matchesQuery = q.isEmpty || t.searchKey.contains(q)
-      let matchesDate: Bool
-      if startKey == nil && endKey == nil {
-        matchesDate = true
-      } else if let occurredAt = t.occurredAt {
-        let day = t.localDayKey(calendar: calendar, occurredAt: occurredAt)
-        let afterStart = startKey.map { day >= $0 } ?? true
-        let beforeEnd = endKey.map { day <= $0 } ?? true
-        matchesDate = afterStart && beforeEnd
-      } else {
-        matchesDate = false
-      }
-      return matchesCategory && matchesPayment && matchesQuery && matchesDate
+  struct PreparedFilter {
+    private let query: String
+    private let startKey: String?
+    private let endKey: String?
+    private let categorySet: Set<String>?
+    private let paymentMethod: String
+    private let calendar = Calendar.current
+
+    init(_ filter: TransactionFilter) {
+      query = filter.query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      startKey = filter.startDate.map { DateHelpers.localDateKey($0) }
+      endKey = filter.endDate.map { DateHelpers.localDateKey($0) }
+      categorySet = filter.categories.isEmpty ? nil : Set(filter.categories)
+      paymentMethod = filter.paymentMethod
     }
+
+    func matches(_ t: Transaction) -> Bool {
+      if let categorySet, !categorySet.contains(t.category) { return false }
+      if paymentMethod != "All", t.paymentMethod != paymentMethod { return false }
+      if !query.isEmpty, !t.searchKey.contains(query) { return false }
+      if startKey == nil && endKey == nil { return true }
+      guard let occurredAt = t.occurredAt else { return false }
+      let day = t.localDayKey(calendar: calendar, occurredAt: occurredAt)
+      if let startKey, day < startKey { return false }
+      if let endKey, day > endKey { return false }
+      return true
+    }
+  }
+
+  static func filterTransactions(_ transactions: [Transaction], filter: TransactionFilter) -> [Transaction] {
+    let prepared = PreparedFilter(filter)
+    return transactions.filter(prepared.matches)
+  }
+
+  /// Same predicate as `filterTransactions`, without allocating the result.
+  static func countTransactions(_ transactions: [Transaction], filter: TransactionFilter) -> Int {
+    let prepared = PreparedFilter(filter)
+    var count = 0
+    for t in transactions where prepared.matches(t) { count += 1 }
+    return count
   }
 
   static func groupByDay(_ transactions: [Transaction]) -> [DayGroup] {

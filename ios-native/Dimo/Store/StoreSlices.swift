@@ -6,9 +6,18 @@ import Observation
 @Observable
 @MainActor
 final class EntitiesStore {
-  var transactions: [Transaction] = []
+  // Every assignment bumps `revision`, the key of the list caches below, so rows set
+  // outside `apply` (the AppStore forwarders, tests) can never be served stale.
+  var transactions: [Transaction] = [] {
+    didSet {
+      oldestTransactionAt = transactions.lazy.map { $0.occurredAt ?? 0 }.min()
+      revision &+= 1
+    }
+  }
   var recurring: [Recurring] = []
-  var lends: [Lend] = []
+  var lends: [Lend] = [] {
+    didSet { revision &+= 1 }
+  }
   var categories: [CategoryEntity] = []
   var paymentMethods: [PaymentMethodOption] = []
   var limits: CategoryLimits = [:]
@@ -28,6 +37,10 @@ final class EntitiesStore {
 
   /// Bumps whenever entity projections change; used as cache key input.
   private(set) var revision: UInt64 = 0
+  /// Earliest `occurredAt` (nil treated as 0), refreshed whenever `transactions` is
+  /// assigned. Lets the Stats "previous period" control check history without
+  /// scanning every row on every body pass.
+  private(set) var oldestTransactionAt: Int?
 
   // MARK: Cached projections
 
@@ -77,6 +90,10 @@ final class EntitiesStore {
   private var statsVisible = false
   @ObservationIgnored
   private var statsInputs: StatsInputs?
+  /// The projection currently shown and the inputs that produced it, so a bar tap or
+  /// "See all" recomputes only the part that depends on it.
+  @ObservationIgnored
+  private var appliedStats: (inputs: StatsInputs, stats: StatsSnapshot)?
   @ObservationIgnored
   private var statsTask: Task<Void, Never>?
   @ObservationIgnored
@@ -129,7 +146,9 @@ final class EntitiesStore {
 
     let prevFp = previous?.fingerprints
     let nextFp = snapshot.fingerprints
-    let ratesDateChanged = previous?.ratesDate != snapshot.ratesDate
+    // A new calendar day rebuilt the relative labels, so treat it like an FX change.
+    let dayChanged = previous?.todayKey != snapshot.todayKey
+    let ratesDateChanged = previous?.ratesDate != snapshot.ratesDate || dayChanged
 
     if prevFp?.category != nextFp.category {
       categories = snapshot.categories
@@ -161,7 +180,7 @@ final class EntitiesStore {
       changed = true
     }
 
-    if prevFp?.lend != nextFp.lend {
+    if prevFp?.lend != nextFp.lend || dayChanged {
       lends = snapshot.lends
       changed = true
     }
@@ -245,19 +264,18 @@ final class EntitiesStore {
     guard statsVisible, inputs != statsInputs else { return }
     statsInputs = inputs
     let rows = transactions
+    let reuse = appliedStats
     statsTask?.cancel()
     statsTask = Task { [weak self] in
       let stats = await EntityHydrator.deriveStats(
         transactions: rows,
-        statsRange: inputs.range,
-        periodOffset: inputs.periodOffset,
-        selectedMonth: inputs.selectedMonth,
-        categoriesExpanded: inputs.categoriesExpanded,
-        merchantsExpanded: inputs.merchantsExpanded
+        inputs: inputs,
+        reusing: reuse
       )
       guard !Task.isCancelled else { return }
       await MainActor.run {
         guard let self else { return }
+        self.appliedStats = (inputs, stats)
         self.applyStats(stats)
       }
     }
@@ -377,8 +395,13 @@ final class EntitiesStore {
     return result
   }
 
+  /// Counts without materializing or caching the filtered rows, so the filter sheet's
+  /// live preview does not evict the Home list's cached result set.
   func matchCount(matching filter: TransactionFilter) -> Int {
-    filteredTransactions(matching: filter).count
+    if filter == cachedFilteredFilter, revision == cachedFilteredRevision {
+      return cachedFiltered.count
+    }
+    return TransactionSelectors.countTransactions(transactions, filter: filter)
   }
 
   /// Cached Home list projection: filter → paginate → groupByDay.

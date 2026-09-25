@@ -554,6 +554,15 @@ enum AppDatabase {
         t.add(column: "archived", .boolean).notNull().defaults(to: false)
       }
     }
+    // Opening an expense looks up its source emails, and deleting one dismisses
+    // them; both filtered on this column with a full table scan.
+    migrator.registerMigration("v15-email-linked-transaction-index") { db in
+      try db.create(
+        index: "email_messages_linked_transaction",
+        on: "emailMessages",
+        columns: ["linkedTransactionId"]
+      )
+    }
     return migrator
   }
 }

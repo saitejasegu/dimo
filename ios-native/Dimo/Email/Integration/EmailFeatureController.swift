@@ -1612,13 +1612,27 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     guard let messages = try? repository.emailMessages(linkedTransactionId: transactionId) else {
       return []
     }
-    return messages.compactMap { try? loadEmailDetail(messageId: $0.key) }
+    return messages.map(emailDetail(for:))
+  }
+
+  /// Reads the linked messages off the main actor; the expense editor calls this as
+  /// it opens, so the SQLite read must not cost the sheet's first frame.
+  func loadSourceEmailDetails(forTransactionId transactionId: String) async -> [EmailUIEmailDetail] {
+    let repository = repository
+    let messages = await Task.detached(priority: .userInitiated) {
+      (try? repository.emailMessages(linkedTransactionId: transactionId)) ?? []
+    }.value
+    return messages.map(emailDetail(for:))
   }
 
   private func loadEmailDetail(messageId: String) throws -> EmailUIEmailDetail {
     guard let message = try repository.emailMessage(key: messageId) else {
       throw EmailRepositoryError.messageNotFound
     }
+    return emailDetail(for: message)
+  }
+
+  private func emailDetail(for message: EmailMessageRecordModel) -> EmailUIEmailDetail {
     let accountEmail = accountRecords.first { $0.id == message.accountId }?.emailAddress
       ?? message.accountId
     let retainedBody = message.normalizedBodyText?

@@ -28,8 +28,13 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 xcodegen generate
 xcodebuild -project Dimo.xcodeproj -scheme Dimo \
   -sdk iphonesimulator -destination "generic/platform=iOS Simulator" \
-  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build CODE_SIGNING_ALLOWED=NO
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build CODE_SIGN_IDENTITY=-
 ```
+
+Keep signing enabled when installing a simulator build for interactive testing.
+`CODE_SIGN_IDENTITY=-` uses ad hoc simulator signing; `CODE_SIGNING_ALLOWED=NO`
+is suitable only for compile checks because it omits the simulator entitlements
+needed for Keychain access and sign-in (otherwise OSStatus `-34018`).
 
 Named simulator example (needs an installed runtime):
 

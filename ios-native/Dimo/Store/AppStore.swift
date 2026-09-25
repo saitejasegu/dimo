@@ -33,7 +33,11 @@ final class AppStore {
   /// slow OpenRouter/Convex call cannot outlive the signed-in session.
   private var remoteStartTask: Task<Void, Never>?
   private var hydrateTask: Task<Void, Never>?
-  private var pendingHydrateEntities: [StoredEntity]?
+  private var pendingHydrateEntities: EntityBatch?
+  /// Last delivered live batch, re-projected when the calendar day changes so
+  /// "Today"/"Yesterday", month totals and due labels do not go stale overnight.
+  private var lastHydratedBatch: EntityBatch?
+  private var dayChangeObserver: NSObjectProtocol?
   private var stopped = false
 
   // MARK: Forwarders — keep mutation call sites and sheets compiling while
@@ -216,7 +220,7 @@ final class AppStore {
 
   func start() async {
     stopped = false
-    PulseStorage.activate(owner: userId)
+    PulsePublisher.activate(owner: userId)
     do {
       let db = try AppDatabase.activate(userId: userId)
       let repo = Repository(db: db)
@@ -243,8 +247,15 @@ final class AppStore {
         }
       }
       // Two synchronous SQLite reads per write would otherwise land on the main actor.
-      let batch = try await Task.detached { try repo.liveUIEntities() }.value
+      let batch = try await Task.detached { try repo.liveUIBatch() }.value
       await hydrateNow(batch)
+      dayChangeObserver = NotificationCenter.default.addObserver(
+        forName: UIApplication.significantTimeChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor in self?.rehydrateIfDayChanged() }
+      }
       if let device = try? repo.deviceMeta() {
         entities.lastPaymentMethodId = device.lastPaymentMethodId
       }
@@ -332,12 +343,17 @@ final class AppStore {
 
   func tearDown() async {
     stopped = true
-    PulseStorage.clear()
+    PulsePublisher.clear()
     remoteStartTask?.cancel()
     remoteStartTask = nil
     hydrateTask?.cancel()
     hydrateTask = nil
     pendingHydrateEntities = nil
+    lastHydratedBatch = nil
+    if let dayChangeObserver {
+      NotificationCenter.default.removeObserver(dayChangeObserver)
+      self.dayChangeObserver = nil
+    }
     emailController?.attachOpenRouterConvexTransport(nil)
     await emailController?.tearDown()
     emailController = nil
@@ -355,6 +371,7 @@ final class AppStore {
   }
 
   func sceneBecameActive() {
+    rehydrateIfDayChanged()
     emailController?.sceneBecameActive()
     Task {
       await refreshExpenseReminderAuthorization()
@@ -411,8 +428,9 @@ final class AppStore {
       entities.setRates(table)
       // FX changes require remapping transaction amounts in the default currency.
       if previousDate != table.date, let repository {
-        let batch = try? await Task.detached { try repository.liveUIEntities() }.value
-        scheduleHydrate(batch ?? [])
+        if let batch = try? await Task.detached(operation: { try repository.liveUIBatch() }).value {
+          scheduleHydrate(batch)
+        }
       }
     } catch {
       // Offline / auth — keep the UserDefaults cache already seeded into `rates`.
@@ -727,6 +745,10 @@ final class AppStore {
 
   func sourceEmails(forTransactionId id: String) -> [EmailUIEmailDetail] {
     emailController?.sourceEmailDetails(forTransactionId: id) ?? []
+  }
+
+  func loadSourceEmails(forTransactionId id: String) async -> [EmailUIEmailDetail] {
+    await emailController?.loadSourceEmailDetails(forTransactionId: id) ?? []
   }
 
   func deleteTransaction(_ id: String) {
@@ -1140,8 +1162,16 @@ final class AppStore {
 
   // MARK: - Hydration
 
+  /// Re-projects the last batch when the local calendar day moved since it was built.
+  private func rehydrateIfDayChanged() {
+    guard !stopped, let batch = lastHydratedBatch,
+      let builtFor = entities.lastEntitySnapshot?.todayKey,
+      builtFor != DateHelpers.localDateKey(Date()) else { return }
+    scheduleHydrate(batch)
+  }
+
   /// Coalesce GRDB bursts (sync merges) so we project once per frame window.
-  private func scheduleHydrate(_ batch: [StoredEntity]) {
+  private func scheduleHydrate(_ batch: EntityBatch) {
     pendingHydrateEntities = batch
     hydrateTask?.cancel()
     hydrateTask = Task { @MainActor [weak self] in
@@ -1154,12 +1184,13 @@ final class AppStore {
     }
   }
 
-  private func hydrateNow(_ batch: [StoredEntity]) async {
+  private func hydrateNow(_ batch: EntityBatch) async {
+    lastHydratedBatch = batch
     let previousDefault = entities.defaultStatsRange
     let previousSnapshot = entities.lastEntitySnapshot
     let previousDerived = entities.lastDerivedSnapshot
     let snapshot = await EntityHydrator.project(
-      entities: batch,
+      batch: batch,
       rates: entities.rates,
       currentStatsRange: nav.statsRange,
       previousDefaultStatsRange: previousDefault,
@@ -1192,8 +1223,23 @@ final class AppStore {
       merchantsExpanded: nav.merchantsExpanded
     )
     clearArchivedCategoryDrafts()
-    PulsePublisher.publish(transactions: snapshot.transactions,
-      currency: snapshot.preferences.currency.rawValue, rates: entities.rates)
+    // The widget reads transactions, their category names, currency and FX; a lend,
+    // payment method or theme change no longer rewrites its file. The day key moves
+    // its 21-day window.
+    let pulseRelevant = previousSnapshot.map {
+      $0.fingerprints.transaction != snapshot.fingerprints.transaction
+        || $0.fingerprints.category != snapshot.fingerprints.category
+        || $0.fingerprints.preferencesProjection != snapshot.fingerprints.preferencesProjection
+        || $0.ratesDate != snapshot.ratesDate
+        || $0.todayKey != snapshot.todayKey
+    } ?? true
+    if pulseRelevant {
+      PulsePublisher.publishInBackground(
+        transactions: snapshot.transactions,
+        currency: snapshot.preferences.currency.rawValue,
+        rates: entities.rates
+      )
+    }
     if nav.statsRange != snapshot.statsRange {
       // A pulled default reinterprets the offset's length, so snap to current.
       nav.statsRange = snapshot.statsRange

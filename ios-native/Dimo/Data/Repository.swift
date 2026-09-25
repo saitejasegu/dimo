@@ -10,8 +10,8 @@ final class Repository: @unchecked Sendable {
   /// When true, entity ValueObservations coalesce into one flush on resume.
   private var entityObservationsSuspended = false
   private var entityObservationDirty = false
-  private var entityObservationDeliver: (([StoredEntity]) -> Void)?
-  private var entityObservationFetch: (() throws -> [StoredEntity])?
+  private var entityObservationDeliver: ((EntityBatch) -> Void)?
+  private var entityObservationFetch: (() throws -> EntityBatch)?
 
   init(db: any DatabaseWriter) {
     self.db = db
@@ -53,7 +53,7 @@ final class Repository: @unchecked Sendable {
     entityObservationDirty = false
     lock.unlock()
     DispatchQueue.global(qos: .userInitiated).async {
-      let batch = (try? fetch()) ?? []
+      guard let batch = try? fetch() else { return }
       deliver(batch)
     }
   }
@@ -522,6 +522,17 @@ final class Repository: @unchecked Sendable {
     }
   }
 
+  /// Live UI entities grouped and fingerprinted per type, as observation delivers them.
+  func liveUIBatch() throws -> EntityBatch {
+    try db.read { db in
+      var batch = EntityBatch()
+      for type in EntityBatch.types {
+        batch.replace(type, with: try TypedEntityStore.fetchLive(db: db, type: type, workspaceId: workspaceID))
+      }
+      return batch
+    }
+  }
+
   func allEntities() throws -> [StoredEntity] {
     try db.read { db in
       try TypedEntityStore.fetchAll(db: db, workspaceId: workspaceID)
@@ -604,25 +615,21 @@ final class Repository: @unchecked Sendable {
   /// Entity types projected into the main UI store. Email rows have their own
   /// observations and are intentionally excluded so Gmail sync cannot force a
   /// full expense rematerialization.
-  private static let uiObservedEntityTypes: [EntityType] = [
-    .category, .paymentMethod, .transaction, .recurring, .lend, .preferences,
-  ]
+  private static let uiObservedEntityTypes = EntityBatch.types
 
   /// Per-type ValueObservations so a lend write does not re-fetch transactions.
+  /// Each fire replaces and re-fingerprints only its own type in the delivered batch.
   /// Delivery runs on a background queue; callers should hop to MainActor.
   /// Observations load live rows only and can be suspended across bulk sync merges.
-  func observeEntities(onChange: @escaping ([StoredEntity]) -> Void) -> DatabaseCancellable {
+  func observeEntities(onChange: @escaping (EntityBatch) -> Void) -> DatabaseCancellable {
     let deliveryQueue = DispatchQueue(label: "app.dimo.entity-observation", qos: .userInitiated)
     let lock = NSLock()
-    var cache: [EntityType: [StoredEntity]] = [:]
+    var cache = EntityBatch()
     let parts = LockedCancellables()
 
-    let fetchLiveBatch: () throws -> [StoredEntity] = { [workspaceID] in
-      try self.db.read { db in
-        try Self.uiObservedEntityTypes.flatMap { type in
-          try TypedEntityStore.fetchLive(db: db, type: type, workspaceId: workspaceID)
-        }
-      }
+    let fetchLiveBatch: () throws -> EntityBatch = { [weak self] in
+      guard let self else { throw CancellationError() }
+      return try self.liveUIBatch()
     }
 
     self.lock.lock()
@@ -630,7 +637,7 @@ final class Repository: @unchecked Sendable {
     entityObservationFetch = fetchLiveBatch
     self.lock.unlock()
 
-    let deliver: ([StoredEntity]) -> Void = { [weak self] batch in
+    let deliver: (EntityBatch) -> Void = { [weak self] batch in
       guard let self else { return }
       self.lock.lock()
       let suspended = self.entityObservationsSuspended
@@ -652,13 +659,10 @@ final class Repository: @unchecked Sendable {
           print("observeEntities(\(type.rawValue)) error: \(error)")
         } onChange: { rows in
           lock.lock()
-          cache[type] = rows
-          let ready = cache.count == Self.uiObservedEntityTypes.count
-          let batch: [StoredEntity] = ready
-            ? Self.uiObservedEntityTypes.flatMap { cache[$0] ?? [] }
-            : []
+          cache.replace(type, with: rows)
+          let batch = cache
           lock.unlock()
-          guard ready else { return }
+          guard batch.isComplete else { return }
           deliver(batch)
         }
       parts.append(cancellable)
@@ -685,7 +689,7 @@ final class Repository: @unchecked Sendable {
     lock.unlock()
     guard shouldFlush, let deliver, let fetch else { return }
     DispatchQueue.global(qos: .userInitiated).async {
-      let batch = (try? fetch()) ?? []
+      guard let batch = try? fetch() else { return }
       deliver(batch)
     }
   }

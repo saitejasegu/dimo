@@ -429,6 +429,15 @@ struct Transaction: Hashable, Sendable, Identifiable {
   /// filtering does not build a formatted key per row per keystroke. Empty on rows
   /// built outside the hydrator — read it through `localDayKey(calendar:occurredAt:)`.
   var dayKey: String = ""
+  /// `amount` formatted as spend in the account currency, built during hydration so
+  /// list rows do not run a locked `NumberFormatter` on every body pass. Empty on rows
+  /// built outside the hydrator — read it through `spentText(currency:)`.
+  var spentLabel: String = ""
+
+  /// Precomputed spend label, or a correct value formatted on demand.
+  func spentText(currency: Currency) -> String {
+    spentLabel.isEmpty ? Formatting.spent(amount, currency: currency) : spentLabel
+  }
 
   /// Precomputed lowercased search text, or a correct value derived on demand.
   var searchKey: String {

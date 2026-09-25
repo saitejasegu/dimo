@@ -363,87 +363,85 @@ struct HomeScreen: View {
     return min(rows + spacing + estimates, 460)
   }
 
+  // Keep headers and rows as direct children of the outer LazyVStack. A VStack
+  // around this section (or a day) eagerly lays out every transaction it contains.
+  @ViewBuilder
   private var transactionsSection: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack {
-        Text("Transactions")
-          .font(DimoFont.display(16, weight: .semibold))
-          .foregroundStyle(Theme.ink)
-        Spacer()
-        if selecting {
-          Button("Cancel") {
-            selecting = false
-            selectedIds = []
+    HStack {
+      Text("Transactions")
+        .font(DimoFont.display(16, weight: .semibold))
+        .foregroundStyle(Theme.ink)
+      Spacer()
+      if selecting {
+        Button("Cancel") {
+          selecting = false
+          selectedIds = []
+        }
+        .font(DimoFont.body(13, weight: .medium))
+        .foregroundStyle(Theme.body)
+      }
+      Button { filtersOpen = true } label: {
+        Image(systemName: "line.3.horizontal.decrease")
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(filtersActive ? Theme.green : Theme.muted)
+          .frame(width: 32, height: 32)
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.bottom, 14)
+
+    if filtersActive {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          ForEach(filterTags) { tag in
+            filterTagView(tag)
           }
-          .font(DimoFont.body(13, weight: .medium))
-          .foregroundStyle(Theme.body)
         }
-        Button { filtersOpen = true } label: {
-          Image(systemName: "line.3.horizontal.decrease")
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(filtersActive ? Theme.green : Theme.muted)
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
       }
       .padding(.bottom, 14)
+    }
 
-      if filtersActive {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 8) {
-            ForEach(filterTags) { tag in
-              filterTagView(tag)
-            }
-          }
+    let list = homeList
+    if list.groups.isEmpty {
+      Text("No transactions match.")
+        .font(DimoFont.body(14))
+        .foregroundStyle(Theme.faint)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+    }
+    ForEach(list.groups, id: \.label) { group in
+      Section {
+        ForEach(group.items) { tx in
+          transactionRow(tx)
+            .padding(.bottom, tx.id == group.items.last?.id ? 18 : 8)
         }
-        .padding(.bottom, 14)
-      }
-
-      let list = homeList
-      if list.groups.isEmpty {
-        Text("No transactions match.")
-          .font(DimoFont.body(14))
-          .foregroundStyle(Theme.faint)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 48)
-      }
-      // Outer ScrollView already uses LazyVStack — keep groups as plain VStacks
-      // so nested LazyVStacks do not force eager measurement.
-      ForEach(list.groups, id: \.label) { group in
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(alignment: .firstTextBaseline) {
-            Text(group.label.uppercased())
-              .font(DimoFont.body(12, weight: .medium))
-              .kerning(0.96)
-              .foregroundStyle(Theme.muted)
-            Spacer()
-            Text(Formatting.spent(group.total, currency: entities.currency))
-              .font(DimoFont.body(12))
-              .foregroundStyle(Theme.faint)
-          }
-          ForEach(group.items) { tx in
-            transactionRow(tx)
-          }
+      } header: {
+        HStack(alignment: .firstTextBaseline) {
+          Text(group.label.uppercased())
+            .font(DimoFont.body(12, weight: .medium))
+            .kerning(0.96)
+            .foregroundStyle(Theme.muted)
+          Spacer()
+          Text(Formatting.spent(group.total, currency: entities.currency))
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.faint)
         }
-        .padding(.bottom, 18)
+        .padding(.bottom, 8)
       }
+    }
 
-      if list.hasMore {
-        ProgressView()
-          .tint(Theme.green)
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-          .onAppear {
-            let nextLimit = min(
-              visibleLimit + TransactionSelectors.homePageSize,
-              list.filteredCount
-            )
-            guard nextLimit > visibleLimit else { return }
-            DispatchQueue.main.async {
-              visibleLimit = nextLimit
-            }
-          }
-      }
+    if list.hasMore {
+      let loadedCount = list.groups.reduce(0) { $0 + $1.items.count }
+      ProgressView()
+        .tint(Theme.green)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        // Restart pagination when the visible sentinel represents a new page.
+        // Advance past the whole loaded day, which can exceed the requested limit.
+        .task(id: loadedCount) {
+          guard !Task.isCancelled else { return }
+          visibleLimit = min(loadedCount + TransactionSelectors.homePageSize, list.filteredCount)
+        }
     }
   }
 
@@ -559,7 +557,7 @@ struct HomeScreen: View {
             .lineLimit(1)
         }
         Spacer()
-        Text(Formatting.spent(tx.amount, currency: entities.currency))
+        Text(tx.spentText(currency: entities.currency))
           .font(DimoFont.display(15, weight: .semibold))
           .foregroundStyle(Theme.ink)
       }

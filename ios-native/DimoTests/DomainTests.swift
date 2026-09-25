@@ -2872,7 +2872,7 @@ final class EntityObservationSuspensionTests: XCTestCase {
     delivered.assertForOverFulfill = false
     let cancellable = repository.observeEntities { batch in
       initial.fulfill()
-      if batch.contains(where: { $0.entityId == "tx-during-sync" }) {
+      if batch.all.contains(where: { $0.entityId == "tx-during-sync" }) {
         delivered.fulfill()
       }
     }
