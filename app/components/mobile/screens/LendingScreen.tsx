@@ -27,7 +27,7 @@ const SECTIONS = [
 ] satisfies Array<{ value: LendingSection; label: string }>;
 
 export function LendingScreen() {
-  const { lends, currency } = useAppState();
+  const { lends, currency } = useAppState("lends", "currency");
   const [section, setSection] = useState<LendingSection>("summary");
   const summaries = useMemo(() => lendContactSummaries(lends), [lends]);
   const totals = useMemo(() => lendingTotals(summaries), [summaries]);

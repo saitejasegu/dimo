@@ -94,7 +94,11 @@ export function reducer(state: AppState, action: Action): AppState {
       const recurringCategory = activeNames.has(state.recurringDraft.category)
         ? state.recurringDraft.category
         : fallbackCategory;
-      const filter = state.filter.filter((category) => categoryNames.has(category));
+      // Keep the existing objects when their contents are unchanged: subscribers compare
+      // by identity, so a fresh copy on every hydrate re-ran their memos for nothing.
+      const keptFilter = state.filter.filter((category) => categoryNames.has(category));
+      const filter = keptFilter.length === state.filter.length ? state.filter : keptFilter;
+      const { profileName, profileEmail } = action.data.preferences;
       return {
         ...state,
         ...action.data,
@@ -105,12 +109,18 @@ export function reducer(state: AppState, action: Action): AppState {
             ? action.data.preferences.defaultStatsRange
             : state.statsRange,
         filter,
-        expenseDraft: { ...state.expenseDraft, category: expenseCategory },
-        recurringDraft: { ...state.recurringDraft, category: recurringCategory },
-        profile: {
-          name: action.data.preferences.profileName,
-          email: action.data.preferences.profileEmail,
-        },
+        expenseDraft:
+          state.expenseDraft.category === expenseCategory
+            ? state.expenseDraft
+            : { ...state.expenseDraft, category: expenseCategory },
+        recurringDraft:
+          state.recurringDraft.category === recurringCategory
+            ? state.recurringDraft
+            : { ...state.recurringDraft, category: recurringCategory },
+        profile:
+          state.profile.name === profileName && state.profile.email === profileEmail
+            ? state.profile
+            : { name: profileName, email: profileEmail },
         currency: action.data.preferences.currency,
         weekStart: action.data.preferences.weekStart,
         theme: action.data.preferences.theme ?? "light",

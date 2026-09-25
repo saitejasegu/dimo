@@ -9,7 +9,7 @@ import { AccountSessionActions } from "@/components/common/AccountSessionActions
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function AccountScreen() {
-  const { profile } = useAppState();
+  const { profile } = useAppState("profile");
 
   return (
     <WebScreen>

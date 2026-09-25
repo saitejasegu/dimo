@@ -8,7 +8,7 @@ import { RecurringRow } from "@/components/common/RecurringRow";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function RecurringScreen() {
-  const { currency, rates } = useAppState();
+  const { currency, rates } = useAppState("currency", "rates");
   const actions = useAppActions();
   const { all, total, subtitle } = useRecurring();
 

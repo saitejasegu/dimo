@@ -137,18 +137,20 @@ enum EmailSuggestionSelectors {
   /// inside the atomic repository deletion path.
   static func isExplicitlyPartialRefund(_ body: String?) -> Bool {
     guard let body else { return false }
-    let patterns = [
-      #"(?i)\bpartial(?:ly)?\s+(?:refund|refunded|credit|credited)\b"#,
-      #"(?i)\b(?:refund|credit)(?:ed)?\s+(?:for\s+)?(?:part|a portion|some)\s+of\b"#,
-      #"(?i)\b(?:refund|credit)(?:ed)?\s+(?:for\s+)?(?:one|some)\s+items?\b"#,
-      #"(?i)\bpro[ -]?rated\s+(?:refund|credit)\b"#,
-      #"(?i)\badjusted\s+(?:refund|credit)\b"#,
-      #"(?i)\bremaining\s+(?:refund|credit|balance)\b"#,
-    ]
-    return patterns.contains {
-      body.range(of: $0, options: .regularExpression) != nil
-    }
+    let range = NSRange(body.startIndex..., in: body)
+    return partialRefundPatterns.contains { $0.firstMatch(in: body, range: range) != nil }
   }
+
+  /// Compiled once: `String.range(of:options: .regularExpression)` re-parses the
+  /// pattern on every call, and this runs for every suggestion on each refresh.
+  private static let partialRefundPatterns: [NSRegularExpression] = [
+    #"\bpartial(?:ly)?\s+(?:refund|refunded|credit|credited)\b"#,
+    #"\b(?:refund|credit)(?:ed)?\s+(?:for\s+)?(?:part|a portion|some)\s+of\b"#,
+    #"\b(?:refund|credit)(?:ed)?\s+(?:for\s+)?(?:one|some)\s+items?\b"#,
+    #"\bpro[ -]?rated\s+(?:refund|credit)\b"#,
+    #"\badjusted\s+(?:refund|credit)\b"#,
+    #"\bremaining\s+(?:refund|credit|balance)\b"#,
+  ].map { try! NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
 
   /// Same amount on the same local calendar day is the user-facing definition
   /// of a duplicate: an email receipt and the matching manual entry rarely

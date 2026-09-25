@@ -16,7 +16,7 @@ import { BudgetsIcon, PlusIcon, SparklesIcon } from "@/components/ui/icons";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function BudgetsScreen() {
-  const { currency, categories, transactions } = useAppState();
+  const { currency, categories, transactions } = useAppState("currency", "categories", "transactions");
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
   const [reviewOpen, setReviewOpen] = useState(false);

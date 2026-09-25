@@ -41,7 +41,7 @@ export function EditExpenseForm({
   transaction: Transaction;
   size: "mobile" | "web";
 }) {
-  const { currency, paymentMethods, categories, weekStart } = useAppState();
+  const { currency, paymentMethods, categories, weekStart } = useAppState("currency", "paymentMethods", "categories", "weekStart");
   const actions = useAppActions();
   const defaultMethod =
     paymentMethods.find((method) => method.isDefault && !method.archived) ??

@@ -87,7 +87,7 @@ function MethodRow({
 }
 
 export function PaymentMethodsManager({ className }: { className?: string }) {
-  const { paymentMethods } = useAppState();
+  const { paymentMethods } = useAppState("paymentMethods");
   const actions = useAppActions();
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [draft, setDraft] = useState<PaymentMethodInput>(EMPTY_INPUT);

@@ -300,22 +300,43 @@ export interface SuggestedCategoryBudgetUpdate {
   currentLimit: number | null;
 }
 
-/** Suggested monthly budgets from the last N months of spend. */
+/**
+ * Suggested monthly budgets from the last N months of spend. Totals every category in
+ * one pass; calling `categoryLookbackSpend` per category rescanned all history once per
+ * category on every hydrate while the Budgets tab was mounted.
+ */
 export function suggestedCategoryBudgetUpdates(
   transactions: Transaction[],
   categories: Array<{ id: string; name: CategoryName; monthlyBudgetMinor: number | null }>,
   monthCount = 6,
   now = new Date(),
 ): SuggestedCategoryBudgetUpdate[] {
+  const start = new Date(now.getFullYear(), now.getMonth() - (monthCount - 1), 1).getTime();
+  const end = now.getTime();
+  const totals = new Map<string, number>();
+  for (const t of transactions) {
+    const at = t.occurredAt ?? 0;
+    if (!t.categoryId || at < start || at > end) continue;
+    totals.set(t.categoryId, (totals.get(t.categoryId) ?? 0) + t.amount);
+  }
   return categories.flatMap((category) => {
-    const lookback = categoryLookbackSpend(transactions, category.id, monthCount, now);
-    if (lookback.total <= 0) return [];
-    const suggestedLimit = Math.round(lookback.monthlyAverage);
+    const total = totals.get(category.id) ?? 0;
+    if (total <= 0) return [];
+    const suggestedLimit = Math.round(total / monthCount);
     const currentLimit =
       category.monthlyBudgetMinor == null ? null : category.monthlyBudgetMinor / 100;
     if (currentLimit === suggestedLimit) return [];
     return [{ id: category.id, name: category.name, suggestedLimit, currentLimit }];
   });
+}
+
+/** Transactions in the current local calendar month. */
+export function currentMonthTransactions(
+  transactions: Transaction[],
+  now = new Date(),
+): Transaction[] {
+  const { start, end } = currentMonthBounds(now);
+  return transactions.filter((t) => inCurrentMonth(t.occurredAt, start, end));
 }
 
 export interface TopCategory {

@@ -13,9 +13,9 @@ import {
   type StoredRowMap,
 } from "@/data/model";
 import {
-  ALL_ENTITY_TYPES,
+  WEB_ENTITY_TYPES,
   acknowledgeOperations,
-  buildPushOperation,
+  buildPushOperations,
   enqueueFullUpload,
   enqueueUnsyncedDefaults,
   mergeRemotePage,
@@ -137,6 +137,14 @@ export function pullCursorFor(
   return typeof cursor === "number" && Number.isFinite(cursor) ? cursor : 0;
 }
 
+/** Tracks whether a push run left the client caught up without pulling again. */
+interface PushTracker {
+  /** Revision the client is known to hold everything up to, or null if unknown. */
+  caughtUp: number | null;
+  /** Something other than our own accepted writes may have changed on the server. */
+  needsPull: boolean;
+}
+
 export class SyncCoordinator {
   private running: Promise<void> | null = null;
   private requested = false;
@@ -146,24 +154,38 @@ export class SyncCoordinator {
   private retryAttempt = 0;
   private disposers: Array<() => void> = [];
   private profile: { name?: string; email?: string } = {};
+  private profileEnsured = false;
   private started = false;
+  /** Latest workspace revision from the live subscription. */
+  private remoteRevision: number | undefined;
+  /**
+   * Workspace revision this session has provably pulled everything up to. Kept in
+   * memory so every session starts with one full pull; afterwards a cycle only pulls
+   * when the server has moved past it.
+   */
+  private caughtUpRevision: number | null = null;
 
   constructor(private client: ConvexReactClient) {}
 
   setProfile(profile: { name?: string; email?: string }) {
-    this.profile = {
+    const next = {
       name: profile.name?.trim() || undefined,
       email: profile.email?.trim() || undefined,
     };
+    if (next.name !== this.profile.name || next.email !== this.profile.email) {
+      this.profileEnsured = false;
+    }
+    this.profile = next;
   }
 
-  /** Push AuthKit name/email onto the workspace row immediately (and on later syncs). */
+  /** Push AuthKit name/email onto the workspace row (once per session and profile). */
   async ensureProfile() {
     await this.client.mutation(ensureProfileRef, {
       workspaceId: WORKSPACE_ID,
       name: this.profile.name,
       email: this.profile.email,
     });
+    this.profileEnsured = true;
   }
 
   start() {
@@ -188,18 +210,17 @@ export class SyncCoordinator {
       // pulled. Re-emitting the current revision on reconnect would otherwise
       // loop forever and leave the UI stuck on "Syncing".
       const unsubscribe = watch.onUpdate(() => {
-        void this.remoteRevisionChanged(watch.localQueryResult());
+        this.remoteRevisionChanged(watch.localQueryResult());
       });
       this.disposers.push(unsubscribe);
     }
     this.request();
   }
 
-  private async remoteRevisionChanged(revision: number | undefined) {
+  private remoteRevisionChanged(revision: number | undefined) {
     if (typeof revision !== "number" || !Number.isFinite(revision)) return;
-    const meta = await db.syncMeta.get(WORKSPACE_ID);
-    const pulled = meta?.lastPulledRevision ?? 0;
-    if (revision > pulled) this.request();
+    this.remoteRevision = revision;
+    if (this.caughtUpRevision === null || revision > this.caughtUpRevision) this.request();
   }
 
   stop() {
@@ -230,6 +251,15 @@ export class SyncCoordinator {
     return this.request();
   }
 
+  /** Whether the server may hold rows this session has not pulled yet. */
+  private pullNeeded() {
+    return (
+      this.caughtUpRevision === null ||
+      this.remoteRevision === undefined ||
+      this.remoteRevision > this.caughtUpRevision
+    );
+  }
+
   private async runLoop() {
     while (this.requested) {
       this.requested = false;
@@ -239,9 +269,20 @@ export class SyncCoordinator {
         await db.syncMeta.update(WORKSPACE_ID, { syncing: false, error: "Offline" });
         return;
       }
+      // Focus, visibility and revision re-emits land here constantly. With nothing to
+      // pull and nothing queued the cycle has no work, so skip it without touching
+      // the network or flashing "Syncing".
+      if (
+        !replace &&
+        this.profileEnsured &&
+        !this.pullNeeded() &&
+        (await db.outbox.where("status").equals("pending").count()) === 0
+      ) {
+        continue;
+      }
       await db.syncMeta.update(WORKSPACE_ID, { syncing: true, error: null });
       try {
-        await this.ensureProfile();
+        if (!this.profileEnsured) await this.ensureProfile();
         if (replace) {
           await runPendingBackfills();
           await this.clearRemote([...OWNED_ENTITY_TYPES]);
@@ -249,15 +290,19 @@ export class SyncCoordinator {
             lastPulledRevision: 0,
             pulledRevisions: { ...EMPTY_PULLED_REVISIONS },
           });
+          this.caughtUpRevision = null;
           await enqueueFullUpload([...OWNED_ENTITY_TYPES]);
           await this.pushAll();
           await this.pullAll();
         } else {
-          await this.pullAll();
+          // Pull before enqueueing bootstrap defaults so a fresh client cannot
+          // overwrite existing cloud data.
+          if (this.pullNeeded()) await this.pullAll();
           await runPendingBackfills();
           await enqueueUnsyncedDefaults();
-          await this.pushAll();
-          await this.pullAll();
+          const pushed = await this.pushAll();
+          if (pushed.needsPull) await this.pullAll();
+          else this.caughtUpRevision = pushed.caughtUp;
         }
         this.retryAttempt = 0;
         if (this.retryTimer) clearTimeout(this.retryTimer);
@@ -288,13 +333,21 @@ export class SyncCoordinator {
     }
   }
 
+  /**
+   * Pull every web type concurrently: they are independent cursors, and running them
+   * one after another made each cycle wait on seven sequential round-trips. Each type
+   * is complete up to the workspace revision its final page reported, so the lowest of
+   * those is a safe caught-up mark.
+   */
   private async pullAll() {
-    for (const entityType of ALL_ENTITY_TYPES) {
-      await this.pullType(entityType);
-    }
+    const completeThrough = await Promise.all(
+      WEB_ENTITY_TYPES.map((entityType) => this.pullType(entityType)),
+    );
+    this.caughtUpRevision = Math.min(...completeThrough);
   }
 
-  private async pullType(entityType: EntityType) {
+  /** Pull one type to the end; returns the workspace revision its last page saw. */
+  private async pullType(entityType: EntityType): Promise<number> {
     const meta = await db.syncMeta.get(WORKSPACE_ID);
     let cursor = pullCursorFor(meta, entityType);
     while (true) {
@@ -309,14 +362,15 @@ export class SyncCoordinator {
         : page.latestRevision;
       await mergeRemotePage(entityType, rows as never, pageCursor);
       cursor = pageCursor;
-      if (!page.hasMore) break;
+      if (!page.hasMore) return page.latestRevision;
     }
   }
 
-  private async pushAll() {
+  private async pushAll(): Promise<PushTracker> {
+    const tracker: PushTracker = { caughtUp: this.caughtUpRevision, needsPull: false };
     while (true) {
       const pending = await db.outbox.where("status").equals("pending").toArray();
-      if (!pending.length) return;
+      if (!pending.length) return tracker;
 
       // Group by type so each batch hits one typed endpoint.
       const byType = new Map<EntityType, OutboxEntry[]>();
@@ -331,22 +385,22 @@ export class SyncCoordinator {
         // Cap each typed batch at 50.
         for (let i = 0; i < ops.length; i += 50) {
           const batch = ops.slice(i, i + 50);
-          await this.pushBatch(entityType, batch);
+          await this.pushBatch(entityType, batch, tracker);
           pushedAny = true;
         }
       }
-      if (!pushedAny) return;
+      if (!pushedAny) return tracker;
     }
   }
 
-  private async pushBatch(entityType: EntityType, operations: OutboxEntry[]) {
-    const wireOps = [];
-    for (const entry of operations) {
-      const op = await buildPushOperation(entry);
-      if (op) wireOps.push(op);
-    }
+  private async pushBatch(
+    entityType: EntityType,
+    operations: OutboxEntry[],
+    tracker: PushTracker,
+  ) {
+    const wireOps = await buildPushOperations(entityType, operations);
     if (!wireOps.length) {
-      for (const entry of operations) await db.outbox.delete(entry.key);
+      await db.outbox.bulkDelete(operations.map((entry) => entry.key));
       return;
     }
     try {
@@ -354,8 +408,22 @@ export class SyncCoordinator {
         workspaceId: WORKSPACE_ID,
         operations: wireOps,
       })) as PushResult;
-      await acknowledgeOperations(result.acknowledgements);
+      await acknowledgeOperations(entityType, result.acknowledgements);
+      // The server numbers accepted writes consecutively from its current revision. If
+      // that run starts exactly where this client was caught up and every operation
+      // was applied, nobody else wrote in between and there is nothing to pull back.
+      const applied = result.acknowledgements.filter((ack) => ack.applied).length;
+      if (
+        applied === result.acknowledgements.length &&
+        tracker.caughtUp !== null &&
+        result.latestRevision - applied === tracker.caughtUp
+      ) {
+        tracker.caughtUp = result.latestRevision;
+      } else {
+        tracker.needsPull = true;
+      }
     } catch (error) {
+      tracker.needsPull = true;
       const message = error instanceof Error ? error.message : String(error);
       if (!isPermanentSyncError(message)) {
         await db.transaction("rw", db.outbox, async () => {
@@ -372,8 +440,8 @@ export class SyncCoordinator {
       }
       if (operations.length > 1) {
         const mid = Math.max(1, Math.floor(operations.length / 2));
-        await this.pushBatch(entityType, operations.slice(0, mid));
-        await this.pushBatch(entityType, operations.slice(mid));
+        await this.pushBatch(entityType, operations.slice(0, mid), tracker);
+        await this.pushBatch(entityType, operations.slice(mid), tracker);
         return;
       }
       const operation = operations[0];
@@ -406,9 +474,7 @@ export function startSync(
 ) {
   sharedCoordinator ??= new SyncCoordinator(client);
   if (profile) sharedCoordinator.setProfile(profile);
-  void sharedCoordinator.ensureProfile().catch(() => {
-    // Auth token may still be attaching; the sync loop retries ensureProfile.
-  });
+  // The first sync cycle upserts the profile before pulling.
   sharedCoordinator.start();
   return sharedCoordinator;
 }

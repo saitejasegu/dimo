@@ -11,7 +11,7 @@ import { SyncStatusCard } from "@/components/common/SyncStatusCard";
 import { AccountSessionActions } from "@/components/common/AccountSessionActions";
 
 export function AccountScreen() {
-  const { profile } = useAppState();
+  const { profile } = useAppState("profile");
   const actions = useAppActions();
   const panelRef = useRef<HTMLDivElement>(null);
   useAccountSwipeBack(panelRef, actions.closeAccount);

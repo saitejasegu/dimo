@@ -53,7 +53,7 @@ function ScreenFallback() {
 }
 
 function CurrentScreen() {
-  const { view } = useAppState();
+  const { view } = useAppState("view");
   switch (view) {
     case "home":
       return <OverviewScreen />;
@@ -77,7 +77,7 @@ function CurrentScreen() {
 }
 
 export function WebApp() {
-  const { view, overlay, detailId } = useAppState();
+  const { view, overlay, detailId } = useAppState("view", "overlay", "detailId");
   usePrefetchOnMount(PREFETCH);
 
   return (

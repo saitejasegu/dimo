@@ -1,12 +1,14 @@
 import type { ConvexReactClient } from "convex/react";
 import { deleteAllLocalDatabases } from "@/data/db";
 import { clearCloudWorkspace, stopSync } from "@/sync/coordinator";
+import { clearCachedUser } from "@/auth/cachedUser";
 
 type SignOut = (options?: { returnTo?: string }) => Promise<void> | void;
 
 /** Stop sync, wipe IndexedDB, then end the AuthKit session. */
 export async function signOutAndClearLocal(signOut: SignOut) {
   stopSync();
+  clearCachedUser();
   await deleteAllLocalDatabases();
   await signOut({ returnTo: window.location.origin });
 }
@@ -24,6 +26,7 @@ export async function deleteAccountAndSignOut(
   }
   stopSync();
   await clearCloudWorkspace(client);
+  clearCachedUser();
   await deleteAllLocalDatabases();
   await signOut({ returnTo: window.location.origin });
 }

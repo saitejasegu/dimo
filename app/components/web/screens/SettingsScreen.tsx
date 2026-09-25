@@ -16,7 +16,7 @@ function Row({ label, description, control }: { label: string; description: stri
 }
 
 export function SettingsScreen() {
-  const { profile, currency, theme, defaultStatsRange } = useAppState();
+  const { profile, currency, theme, defaultStatsRange } = useAppState("profile", "currency", "theme", "defaultStatsRange");
   const actions = useAppActions();
   const initial = profile.name.charAt(0).toUpperCase();
   return <WebScreen>

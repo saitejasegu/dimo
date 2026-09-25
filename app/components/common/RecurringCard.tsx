@@ -24,7 +24,7 @@ export function RecurringCard({
   currency: Currency;
   onClick: () => void;
 }) {
-  const { categories } = useAppState();
+  const { categories } = useAppState("categories");
   const emoji =
     recurring.emoji ??
     categories.find((c) => c.id === recurring.categoryId)?.emoji ??

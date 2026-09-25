@@ -10,7 +10,7 @@ import { ArchiveIconButton } from "@/components/ui/ArchiveIconButton";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 
 export function NewCategoryModal() {
-  const { categoryDraft, categories, transactions, recurring } = useAppState();
+  const { categoryDraft, categories, transactions, recurring } = useAppState("categoryDraft", "categories", "transactions", "recurring");
   const { closeOverlay, deleteCategory, setCategoryArchived } = useAppActions();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const editing = Boolean(categoryDraft.id);

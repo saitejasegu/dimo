@@ -10,23 +10,30 @@ import {
 } from "react";
 import { AuthKitProvider, useAuth } from "@workos-inc/authkit-react";
 import { ConvexProviderWithAuthKit } from "@convex-dev/workos";
-import {
-  Authenticated,
-  AuthLoading,
-  ConvexReactClient,
-  Unauthenticated,
-  useConvexAuth,
-} from "convex/react";
-import { AppStoreProvider } from "@/store/app-store";
+import { ConvexReactClient, useConvexAuth } from "convex/react";
+import { AppStoreProvider, type AppUser } from "@/store/app-store";
+import { readCachedUser, writeCachedUser } from "@/auth/cachedUser";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { UpdateBanner } from "@/components/common/UpdateBanner";
 
-const MobileApp = lazy(() =>
-  import("@/components/mobile/MobileApp").then((m) => ({ default: m.MobileApp })),
-);
-const WebApp = lazy(() =>
-  import("@/components/web/WebApp").then((m) => ({ default: m.WebApp })),
-);
+const loadMobileApp = () =>
+  import("@/components/mobile/MobileApp").then((m) => ({ default: m.MobileApp }));
+const loadWebApp = () =>
+  import("@/components/web/WebApp").then((m) => ({ default: m.WebApp }));
+const MobileApp = lazy(loadMobileApp);
+const WebApp = lazy(loadWebApp);
+
+/**
+ * Set by the layout's pre-hydration script when a WorkOS refresh token exists. Read
+ * once: the cleanup below removes the attribute as soon as auth settles.
+ */
+let sessionHint: boolean | null = null;
+function hasSessionHint() {
+  sessionHint ??= document.documentElement.dataset.authPending === "1";
+  return sessionHint;
+}
+
+const noopSubscribe = () => () => {};
 
 function LoadingScreen() {
   return <div className="h-[var(--app-height,100dvh)] bg-canvas" />;
@@ -44,18 +51,62 @@ function ResponsiveApp() {
   );
 }
 
-function SignedInApp() {
-  const { user } = useAuth();
-  if (!user) return <LoadingScreen />;
-  const name = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+function SignedInApp({ user, authReady }: { user: AppUser; authReady: boolean }) {
   return (
-    <AppStoreProvider
-      key={user.id}
-      user={{ id: user.id, name, email: user.email, photoUrl: user.profilePictureUrl }}
-    >
+    <AppStoreProvider key={user.id} user={user} authReady={authReady}>
       <ResponsiveApp />
     </AppStoreProvider>
   );
+}
+
+/**
+ * Chooses between the app and the public homepage. A returning session used to wait
+ * for the WorkOS token refresh and the Convex auth handshake (~1–2 s of network) before
+ * the local database was even opened. With a remembered identity and a live session
+ * hint, the app renders from IndexedDB straight away and only sync waits for auth.
+ */
+function SessionRouter({ children }: { children: ReactNode }) {
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const { user } = useAuth();
+  const cached = useSyncExternalStore(noopSubscribe, readCachedUser, () => null);
+  const hinted = useSyncExternalStore(noopSubscribe, hasSessionHint, () => false);
+  const live: AppUser | null = user
+    ? {
+        id: user.id,
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+        email: user.email,
+        photoUrl: user.profilePictureUrl ?? null,
+      }
+    : null;
+
+  useEffect(() => {
+    if (!isAuthenticated || !live) return;
+    writeCachedUser({ id: live.id, name: live.name, email: live.email, photoUrl: live.photoUrl });
+  }, [isAuthenticated, live?.id, live?.name, live?.email, live?.photoUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start fetching the app shell while auth is still in flight.
+  useEffect(() => {
+    if (!hinted) return;
+    void (window.matchMedia("(max-width: 899px)").matches ? loadMobileApp() : loadWebApp());
+  }, [hinted]);
+
+  if (isAuthenticated) {
+    if (live) return <SignedInApp user={live} authReady />;
+    // Keep the already-painted cached app mounted until AuthKit exposes the user.
+    return cached && hinted ? <SignedInApp user={cached} authReady={false} /> : <LoadingScreen />;
+  }
+  if (isLoading) {
+    if (cached && hinted) return <SignedInApp user={cached} authReady={false} />;
+    return (
+      <>
+        <div data-public-home>{children}</div>
+        <div data-auth-loading aria-hidden className="hidden">
+          <LoadingScreen />
+        </div>
+      </>
+    );
+  }
+  return <>{children}</>;
 }
 
 function ConfigurationRequired({ children }: { children?: ReactNode }) {
@@ -113,16 +164,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     >
       <ConvexProviderWithAuthKit client={convex} useAuth={useAuth}>
         <AuthPendingCleanup />
-        <AuthLoading>
-          <div data-public-home>{children}</div>
-          <div data-auth-loading aria-hidden className="hidden">
-            <LoadingScreen />
-          </div>
-        </AuthLoading>
-        <Authenticated>
-          <SignedInApp />
-        </Authenticated>
-        <Unauthenticated>{children}</Unauthenticated>
+        <SessionRouter>{children}</SessionRouter>
       </ConvexProviderWithAuthKit>
     </AuthKitProvider>
   );

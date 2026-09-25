@@ -5,7 +5,7 @@ import { Toast } from "@/components/ui/Toast";
 
 /** Connects the store's transient toast to the presentational pill. */
 export function Toaster({ variant }: { variant: "mobile" | "web" }) {
-  const { toast } = useAppState();
+  const { toast } = useAppState("toast");
   if (!toast) return null;
 
   return (

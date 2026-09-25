@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/Button";
 
 export function ActivityScreen({ embedded = false }: { embedded?: boolean }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const { query, currency, categories } = useAppState();
+  const { query, currency, categories } = useAppState("query", "currency", "categories");
   const actions = useAppActions();
   const {
     options,

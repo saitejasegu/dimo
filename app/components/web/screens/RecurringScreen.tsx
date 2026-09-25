@@ -10,7 +10,7 @@ import { RecurringCard } from "@/components/common/RecurringCard";
 import { WebScreen } from "@/components/web/WebScreen";
 
 export function RecurringScreen() {
-  const { currency } = useAppState();
+  const { currency } = useAppState("currency");
   const actions = useAppActions();
   const { all, total, subtitle } = useRecurring();
 

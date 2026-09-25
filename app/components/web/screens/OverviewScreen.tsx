@@ -12,7 +12,7 @@ import { WebScreen } from "@/components/web/WebScreen";
 import { ActivityScreen } from "@/components/web/screens/ActivityScreen";
 
 export function OverviewScreen() {
-  const { profile, currency, rates } = useAppState();
+  const { profile, currency, rates } = useAppState("profile", "currency", "rates");
   const actions = useAppActions();
   const {
     totals,

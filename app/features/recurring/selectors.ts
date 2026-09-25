@@ -43,13 +43,19 @@ function nextDueUnrecorded(
   return due;
 }
 
+/** Ids of materialized recurring occurrences (`recurring:<id>:<dateKey>`). */
+function recordedOccurrenceIds(transactions: Transaction[]): Set<string> {
+  const ids = new Set<string>();
+  for (const t of transactions) if (t.id.startsWith("recurring:")) ids.add(t.id);
+  return ids;
+}
+
 function withNextDue(
   recs: Recurring[],
-  transactions: Transaction[],
+  recordedIds: Set<string>,
   now: Date,
   includePaused = false,
 ): { rec: Recurring; due: Date }[] {
-  const recordedIds = new Set(transactions.map((t) => t.id));
   return (includePaused ? recs : activeRecurring(recs))
     .flatMap((rec) => {
       if (!rec.anchorDate || !rec.frequency) return [];
@@ -65,7 +71,7 @@ export function upcomingBills(
   limit?: number,
   now = new Date(),
 ): Recurring[] {
-  const dueThisMonth = withNextDue(recs, transactions, now)
+  const dueThisMonth = withNextDue(recs, recordedOccurrenceIds(transactions), now)
     .filter(({ due }) => due.getFullYear() === now.getFullYear() && due.getMonth() === now.getMonth())
     .map(({ rec }) => rec);
 
@@ -78,7 +84,30 @@ export function allUpcomingBills(
   transactions: Transaction[],
   now = new Date(),
 ): Recurring[] {
-  return withNextDue(recs, transactions, now, true).map(({ rec }) => rec);
+  return withNextDue(recs, recordedOccurrenceIds(transactions), now, true).map(({ rec }) => rec);
+}
+
+/**
+ * `upcomingBills` and `allUpcomingBills` together, sharing one scan of the history and
+ * one next-due computation per bill.
+ */
+export function upcomingSchedule(
+  recs: Recurring[],
+  transactions: Transaction[],
+  now = new Date(),
+): { upcoming: Recurring[]; allUpcoming: Recurring[] } {
+  const all = withNextDue(recs, recordedOccurrenceIds(transactions), now, true);
+  return {
+    upcoming: all
+      .filter(
+        ({ rec, due }) =>
+          !rec.paused &&
+          due.getFullYear() === now.getFullYear() &&
+          due.getMonth() === now.getMonth(),
+      )
+      .map(({ rec }) => rec),
+    allUpcoming: all.map(({ rec }) => rec),
+  };
 }
 
 export function recurringSubtitle(rec: Recurring): string {

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const POLL_MS = 60_000;
+const POLL_MS = 5 * 60_000;
+/** Returning to the tab re-checks, but not more often than this. */
+const MIN_CHECK_GAP_MS = 60_000;
 
 interface VersionPayload {
   version?: string;
@@ -34,9 +36,12 @@ export function useAppUpdate() {
     if (!/^https?:$/.test(window.location.protocol)) return;
 
     let cancelled = false;
+    let lastCheckedAt = 0;
 
     async function check() {
       if (cancelled || document.visibilityState === "hidden") return;
+      if (Date.now() - lastCheckedAt < MIN_CHECK_GAP_MS) return;
+      lastCheckedAt = Date.now();
       const next = await fetchVersion();
       if (cancelled || !next) return;
 

@@ -15,7 +15,7 @@ import { TransactionRow } from "@/components/common/TransactionRow";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function ActivityScreen() {
-  const { query, currency, categories } = useAppState();
+  const { query, currency, categories } = useAppState("query", "currency", "categories");
   const actions = useAppActions();
   const {
     options,

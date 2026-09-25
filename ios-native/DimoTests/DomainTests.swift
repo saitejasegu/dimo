@@ -2260,6 +2260,34 @@ final class EmailDuplicateMatchTests: XCTestCase {
     )
     XCTAssertTrue(matches.isEmpty)
   }
+
+  func testDetectsExplicitlyPartialRefundLanguage() {
+    let partial = [
+      "We have issued a PARTIAL REFUND for your order",
+      "Amount credited for part of your order",
+      "Refunded for one item in your order",
+      "Your pro-rated credit has been applied",
+      "Adjusted refund of Rs. 120",
+      "The remaining balance will be refunded",
+    ]
+    for body in partial {
+      XCTAssertTrue(EmailSuggestionSelectors.isExplicitlyPartialRefund(body), body)
+    }
+  }
+
+  func testFullRefundLanguageIsNotPartial() {
+    let full = [
+      nil,
+      "",
+      "Your refund of Rs. 499 has been processed",
+      "Order delivered. Thanks for shopping!",
+      "impartial refunds team",
+      "Refund for someone else's order",
+    ]
+    for body in full {
+      XCTAssertFalse(EmailSuggestionSelectors.isExplicitlyPartialRefund(body), body ?? "nil")
+    }
+  }
 }
 
 final class EmailPurchaseGroupingSelectorTests: XCTestCase {

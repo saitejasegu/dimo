@@ -9,7 +9,7 @@ import {
 } from "@/features/transactions/selectors";
 
 export function useActivity() {
-  const { transactions, filter, paymentFilter, query, limits } = useAppState();
+  const { transactions, filter, paymentFilter, query, limits } = useAppState("transactions", "filter", "paymentFilter", "query", "limits");
 
   return useMemo(() => {
     const paymentOptions = paymentMethodFilterOptions(transactions);

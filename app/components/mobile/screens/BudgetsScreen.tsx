@@ -14,7 +14,7 @@ import { BudgetsIcon, SparklesIcon } from "@/components/ui/icons";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
 export function BudgetsScreen() {
-  const { currency, categories, transactions } = useAppState();
+  const { currency, categories, transactions } = useAppState("currency", "categories", "transactions");
   const actions = useAppActions();
   const { budgets, totals } = useBudgets();
   const [reviewOpen, setReviewOpen] = useState(false);

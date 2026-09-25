@@ -10,7 +10,7 @@ import {
 } from "@/features/transactions/selectors";
 
 export function useBudgets() {
-  const { transactions, categories } = useAppState();
+  const { transactions, categories } = useAppState("transactions", "categories");
 
   return useMemo(() => {
     const limits = activeCategoryLimits(categories);

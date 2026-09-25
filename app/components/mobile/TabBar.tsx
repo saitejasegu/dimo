@@ -33,7 +33,7 @@ function indicatorForProgress(pills: PillBox[], progress: number): PillBox | nul
 }
 
 export function TabBar() {
-  const { view, accountReturnView } = useAppState();
+  const { view, accountReturnView } = useAppState("view", "accountReturnView");
   const { setView } = useAppActions();
   const { progress, interactive } = useTabSwipeProgress();
   const activeView = view === "account" ? (accountReturnView ?? view) : view;

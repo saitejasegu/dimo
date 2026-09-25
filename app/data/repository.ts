@@ -1,3 +1,4 @@
+import type { Table } from "dexie";
 import {
   db,
   EMPTY_PULLED_REVISIONS,
@@ -103,6 +104,11 @@ export function tableForType(entityType: EntityType): TypedTable {
     case "preferences":
       return db.preferences;
   }
+}
+
+/** A typed store viewed through the shared row shape, for bulk calls the union rejects. */
+function rowTable(entityType: EntityType): Table<StoredRow, string> {
+  return tableForType(entityType) as unknown as Table<StoredRow, string>;
 }
 
 export async function getStoredRow<T extends EntityType>(
@@ -482,6 +488,17 @@ export async function initializeLocalDatabase() {
         await db.syncMeta.update(WORKSPACE_ID, patch);
       }
     }
+    // The web no longer syncs email suggestions (see WEB_ENTITY_TYPES). Drop rows an
+    // earlier build pulled, and rewind that cursor so a future reader starts from zero.
+    if ((await db.emailMessages.count()) > 0) {
+      await db.emailMessages.clear();
+      const meta = await db.syncMeta.get(WORKSPACE_ID);
+      if (meta) {
+        await db.syncMeta.update(WORKSPACE_ID, {
+          pulledRevisions: { ...EMPTY_PULLED_REVISIONS, ...meta.pulledRevisions, emailMessage: 0 },
+        });
+      }
+    }
   });
   if (typeof navigator !== "undefined") {
     void navigator.storage?.persist?.().catch(() => false);
@@ -722,21 +739,38 @@ export async function mergeRemoteRow<T extends EntityType>(
   });
 }
 
+/**
+ * Merge one pulled page with bulk reads/writes in a transaction scoped to the tables it
+ * touches. Per-row clock and lookup round-trips used to cost ~4 IndexedDB ops per row,
+ * and an all-tables lock blocked every live query while a page landed.
+ */
 export async function mergeRemotePage<T extends EntityType>(
   entityType: T,
   remoteRows: Array<StoredRowMap[T]>,
   cursor: number,
 ) {
-  await db.transaction("rw", allTypedTables(), async () => {
+  const table = rowTable(entityType);
+  await db.transaction("rw", [table, db.outbox, db.deviceMeta, db.syncMeta], async () => {
     let merged = 0;
-    for (const remote of remoteRows) {
-      await observeRemoteVersion(remote.version);
-      const local = await getStoredRow(entityType, remote.entityId);
-      if (!local || compareVersions(remote.version, local.version) >= 0) {
-        await tableForType(entityType).put(remote as never);
-        merged += 1;
-        const pending = await db.outbox.get(remote.key);
-        if (pending) await db.outbox.delete(remote.key);
+    if (remoteRows.length > 0) {
+      // The clock only needs the newest version it has seen, not every one in turn.
+      const newest = remoteRows.reduce(
+        (max, row) => (compareVersions(row.version, max) > 0 ? row.version : max),
+        remoteRows[0].version,
+      );
+      await observeRemoteVersion(newest);
+      const locals = await table.bulkGet(remoteRows.map((row) => row.key));
+      const accepted = remoteRows.filter((remote, index) => {
+        const local = locals[index];
+        return !local || compareVersions(remote.version, local.version) >= 0;
+      });
+      if (accepted.length > 0) {
+        await table.bulkPut(accepted);
+        const keys = accepted.map((row) => row.key);
+        const pending = await db.outbox.bulkGet(keys);
+        const superseded = keys.filter((_, index) => pending[index]);
+        if (superseded.length > 0) await db.outbox.bulkDelete(superseded);
+        merged = accepted.length;
       }
     }
     // Rows just arrived that the legacy repairs inspect — re-arm them so data written
@@ -745,6 +779,13 @@ export async function mergeRemotePage<T extends EntityType>(
       await db.deviceMeta.update("device", { backfillVersion: 0 });
     }
     const meta = await db.syncMeta.get(WORKSPACE_ID);
+    // An unchanged cursor is a no-op; writing it anyway wakes every sync-state observer.
+    if (
+      meta?.pulledRevisions?.[entityType] === cursor &&
+      (meta.lastPulledRevision ?? 0) >= cursor
+    ) {
+      return;
+    }
     const pulled = {
       ...EMPTY_PULLED_REVISIONS,
       ...(meta?.pulledRevisions ?? {}),
@@ -761,16 +802,36 @@ export async function mergeRemotePage<T extends EntityType>(
   });
 }
 
+/**
+ * Drop acknowledged outbox entries and stamp applied rows with their server revision,
+ * so the client knows those rows landed without pulling them straight back. An entry
+ * whose operation was replaced by a newer local edit is left alone.
+ */
 export async function acknowledgeOperations(
-  acknowledgements: Array<{ operationId: string }>,
+  entityType: EntityType,
+  acknowledgements: Array<{ operationId: string; applied?: boolean; revision?: number }>,
 ) {
-  await db.transaction("rw", db.outbox, async () => {
-    for (const acknowledgement of acknowledgements) {
-      const row = await db.outbox.where("operationId").equals(acknowledgement.operationId).first();
-      if (row?.operationId === acknowledgement.operationId) {
-        await db.outbox.delete(row.key);
+  if (acknowledgements.length === 0) return;
+  const table = rowTable(entityType);
+  const byOperation = new Map(acknowledgements.map((ack) => [ack.operationId, ack]));
+  await db.transaction("rw", [db.outbox, table], async () => {
+    const entries = await db.outbox
+      .where("operationId")
+      .anyOf([...byOperation.keys()])
+      .toArray();
+    if (entries.length === 0) return;
+    const keys = entries.map((entry) => entry.key);
+    const rows = await table.bulkGet(keys);
+    const stamped: StoredRow[] = [];
+    entries.forEach((entry, index) => {
+      const ack = byOperation.get(entry.operationId);
+      const row = rows[index];
+      if (row && ack?.applied && typeof ack.revision === "number") {
+        stamped.push({ ...row, serverRevision: ack.revision });
       }
-    }
+    });
+    if (stamped.length > 0) await table.bulkPut(stamped);
+    await db.outbox.bulkDelete(keys);
   });
 }
 
@@ -833,7 +894,7 @@ export async function purgeExpiredTombstones(now = Date.now()) {
   const cutoff = now - TOMBSTONE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let purged = 0;
   await db.transaction("rw", allTypedTables(), async () => {
-    for (const entityType of ALL_ENTITY_TYPES) {
+    for (const entityType of WEB_ENTITY_TYPES) {
       const rows = (await tableForType(entityType).toArray()) as StoredRow[];
       for (const row of rows) {
         if (!row.deleted) continue;
@@ -858,19 +919,37 @@ const ALL_ENTITY_TYPES: EntityType[] = [
   "preferences",
 ];
 
+/**
+ * Entity types the web client stores and syncs. Gmail email suggestions are native-only
+ * UI; pulling them made every live-query refresh read a table several times larger
+ * than all transactions, for data the web never shows.
+ */
+const WEB_ENTITY_TYPES: EntityType[] = ALL_ENTITY_TYPES.filter(
+  (entityType) => entityType !== "emailMessage",
+);
+
 export async function activeEntities<T extends EntityType>(type: T) {
   const rows = (await tableForType(type).toArray()) as StoredRowMap[T][];
   return rows.filter((row) => !row.deleted);
 }
 
-/** Flatten all typed stores for UI hydration (includes tombstones). */
+/**
+ * Flatten the live (non-deleted) rows of every web entity type for UI hydration.
+ * Tombstones are skipped here: the projection drops them anyway, and a deletion still
+ * changes the per-type fingerprint because the id set and row count change.
+ */
 export async function allStoredRows(): Promise<
   Array<{ entityType: EntityType; row: StoredRow }>
 > {
+  const tables = await Promise.all(
+    WEB_ENTITY_TYPES.map(async (entityType) => ({
+      entityType,
+      rows: (await tableForType(entityType).toArray()) as StoredRow[],
+    })),
+  );
   const result: Array<{ entityType: EntityType; row: StoredRow }> = [];
-  for (const entityType of ALL_ENTITY_TYPES) {
-    const rows = (await tableForType(entityType).toArray()) as StoredRow[];
-    for (const row of rows) result.push({ entityType, row });
+  for (const { entityType, rows } of tables) {
+    for (const row of rows) if (!row.deleted) result.push({ entityType, row });
   }
   return result;
 }
@@ -892,4 +971,22 @@ export async function buildPushOperation(entry: OutboxEntry) {
   };
 }
 
-export { ALL_ENTITY_TYPES };
+/** Build push operations for one type's outbox entries with a single bulk read. */
+export async function buildPushOperations(entityType: EntityType, entries: OutboxEntry[]) {
+  const rows = await rowTable(entityType).bulkGet(entries.map((entry) => entry.key));
+  return entries.flatMap((entry, index) => {
+    const row = rows[index];
+    if (!row) return [];
+    const fields = storedFieldsFromPayload(payloadFromStored(entityType, row as never));
+    return [{
+      operationId: entry.operationId,
+      workspaceId: WORKSPACE_ID,
+      entityId: row.entityId,
+      version: row.version,
+      deleted: row.deleted,
+      ...fields,
+    }];
+  });
+}
+
+export { ALL_ENTITY_TYPES, WEB_ENTITY_TYPES };
