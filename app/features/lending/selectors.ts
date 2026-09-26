@@ -1,4 +1,4 @@
-import type { Lend, LendKind } from "@/lib/types";
+import { isSharedLendContact, type Lend, type LendKind } from "@/lib/types";
 
 /** Which way an unsettled balance runs. */
 export type LendDirection = "owedToMe" | "iOwe";
@@ -16,6 +16,15 @@ export interface LendContactSummary {
   direction: LendDirection;
   entryCount: number;
   lastOccurredAt: number;
+  /** Currency of the newest entry; absent means the display currency. */
+  currency?: string;
+  /** Ledger shared with another Dimo account. */
+  shared: boolean;
+}
+
+export interface LendContactSuggestion {
+  contactName: string;
+  contactId: string;
 }
 
 export interface LendDayGroup {
@@ -79,6 +88,17 @@ export function lendingTotals(summaries: LendContactSummary[]): LendTotals {
  * owes them and must still be listed.
  */
 export function lendContactSummaries(lends: Lend[]): LendContactSummary[] {
+  return allLendContactSummaries(lends)
+    .filter((summary) => summary.magnitude > 0.0001)
+    .sort(
+      (a, b) =>
+        b.magnitude - a.magnitude ||
+        a.contactName.localeCompare(b.contactName),
+    );
+}
+
+/** Everyone ever recorded, settled contacts included, most recent first. */
+export function allLendContactSummaries(lends: Lend[]): LendContactSummary[] {
   const summaries = new Map<string, LendContactSummary>();
   const newestFirst = [...lends].sort((a, b) => b.occurredAt - a.occurredAt);
 
@@ -98,6 +118,8 @@ export function lendContactSummaries(lends: Lend[]): LendContactSummary[] {
       direction: "owedToMe",
       entryCount: 1,
       lastOccurredAt: lend.occurredAt,
+      ...(lend.currency ? { currency: lend.currency } : {}),
+      shared: isSharedLendContact(lend.contactId),
     });
   }
 
@@ -107,12 +129,27 @@ export function lendContactSummaries(lends: Lend[]): LendContactSummary[] {
       magnitude: Math.abs(summary.balance),
       direction: (summary.balance > 0 ? "owedToMe" : "iOwe") as LendDirection,
     }))
-    .filter((summary) => summary.magnitude > 0.0001)
-    .sort(
-      (a, b) =>
-        b.magnitude - a.magnitude ||
-        a.contactName.localeCompare(b.contactName),
-    );
+    .sort((a, b) => b.lastOccurredAt - a.lastOccurredAt);
+}
+
+/** Which way money moved, from the user's side: out ("gave") or in ("got"). */
+export type LendFlow = "gave" | "got";
+
+export function lendFlow(kind: LendKind): LendFlow {
+  return isIncomingLend(kind) ? "got" : "gave";
+}
+
+/**
+ * The stored kind for money moving `flow` with a contact whose balance
+ * (excluding the entry itself) is `balance`. Money that reduces what's owed
+ * without overshooting is a repayment; anything else opens or grows a balance.
+ * Either way the balance maths is the same.
+ */
+export function lendKindFor(flow: LendFlow, amount: number, balance: number): LendKind {
+  if (flow === "gave") {
+    return balance < -0.0001 && amount <= -balance + 0.000_001 ? "returned" : "lent";
+  }
+  return balance > 0.0001 && amount <= balance + 0.000_001 ? "repaid" : "borrowed";
 }
 
 /** Newest-first history grouped by the display day label. */
@@ -128,4 +165,82 @@ export function groupLendsByDay(lends: Lend[]): LendDayGroup[] {
     netAmount: items.reduce((total, lend) => total + signedLendAmount(lend), 0),
     items,
   }));
+}
+
+/**
+ * Signed balance with one contact: positive when they owe the user, negative
+ * when the user owes them. When editing an entry, exclude it so its current
+ * amount remains eligible.
+ */
+export function netLendBalance(
+  contactId: string,
+  lends: Lend[],
+  excludingLendId?: string,
+): number {
+  let total = 0;
+  for (const lend of lends) {
+    if (lend.contactId !== contactId || lend.id === excludingLendId) continue;
+    total += signedLendAmount(lend);
+  }
+  return total;
+}
+
+/**
+ * How much a settlement of `kind` may be for without overshooting zero:
+ * `repaid` is capped by what the contact owes, `returned` by what the user
+ * owes them. Entries that open a balance are uncapped (`null`).
+ */
+export function settlementLimit(
+  kind: LendKind,
+  contactId: string,
+  lends: Lend[],
+  excludingLendId?: string,
+): number | null {
+  if (kind === "lent" || kind === "borrowed") return null;
+  const balance = netLendBalance(contactId, lends, excludingLendId);
+  return Math.max(0, kind === "repaid" ? balance : -balance);
+}
+
+/** The entry kind that settles a balance running in `direction`. */
+export function settlementKind(direction: LendDirection): LendKind {
+  return direction === "owedToMe" ? "repaid" : "returned";
+}
+
+/**
+ * Chronological entries in the contact's current unsettled cycle; everything
+ * before the most recent zero balance belongs to a completed settlement.
+ */
+export function unsettledLends(contactId: string, lends: Lend[]): Lend[] {
+  const contactLends = lends
+    .filter((lend) => lend.contactId === contactId)
+    .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
+  let balance = 0;
+  let start = 0;
+  contactLends.forEach((lend, index) => {
+    balance += signedLendAmount(lend);
+    if (Math.abs(balance) < 0.0001) start = index + 1;
+  });
+  return contactLends.slice(start);
+}
+
+/** Most recently used contacts, deduped per person, for one-tap picks. */
+export function recentLendContacts(lends: Lend[], limit = 6): LendContactSuggestion[] {
+  const seen = new Set<string>();
+  const result: LendContactSuggestion[] = [];
+  for (const lend of [...lends].sort((a, b) => b.occurredAt - a.occurredAt)) {
+    if (seen.has(lend.contactId)) continue;
+    seen.add(lend.contactId);
+    result.push({ contactName: lend.contactName, contactId: lend.contactId });
+    if (result.length === limit) break;
+  }
+  return result;
+}
+
+/** Who recorded or last changed a shared entry, when it was the other person. */
+export function lendAttribution(lend: Lend): string | null {
+  if (!isSharedLendContact(lend.contactId)) return null;
+  const firstName = lend.contactName.split(" ")[0] || lend.contactName;
+  if (lend.createdBy === "contact") return `Added by ${firstName}`;
+  if (lend.lastEditedBy === "contact") return `Edited by ${firstName}`;
+  return null;
 }

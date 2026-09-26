@@ -12,6 +12,7 @@ import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.Currency
 import app.dimo.android.data.model.EmailMessageEntity
 import app.dimo.android.data.model.LendEntity
+import app.dimo.android.data.model.LendActor
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.NotificationSettings
 import app.dimo.android.data.model.PaymentMethodEntity
@@ -75,11 +76,17 @@ object ConvexAPI {
       if (email != null) put("email", email)
     }
 
-  fun clearArgs(workspaceId: String, entityTypes: List<EntityType>, limit: Int): Map<String, Any?> =
+  fun clearArgs(
+    workspaceId: String,
+    entityTypes: List<EntityType>,
+    limit: Int,
+    includeSharedLends: Boolean = false,
+  ): Map<String, Any?> =
     mapOf(
       "workspaceId" to workspaceId,
       "entityTypes" to entityTypes.map { it.wire },
       "limit" to limit.toDouble(),
+      "includeSharedLends" to includeSharedLends,
     )
 
   fun revisionArgs(workspaceId: String): Map<String, Any?> = mapOf("workspaceId" to workspaceId)
@@ -154,6 +161,8 @@ object ConvexAPI {
         dict["occurredAt"] = e.occurredAt.toDouble()
         dict["comment"] = e.comment
         dict["kind"] = (e.kind ?: LendKind.LENT).wire
+        // Sharing metadata is server-assigned, so it is never sent back.
+        if (!e.currency.isNullOrEmpty()) dict["currency"] = e.currency
       }
 
       is EntityPayload.EmailMessage -> {
@@ -290,6 +299,10 @@ object ConvexAPI {
             occurredAt = row["occurredAt"].asLong(),
             comment = row["comment"] as? String ?: "",
             kind = LendKind.fromWire(row["kind"] as? String),
+            currency = (row["currency"] as? String)?.takeIf { it.isNotEmpty() },
+            connectionId = row["connectionId"] as? String,
+            createdBy = LendActor.fromWire(row["createdBy"] as? String),
+            lastEditedBy = LendActor.fromWire(row["lastEditedBy"] as? String),
           ),
         )
       }

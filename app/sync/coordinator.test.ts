@@ -11,6 +11,12 @@ describe("isPermanentSyncError", () => {
     ).toBe(true);
   });
 
+  it("blocks shared-ledger writes the server refuses for this account", () => {
+    expect(isPermanentSyncError("Uncaught Error: Not a member of this lending connection")).toBe(true);
+    expect(isPermanentSyncError("Unknown lending connection")).toBe(true);
+    expect(isPermanentSyncError("Lend id collides with an unshared entry")).toBe(true);
+  });
+
   it("does not treat auth or transport errors as permanent", () => {
     expect(isPermanentSyncError("Not authenticated")).toBe(false);
     expect(isPermanentSyncError("JWT invalid signature")).toBe(false);

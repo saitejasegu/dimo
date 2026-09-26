@@ -26,6 +26,7 @@ import {
   type PaymentMethodEntity,
   type PreferencesEntity,
   type RecurringEntity,
+  type LendEntity,
   type TransactionEntity,
 } from "@/data/model";
 import {
@@ -47,7 +48,10 @@ import {
   type ExpenseSaveInput,
   type Frequency,
   type ID,
+  type LendKind,
+  type LendSaveInput,
   type NotificationSettings,
+  SHARED_LEND_CONTACT_PREFIX,
   type OverlayKey,
   type PaymentMethod,
   type PaymentMethodInput,
@@ -64,6 +68,7 @@ import { projectEntities, type ProjectionSnapshot } from "@/store/projection";
 import { useCoalesced } from "@/hooks/useCoalesced";
 import { type AppState, createInitialState } from "@/store/state";
 import { requestFullSync, startSync, stopSync } from "@/sync/coordinator";
+import { LendingSharingProvider } from "@/store/lending-sharing";
 import {
   categoryEmojiForName,
   defaultPaymentMethodIdForImport,
@@ -72,6 +77,7 @@ import {
 import {
   suggestedCategoryBudgetUpdates,
 } from "@/features/budgets/selectors";
+import { settlementLimit } from "@/features/lending/selectors";
 import {
   cacheRates,
   convertMinor,
@@ -147,6 +153,11 @@ export interface AppActions {
   manageStatsDefaults: () => void;
   toggleNotification: (key: keyof NotificationSettings) => void;
   showToast: (message: string) => void; syncNow: () => void;
+  /** Returns false when the entry was rejected (e.g. a settlement over the balance). */
+  saveLend: (input: LendSaveInput) => boolean;
+  deleteLend: (id: ID) => void;
+  /** Renames every private entry with this person, e.g. to their Dimo account name. */
+  renameLendContact: (contactId: string, contactName: string) => void;
 }
 
 export interface SyncState extends SyncMetaRecord {
@@ -711,6 +722,73 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
     },
     toggleNotification: (key) => { const state = getState(); const notifications = { ...state.notifications, [key]: !state.notifications[key] }; dispatch({ type: "TOGGLE_NOTIFICATION", key }); persist(saveEntity("preferences", preferencesFrom(state, { notifications }))); },
     showToast: (message) => dispatch({ type: "SHOW_TOAST", message }), syncNow: () => { void requestFullSync(); },
+    saveLend: (input) => {
+      const state = getState();
+      const existing = input.id ? state.lends.find((lend) => lend.id === input.id) : undefined;
+      const contactName = input.contactName.trim();
+      const contactId = input.contactId.trim() || existing?.contactId || "";
+      if (!contactName || !contactId || !(input.amount > 0)) return false;
+      // The form derives the kind from "I gave / I got" and the balance.
+      const kind: LendKind = input.kind;
+      const limit = settlementLimit(kind, contactId, state.lends, existing?.id);
+      if (limit !== null && input.amount > limit + 0.000_001) {
+        dispatch({ type: "SHOW_TOAST", message: "That is more than the outstanding balance" });
+        return false;
+      }
+      const shared = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX);
+      const entity: LendEntity = {
+        id: existing?.id ?? `lend_${crypto.randomUUID()}`,
+        contactName,
+        contactId,
+        amountMinor: Math.round(input.amount * 100),
+        occurredAt: input.occurredAt,
+        comment: input.comment.trim(),
+        kind,
+        // Shared ledgers can span accounts with different display currencies.
+        currency: existing?.currency ?? state.currency,
+        // The server assigns sharing metadata; mirror it so the row reads
+        // correctly before the next pull.
+        ...(shared
+          ? {
+              connectionId: contactId.slice(SHARED_LEND_CONTACT_PREFIX.length),
+              createdBy: existing?.createdBy ?? "me",
+              lastEditedBy: "me" as const,
+            }
+          : {
+              ...(existing?.createdBy ? { createdBy: existing.createdBy } : {}),
+              ...(existing?.lastEditedBy ? { lastEditedBy: existing.lastEditedBy } : {}),
+            }),
+      };
+      persist(saveEntity("lend", entity), () =>
+        dispatch({ type: "SHOW_TOAST", message: existing ? "Entry updated" : "Entry saved" }),
+      );
+      return true;
+    },
+    renameLendContact: (contactId, contactName) => {
+      const name = contactName.trim();
+      if (!name || contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)) return;
+      for (const lend of getState().lends) {
+        if (lend.contactId !== contactId || lend.contactName === name) continue;
+        const entity: LendEntity = {
+          id: lend.id,
+          contactName: name,
+          contactId,
+          amountMinor: lend.amountMinor,
+          occurredAt: lend.occurredAt,
+          comment: lend.comment,
+          kind: lend.kind,
+          ...(lend.currency ? { currency: lend.currency } : {}),
+          ...(lend.createdBy ? { createdBy: lend.createdBy } : {}),
+          ...(lend.lastEditedBy ? { lastEditedBy: lend.lastEditedBy } : {}),
+        };
+        persist(saveEntity("lend", entity));
+      }
+    },
+    deleteLend: (id) => {
+      persist(removeEntity("lend", id), () =>
+        dispatch({ type: "SHOW_TOAST", message: "Entry deleted" }),
+      );
+    },
   };
 }
 
@@ -1067,7 +1145,9 @@ export function AppStoreProvider({
   return (
     <AppStoreContext.Provider value={store}>
       <AppActionsContext.Provider value={actions}>
-        <SyncStateContext.Provider value={sync}>{children}</SyncStateContext.Provider>
+        <SyncStateContext.Provider value={sync}>
+          <LendingSharingProvider>{children}</LendingSharingProvider>
+        </SyncStateContext.Provider>
       </AppActionsContext.Provider>
     </AppStoreContext.Provider>
   );

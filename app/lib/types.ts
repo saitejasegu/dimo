@@ -182,6 +182,34 @@ export function toLendKind(value: unknown): LendKind {
   return LEND_KINDS.includes(value as LendKind) ? (value as LendKind) : "lent";
 }
 
+/** A lending entry as entered in the web form. */
+export interface LendSaveInput {
+  /** Present when editing. */
+  id?: ID;
+  contactId: string;
+  contactName: string;
+  kind: LendKind;
+  /** Major units, in `currency` (or the display currency). */
+  amount: number;
+  occurredAt: number;
+  comment: string;
+}
+
+/** Who created or last edited a shared entry, relative to this copy's owner. */
+export type LendActor = "me" | "contact";
+
+export function toLendActor(value: unknown): LendActor | undefined {
+  return value === "me" || value === "contact" ? value : undefined;
+}
+
+/** Prefix of the contactId the server assigns to a ledger shared with another
+ * Dimo account. */
+export const SHARED_LEND_CONTACT_PREFIX = "dimo:";
+
+export function isSharedLendContact(contactId: string) {
+  return contactId.startsWith(SHARED_LEND_CONTACT_PREFIX);
+}
+
 export interface Lend {
   id: ID;
   contactName: string;
@@ -191,6 +219,10 @@ export interface Lend {
   occurredAt: number;
   comment: string;
   kind: LendKind;
+  /** Currency the amount was recorded in; absent means the display currency. */
+  currency?: string;
+  createdBy?: LendActor;
+  lastEditedBy?: LendActor;
   /** Human-readable time and day labels derived from occurredAt. */
   time: string;
   day: string;

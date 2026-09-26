@@ -34,7 +34,9 @@ struct RootView: View {
       pendingWidgetURL = url
       openPendingWidgetURL()
     }
-    .onChange(of: environment.session.phase) { _, _ in openPendingWidgetURL() }
+    .onChange(of: environment.session.phase) { _, _ in
+      openPendingWidgetURL()
+    }
   }
 
   private func openPendingWidgetURL() {

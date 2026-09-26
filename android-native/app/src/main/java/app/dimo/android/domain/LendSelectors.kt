@@ -1,6 +1,7 @@
 package app.dimo.android.domain
 
 import app.dimo.android.data.model.Lend
+import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
 import app.dimo.android.data.model.LendKind
 import kotlin.math.abs
 
@@ -33,8 +34,13 @@ data class LendContactSummary(
   val total: Double,
   val count: Int,
   val lastOccurredAt: Long,
+  /** Currency of the newest entry; null means the display currency. */
+  val currency: String? = null,
 ) {
   val id: String get() = contactId
+
+  /** Ledger shared with another Dimo account. */
+  val isShared: Boolean get() = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)
 
   val direction: LendDirection get() = if (total > 0) LendDirection.OWED_TO_ME else LendDirection.I_OWE
 
@@ -174,6 +180,7 @@ object LendSelectors {
           total = lend.signedAmount,
           count = 1,
           lastOccurredAt = lend.occurredAt,
+          currency = lend.currency,
         )
       }
     }

@@ -15,6 +15,7 @@ import java.io.File
  * shape.
  *
  * Version 2 adds the Email tab's tables. Version 3 adds `categories.archived`.
+ * Version 4 adds the lending-sharing columns on `lends`.
  * Destructive rebuild is not configured: it would throw away synced entity rows
  * and the pending outbox.
  */
@@ -35,7 +36,7 @@ import java.io.File
     EmailAnalysisSettingsRecord::class,
     EmailAnalysisRetryRecord::class,
   ],
-  version = 3,
+  version = 4,
   exportSchema = true,
 )
 abstract class DimoDatabase : RoomDatabase() {

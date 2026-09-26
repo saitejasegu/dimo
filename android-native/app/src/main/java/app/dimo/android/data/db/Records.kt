@@ -13,6 +13,7 @@ import app.dimo.android.data.model.DeviceMeta
 import app.dimo.android.data.model.EntityPayload
 import app.dimo.android.data.model.EntityType
 import app.dimo.android.data.model.LendEntity
+import app.dimo.android.data.model.LendActor
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.LogicalVersion
 import app.dimo.android.data.model.NotificationSettings
@@ -339,6 +340,10 @@ data class LendRecord(
   val occurredAt: Long,
   val comment: String,
   val kind: String?,
+  val currency: String? = null,
+  val connectionId: String? = null,
+  val createdBy: String? = null,
+  val lastEditedBy: String? = null,
 ) {
   fun toStoredEntity() = StoredEntity(
     key = key,
@@ -356,6 +361,10 @@ data class LendRecord(
         occurredAt = occurredAt,
         comment = comment,
         kind = LendKind.fromWire(kind),
+        currency = currency,
+        connectionId = connectionId,
+        createdBy = LendActor.fromWire(createdBy),
+        lastEditedBy = LendActor.fromWire(lastEditedBy),
       ),
     ),
     deleted = deleted,
@@ -378,6 +387,10 @@ data class LendRecord(
         occurredAt = e.occurredAt,
         comment = e.comment,
         kind = e.kind?.wire,
+        currency = e.currency,
+        connectionId = e.connectionId,
+        createdBy = e.createdBy?.wire,
+        lastEditedBy = e.lastEditedBy?.wire,
       )
     }
   }

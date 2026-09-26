@@ -16,7 +16,12 @@ protocol SyncTransport: Sendable {
     operations: [SyncOperation]
   ) async throws -> PushResultDTO
   func ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?) async throws
-  func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO
+  func clearWorkspace(
+    workspaceId: String,
+    entityTypes: [String],
+    limit: Double,
+    includeSharedLends: Bool
+  ) async throws -> ClearResultDTO
   func latestExchangeRates() async throws -> RateTable?
   func subscribeRevision(workspaceId: String, onChange: @escaping (Double) -> Void) -> AnyCancellable
 }
@@ -133,13 +138,16 @@ actor SyncCoordinator {
     request()
   }
 
+  /// Account deletion: also removes lends shared with other accounts and
+  /// revokes those connections, which a full cloud replacement must not do.
   func clearCloudWorkspace() async throws {
     let types = EntityType.allCases.map(\.rawValue)
     while true {
       let result = try await transport.clearWorkspace(
         workspaceId: workspaceID,
         entityTypes: types,
-        limit: 100
+        limit: 100,
+        includeSharedLends: true
       )
       if !result.hasMore { return }
     }
@@ -232,7 +240,8 @@ actor SyncCoordinator {
       let result = try await transport.clearWorkspace(
         workspaceId: workspaceID,
         entityTypes: entityTypes,
-        limit: 100
+        limit: 100,
+        includeSharedLends: false
       )
       if !result.hasMore { return }
     }
@@ -432,7 +441,12 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     }
   }
 
-  func clearWorkspace(workspaceId: String, entityTypes: [String], limit: Double) async throws -> ClearResultDTO {
+  func clearWorkspace(
+    workspaceId: String,
+    entityTypes: [String],
+    limit: Double,
+    includeSharedLends: Bool
+  ) async throws -> ClearResultDTO {
     let encodedTypes: [ConvexEncodable?] = entityTypes.map { $0 as ConvexEncodable? }
     return try await withTimeout(seconds: 45) {
       try await self.client.mutation(
@@ -441,6 +455,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
           "workspaceId": workspaceId,
           "entityTypes": encodedTypes,
           "limit": limit,
+          "includeSharedLends": includeSharedLends,
         ]
       )
     }
@@ -520,6 +535,7 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
       dict["occurredAt"] = Double(e.occurredAt)
       dict["comment"] = e.comment
       dict["kind"] = (e.kind ?? .lent).rawValue
+      if let currency = e.currency, !currency.isEmpty { dict["currency"] = currency }
     case .emailMessage(let e):
       dict["accountId"] = e.accountId
       dict["accountEmail"] = e.accountEmail
@@ -570,57 +586,59 @@ final class ConvexSyncTransport: SyncTransport, @unchecked Sendable {
     }
     return dict
   }
+}
 
-  private func firstValue<T: Decodable>(_ publisher: AnyPublisher<T, ClientError>) async throws -> T {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
-      var cancellable: AnyCancellable?
-      var settled = false
-      cancellable = publisher
-        .timeout(
-          .seconds(45),
-          scheduler: DispatchQueue.global(),
-          customError: { ClientError.InternalError(msg: "Convex sync timed out") }
-        )
-        .first()
-        .sink(
-          receiveCompletion: { completion in
-            guard !settled else { return }
-            settled = true
-            switch completion {
-            case .failure(let error):
-              continuation.resume(throwing: error)
-            case .finished:
-              continuation.resume(
-                throwing: ClientError.InternalError(msg: "Convex subscription completed without a value")
-              )
-            }
-            cancellable?.cancel()
-          },
-          receiveValue: { value in
-            guard !settled else { return }
-            settled = true
-            continuation.resume(returning: value)
-            cancellable?.cancel()
+/// First value of a Convex query subscription, failing after 45 seconds.
+func firstValue<T: Decodable>(_ publisher: AnyPublisher<T, ClientError>) async throws -> T {
+  try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+    var cancellable: AnyCancellable?
+    var settled = false
+    cancellable = publisher
+      .timeout(
+        .seconds(45),
+        scheduler: DispatchQueue.global(),
+        customError: { ClientError.InternalError(msg: "Convex sync timed out") }
+      )
+      .first()
+      .sink(
+        receiveCompletion: { completion in
+          guard !settled else { return }
+          settled = true
+          switch completion {
+          case .failure(let error):
+            continuation.resume(throwing: error)
+          case .finished:
+            continuation.resume(
+              throwing: ClientError.InternalError(msg: "Convex subscription completed without a value")
+            )
           }
-        )
-    }
+          cancellable?.cancel()
+        },
+        receiveValue: { value in
+          guard !settled else { return }
+          settled = true
+          continuation.resume(returning: value)
+          cancellable?.cancel()
+        }
+      )
   }
+}
 
-  private func withTimeout<T: Sendable>(
-    seconds: Double,
-    _ work: @escaping @Sendable () async throws -> T
-  ) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-      group.addTask { try await work() }
-      group.addTask {
-        try await Task.sleep(for: .seconds(seconds))
-        throw ClientError.InternalError(msg: "Convex sync timed out")
-      }
-      defer { group.cancelAll() }
-      guard let value = try await group.next() else {
-        throw ClientError.InternalError(msg: "Convex sync timed out")
-      }
-      return value
+/// Runs a Convex call, failing if it does not finish in time.
+func withTimeout<T: Sendable>(
+  seconds: Double,
+  _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+  try await withThrowingTaskGroup(of: T.self) { group in
+    group.addTask { try await work() }
+    group.addTask {
+      try await Task.sleep(for: .seconds(seconds))
+      throw ClientError.InternalError(msg: "Convex sync timed out")
     }
+    defer { group.cancelAll() }
+    guard let value = try await group.next() else {
+      throw ClientError.InternalError(msg: "Convex sync timed out")
+    }
+    return value
   }
 }

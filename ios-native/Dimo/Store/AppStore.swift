@@ -13,6 +13,7 @@ final class AppStore {
   let syncStatus = SyncStatusStore()
   let nav = NavStore()
   let drafts = DraftsStore()
+  let lendingSharing = LendingSharingStore()
 
   /// Device-local daily expense reminder (not synced).
   var expenseReminder = ExpenseReminderSettings.default
@@ -70,6 +71,11 @@ final class AppStore {
   var detailId: String? {
     get { nav.detailId }
     set { nav.detailId = newValue }
+  }
+  /// The person whose Lending page is open.
+  var lendPersonId: String? {
+    get { nav.lendPersonId }
+    set { nav.lendPersonId = newValue }
   }
   var toast: String? {
     get { nav.toast }
@@ -332,7 +338,13 @@ final class AppStore {
       await coordinator.setProfile(name: profileName, email: profileEmail)
       try Task.checkCancellation()
       self.coordinator = coordinator
+      lendingSharing.attach(LendingSharingTransport(client: client))
+      lendingSharing.onLedgerChanged = { [weak self] in
+        Task { await self?.coordinator?.request() }
+      }
+      lendingSharing.profilePhotoUrl = { [weak self] in self?.profilePhotoUrl }
       await coordinator.start()
+      Task { await lendingSharing.refresh() }
       await refreshExchangeRates()
     } catch is CancellationError {
       return
@@ -355,6 +367,8 @@ final class AppStore {
       self.dayChangeObserver = nil
     }
     emailController?.attachOpenRouterConvexTransport(nil)
+    lendingSharing.attach(nil)
+    lendingSharing.onLedgerChanged = nil
     await emailController?.tearDown()
     emailController = nil
     entityObservation?.cancel()
@@ -649,17 +663,10 @@ final class AppStore {
     let contact = lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !contact.isEmpty else { return }
     let existing = lendDraft.editingId.flatMap { id in lends.first { $0.id == id } }
-    guard let contactId = lendDraft.contactId ?? existing?.contactId else { return }
-    // Editing never flips direction; the saved row's kind wins.
-    let kind = existing?.kind ?? lendDraft.kind
-    if let limit = LendSelectors.settlementLimit(
-      for: kind,
-      contactId: contactId,
-      in: lends,
-      excludingLendId: existing?.id
-    ) {
-      guard amount <= limit + 0.000_001 else { return }
-    }
+    // A newly typed name starts a new person; ids are opaque.
+    let contactId = lendDraft.contactId ?? existing?.contactId ?? "contact_\(UUID().uuidString.lowercased())"
+    let balance = LendSelectors.netBalance(for: contactId, in: lends, excludingLendId: existing?.id)
+    let kind = LendSelectors.kind(for: lendDraft.flow, amount: amount, balance: balance)
     let occurredAt: Int
     if let existing,
        Calendar.current.isDate(
@@ -670,6 +677,7 @@ final class AppStore {
     } else {
       occurredAt = lendTimestamp(for: lendDraft.date)
     }
+    let shared = contactId.hasPrefix(sharedLendContactPrefix)
     let entity = LendEntity(
       id: existing?.id ?? makeId(prefix: "lend_"),
       contactName: contact,
@@ -677,20 +685,29 @@ final class AppStore {
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: occurredAt,
       comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
-      kind: kind
+      kind: kind,
+      // Shared ledgers can span accounts with different display currencies.
+      currency: existing?.currency ?? currency.rawValue,
+      // The server assigns these; mirror what it will send back so the row
+      // reads correctly before the next pull.
+      connectionId: shared ? String(contactId.dropFirst(sharedLendContactPrefix.count)) : nil,
+      createdBy: shared ? (existing?.createdBy ?? .me) : existing?.createdBy,
+      lastEditedBy: shared ? .me : existing?.lastEditedBy
     )
     write { try $0.saveEntity(entityType: .lend, payload: .lend(entity)) }
+    let invite = lendDraft.invite.flatMap { $0.contactId == contactId && existing == nil ? $0 : nil }
     closeOverlay()
-    let noun = Self.lendNoun(for: kind)
-    showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
-  }
-
-  private static func lendNoun(for kind: LendKind) -> String {
-    switch kind {
-    case .lent: return "Lend"
-    case .repaid: return "Repayment"
-    case .borrowed: return "Borrowing"
-    case .returned: return "Payment"
+    showToast(existing == nil ? "Entry saved" : "Entry updated")
+    // The entry stays private until they accept; accepting shares it.
+    if let invite {
+      Task {
+        do {
+          try await lendingSharing.sendInvite(to: invite.user, contactId: contactId, contactName: contact)
+          showToast("Invite sent to \(contact)")
+        } catch {
+          showToast("Saved, but the invite failed: \(error.localizedDescription)")
+        }
+      }
     }
   }
 
@@ -698,7 +715,7 @@ final class AppStore {
     guard let lend = lends.first(where: { $0.id == id }) else { return }
     lendDraft = LendDraft(
       editingId: id,
-      kind: lend.kind,
+      flow: LendFlow(kind: lend.kind),
       contactName: lend.contactName,
       contactId: lend.contactId,
       amount: lend.amount.rounded() == lend.amount
@@ -710,22 +727,42 @@ final class AppStore {
     overlay = .lend
   }
 
-  /// Opens the sheet pre-set to whichever entry closes this contact's balance:
-  /// a repayment when they owe the user, a payment back when the user owes them.
-  func openAddSettlement(contactName: String, contactId: String, direction: LendDirection) {
-    lendDraft = LendDraft(
-      kind: direction.settlementKind,
-      contactName: contactName,
-      contactId: contactId
-    )
+  /// Opens the entry sheet for a known person with "I gave" or "I got" preset.
+  func openAddLend(contactName: String, contactId: String, flow: LendFlow) {
+    lendDraft = LendDraft(flow: flow, contactLocked: true, contactName: contactName, contactId: contactId)
     overlay = .lend
   }
 
+  /// Renames every private entry with this person, e.g. to their Dimo account name.
+  func renameLendContact(contactId: String, to name: String) {
+    let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !name.isEmpty, !contactId.hasPrefix(sharedLendContactPrefix) else { return }
+    let rows = lends.filter { $0.contactId == contactId && $0.contactName != name }
+    guard !rows.isEmpty else { return }
+    write { repo in
+      for lend in rows {
+        let entity = LendEntity(
+          id: lend.id,
+          contactName: name,
+          contactId: contactId,
+          amountMinor: lend.amountMinor,
+          occurredAt: lend.occurredAt,
+          comment: lend.comment,
+          kind: lend.kind,
+          currency: lend.currency,
+          connectionId: nil,
+          createdBy: lend.createdBy,
+          lastEditedBy: lend.lastEditedBy
+        )
+        try repo.saveEntity(entityType: .lend, payload: .lend(entity))
+      }
+    }
+  }
+
   func deleteLend(_ id: String) {
-    let kind = lends.first { $0.id == id }?.kind ?? .lent
     write { try $0.removeEntity(entityType: .lend, id: id) }
     closeOverlay()
-    showToast("\(Self.lendNoun(for: kind)) deleted")
+    showToast("Entry deleted")
   }
 
   /// Today keeps the current time so entries order naturally; past dates pin to noon
@@ -1421,12 +1458,25 @@ struct CategoryDraft: Equatable {
 
 struct LendDraft: Equatable {
   var editingId: String?
-  var kind: LendKind = .lent
+  /// "I gave" or "I got"; whether that's a loan or a repayment follows from
+  /// the balance when saving.
+  var flow: LendFlow = .gave
+  /// Opened from a person's page, so the person can't be changed.
+  var contactLocked = false
   var contactName = ""
   var contactId: String?
   var amount = ""
   var date = Date()
   var comment = ""
+  /// A Dimo account picked by email; saving the entry invites them.
+  var invite: LendDraftInvite?
+}
+
+/// The Dimo account a new lend's contact was found as, and the contactId
+/// generated for them so the entry is shared once they accept.
+struct LendDraftInvite: Equatable {
+  var user: LendUser
+  var contactId: String
 }
 
 extension AppStore {

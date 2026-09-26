@@ -98,7 +98,7 @@ transient state, not routes.
 - Normal sync is triggered by local writes, reconnect/focus/foreground, retry
   timers, and Convex revision subscriptions.
 - Web “Sync now” hard-replaces only web-owned entity types and preserves
-  native-owned `lend`. Native iOS “Sync now” is an ordinary sync; its separate
+  `lend` (it may be shared with other accounts) and native-owned `emailMessage`. Native iOS “Sync now” is an ordinary sync; its separate
   explicit replacement action covers all types including `emailMessage`.
   Android “Sync now” is also ordinary sync, and its full cloud replacement now
   covers `emailMessage` too, matching iOS. Account deletion can clear every
@@ -168,11 +168,13 @@ from derived UI models.
 
 ## Lending
 
-- Native iOS and Android are lending writers; web and Electron must remain
-  read-only.
-- Group people by address-book `contactId`, never display name. Legacy missing
-  IDs fall back to the name. Contact names/IDs may sync; photos are read
-  on-device and must never be persisted or synced.
+- iOS, Android and web (including Electron) all write lending entries. No
+  client reads the phone address book: a newly typed person gets an opaque
+  `contact_<uuid>` id, and picking a recent chip (or, on native, typing a
+  name that exactly matches someone already tracked) reuses that person's id.
+- Group people by `contactId`, never display name. Legacy missing IDs fall
+  back to the name. Older native entries may carry address-book identifiers;
+  they are just opaque ids now.
 - A settlement cannot overshoot the balance it closes: `repaid` is capped by
   what the contact owes, `returned` by what the user owes them. `lent` and
   `borrowed` open a balance and are uncapped. Use
@@ -183,14 +185,54 @@ from derived UI models.
   must still be listed.
 - Editing an entry never flips its direction; the saved row's `kind` wins over
   the draft.
-- Web reads all four directions correctly
-  (`app/features/lending/selectors.ts`) but stays read-only, so it reports
-  balances both ways without offering an entry form.
+- Web ports the balance, settlement-cap, unsettled-cycle and recent-contact
+  selectors in `app/features/lending/selectors.ts`; keep them aligned with the
+  Swift and Kotlin `LendSelectors`.
 - Android reads and writes all four directions: `LendKind.fromWire` returns
   `null` for an unrecognized wire value rather than coercing to `lent`, and
   `LendSheet` offers "I lent" / "I borrowed" alongside the settlement forms.
 - The current unsettled cycle starts after the most recent zero balance. Use
   `LendSelectors.unsettledTransactions(for:in:)` rather than duplicating it.
+- Collaborative lending (`convex/lending.ts`) lets two accounts share one
+  ledger. A lend whose `contactId` is `dimo:<connectionId>` is shared: its
+  authoritative copy lives in `sharedLends`, and every accepted push is
+  mirrored into both members' `lends` rows with the kind flipped for the other
+  member (`lent`↔`borrowed`, `repaid`↔`returned`), bumping both workspace
+  revisions. Either member may edit; LWW compares against the shared copy.
+  `connectionId`, `createdBy`/`lastEditedBy` (`me`/`contact`, relative to the
+  row owner) and the shared contact name are server-assigned and ignored on
+  push. Accounts connect by in-app invite only, from the add-lend contact
+  field: typing a name or email runs `searchLendUsers` (prefix-aware
+  full-text over `workspaces.name`; a full email matches `workspaces.email`
+  exactly; the caller is excluded), picking
+  the result gives the entry a new contactId, and saving the entry calls
+  `sendLendInvite` for that contact. There is no separate share screen. The invitee
+  accepts (`acceptLendInvite`) or declines. There are no codes or links, and
+  invites don't expire. Until acceptance the inviter's entries for the invited
+  contact stay private and clients mark the contact "Invited"; accepting links existing history
+  in scheduled batches and, for `history: "inviter" | "accepter"`, tombstones
+  the other side's duplicate private entries. A revoked connection stops
+  mirroring and each member keeps their copies as detached history.
+  `reshareLendConnection` invites the other member to turn the same
+  connection back on (`lendInvites.reconnectId`); accepting reactivates it and
+  `relinkLendHistory` re-merges both members' `dimo:<connectionId>` entries,
+  newest version per entity (deletes included).
+- `clearWorkspace` keeps shared lends by default so a full cloud replacement
+  cannot drop the ledger the other member relies on. Only account deletion may
+  pass `includeSharedLends: true`, which also revokes the caller's
+  connections; every client's account-deletion path does so.
+- Any signed-in user can find any account by profile name. The email shown
+  is `workspaces.email`, filled from sign-in; clients show it read-only, but
+  the server still accepts `profileEmail` on preference pushes. Clients
+  publish the sign-in profile photo with `lending:setProfilePhoto`; only
+  `https` URLs on `workoscdn.com` / `googleusercontent.com` are kept, so a
+  photo can't be used to track viewers. Search results, invites and
+  connections return it; Apple sign-ins have no photo. Client state
+  for invites and connections lives in `LendingSharingStore` (native) and
+  `app/store/lending-sharing.tsx` (web).
+- Shared-ledger push errors (`Not a member of this lending connection`,
+  `Unknown lending connection`, `Lend id collides`) are permanent and block
+  the single operation on every client.
 - Native shared summaries use a plain-text share sheet
   (`UIActivityViewController` / Android `ACTION_SEND`), include only the
   current unsettled cycle, omit comments, show `+`/`-` amounts, and format
@@ -256,8 +298,8 @@ from derived UI models.
 
 - Web build-time variables: `NEXT_PUBLIC_CONVEX_URL`,
   `NEXT_PUBLIC_WORKOS_CLIENT_ID`, `NEXT_PUBLIC_WORKOS_REDIRECT_URI`.
-- Convex deployment variable: `WORKOS_CLIENT_ID`; `WORKOS_API_KEY` is only for
-  provisioning/configuration. Do not commit `.env*` or secret xcconfig files.
+- Convex deployment variables: `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY`, which
+  provisioning uses. Do not commit `.env*` or secret xcconfig files.
 - `NEXT_PUBLIC_*` values are embedded at build time and frozen into Electron
   packages. Deploy/configure Convex before building clients against it.
 - Although some docs describe cloud sync as optional, the current web

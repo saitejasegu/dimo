@@ -71,6 +71,10 @@ struct WireLend: Codable, Sendable {
   var occurredAt: Double
   var comment: String
   var kind: String?
+  var currency: String?
+  var connectionId: String?
+  var createdBy: String?
+  var lastEditedBy: String?
 }
 
 struct WireEmailMessage: Codable, Sendable {
@@ -187,7 +191,8 @@ enum WirePayload {
       }
       return dict
     case .lend(let e):
-      return [
+      // Sharing metadata is server-assigned, so it is never sent back.
+      var dict: [String: Any] = [
         "id": e.id,
         "contactName": e.contactName,
         "contactId": e.contactId,
@@ -196,6 +201,10 @@ enum WirePayload {
         "comment": e.comment,
         "kind": (e.kind ?? .lent).rawValue,
       ]
+      if let currency = e.currency, !currency.isEmpty {
+        dict["currency"] = currency
+      }
+      return dict
     case .emailMessage(let e):
       return [
         "id": e.id,
@@ -318,7 +327,11 @@ enum WirePayload {
         amountMinor: Int(wire.amountMinor),
         occurredAt: Int(wire.occurredAt),
         comment: wire.comment,
-        kind: wire.kind.flatMap(LendKind.init) ?? .lent
+        kind: wire.kind.flatMap(LendKind.init) ?? .lent,
+        currency: (wire.currency?.isEmpty == false) ? wire.currency : nil,
+        connectionId: wire.connectionId,
+        createdBy: wire.createdBy.flatMap(LendActor.init(rawValue:)),
+        lastEditedBy: wire.lastEditedBy.flatMap(LendActor.init(rawValue:))
       ))
     case .emailMessage:
       let wire = try JSONDecoder().decode(WireEmailMessage.self, from: data)
@@ -571,6 +584,6 @@ enum AnyDecodableValue: Decodable {
 
 func isPermanentSyncError(_ message: String) -> Bool {
   let pattern =
-    #"ArgumentValidationError|Payload does not match|Entity ID mismatch|Workspace mismatch|Unsupported workspace|Invalid logical version|Invalid minor-unit amount|Invalid recurring anchor date|A push may contain at most 50"#
+    #"ArgumentValidationError|Payload does not match|Entity ID mismatch|Workspace mismatch|Unsupported workspace|Invalid logical version|Invalid minor-unit amount|Invalid recurring anchor date|A push may contain at most 50|Not a member of this lending connection|Unknown lending connection|Lend id collides"#
   return message.range(of: pattern, options: .regularExpression) != nil
 }

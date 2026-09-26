@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 
@@ -31,13 +32,15 @@ export function ConfirmDialog({
   alternateLabel,
   onAlternate,
 }: ConfirmDialogProps) {
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  // Portalled so a transformed or scrolling screen can't trap the fixed
+  // overlay, and stacked above sheets so it can confirm actions inside them.
+  return createPortal(
     <div
       role="presentation"
       onClick={onCancel}
-      className="fixed inset-0 z-40 flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
+      className="fixed inset-0 z-[80] flex animate-dim-in items-center justify-center bg-ink-deep/65 px-6"
     >
       <div
         role="alertdialog"
@@ -92,6 +95,7 @@ export function ConfirmDialog({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,5 +1,6 @@
 import type {
   Currency,
+  LendActor,
   LendKind,
   NotificationSettings,
   PaymentMethodType,
@@ -26,11 +27,12 @@ export type EntityType =
   | "emailMessage"
   | "preferences";
 
-/** Native-owned types the web client must not hard-replace on Sync now. */
+/** Types the web client must not hard-replace on Sync now. Lends are shared
+ * with native clients and other accounts, so only normal sync touches them. */
 export type WebOwnedEntityType = Exclude<EntityType, "lend" | "emailMessage">;
 
-/** Entity types this web app owns and replaces on Sync now. Lending and email
- * suggestions are native-owned and read-only on web. */
+/** Entity types this web app replaces on Sync now. Lending is written on web
+ * too but is excluded here; email suggestions are native-owned. */
 export const OWNED_ENTITY_TYPES: readonly WebOwnedEntityType[] = [
   "category",
   "paymentMethod",
@@ -133,11 +135,14 @@ export interface LendEntity {
   amountMinor: number;
   occurredAt: number;
   comment: string;
-  /**
-   * Missing on legacy rows and treated as money lent. `borrowed`/`returned`
-   * are written by native clients only.
-   */
+  /** Missing on legacy rows and treated as money lent. */
   kind?: LendKind;
+  /** Currency the amount was recorded in. Absent on rows saved before sharing. */
+  currency?: string;
+  /** Server-assigned on copies of an entry shared with another account. */
+  connectionId?: string;
+  createdBy?: LendActor;
+  lastEditedBy?: LendActor;
 }
 
 /** Native-owned reviewed Gmail suggestion, including full normalized body. */

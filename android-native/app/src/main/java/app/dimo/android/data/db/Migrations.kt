@@ -115,5 +115,15 @@ object Migrations {
     }
   }
 
-  val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+  /** Adds the lending-sharing columns. Existing rows are private (all null). */
+  val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+      db.execSQL("ALTER TABLE `lends` ADD COLUMN `currency` TEXT")
+      db.execSQL("ALTER TABLE `lends` ADD COLUMN `connectionId` TEXT")
+      db.execSQL("ALTER TABLE `lends` ADD COLUMN `createdBy` TEXT")
+      db.execSQL("ALTER TABLE `lends` ADD COLUMN `lastEditedBy` TEXT")
+    }
+  }
+
+  val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 }

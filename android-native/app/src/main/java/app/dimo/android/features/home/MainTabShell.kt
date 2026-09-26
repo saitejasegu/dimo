@@ -1,5 +1,7 @@
 package app.dimo.android.features.home
 
+import app.dimo.android.features.lending.LedgerSharingSheetHost
+import app.dimo.android.store.LedgerSharingSheet
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -293,6 +295,8 @@ fun MainTabShell(
     OverlayKey.Lend -> LendSheet(store = store, onClose = { store.closeOverlay() })
     null -> Unit
   }
+
+  LedgerSharingSheetHost(store)
 
   // Tapping a transaction row edits it in the same sheet as the add flow.
   store.detailId?.let { id ->

@@ -1,8 +1,5 @@
 package app.dimo.android.features.sheets
 
-import android.Manifest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,8 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,12 +37,13 @@ import app.dimo.android.data.model.LendKind
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.Formatting
+import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
+import app.dimo.android.domain.CurrencyMeta
+import app.dimo.android.domain.LendContactSuggestion
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.ContactAvatar
-import app.dimo.android.features.common.ContactsLoader
 import app.dimo.android.features.common.DateField
-import app.dimo.android.features.common.DeviceContact
 import app.dimo.android.features.common.DimoBottomSheet
 import app.dimo.android.features.common.DimoTextField
 import app.dimo.android.features.common.FieldLabel
@@ -56,8 +51,11 @@ import app.dimo.android.features.common.LabeledTextField
 import app.dimo.android.features.common.PrimaryButton
 import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.features.common.cardSurface
-import app.dimo.android.features.common.rememberContactPhotoUris
 import app.dimo.android.store.AppStore
+import app.dimo.android.store.LendDraftInvite
+import app.dimo.android.sync.LendUser
+import kotlinx.coroutines.delay
+import java.util.UUID
 import java.time.Instant
 import kotlin.math.roundToLong
 
@@ -65,7 +63,8 @@ import kotlin.math.roundToLong
  * Add / edit a lend, borrowing, or settlement. Port of
  * `ios-native/Dimo/Features/Lending/AddLendSheet.swift`.
  *
- * Contacts come from `READ_CONTACTS`; only the identifier and name are saved.
+ * The contact is a typed name (matched to someone already tracked) or a Dimo
+ * account found by email, which saving invites.
  * Settlements are capped at the contact's balance for that direction, excluding
  * the row being edited.
  */
@@ -74,7 +73,6 @@ fun LendSheet(
   store: AppStore,
   onClose: () -> Unit,
 ) {
-  val context = LocalContext.current
   val draft = store.lendDraft
   val editingId = draft.editingId
   val existing = editingId?.let { id -> store.lends.firstOrNull { it.id == id } }
@@ -85,33 +83,37 @@ fun LendSheet(
   val contactLocked = isEditing || (isSettlement && draft.contactName.isNotEmpty())
   val canChooseDirection = !isEditing && !isSettlement
 
-  var contacts by remember { mutableStateOf<List<DeviceContact>>(emptyList()) }
-  var permissionDenied by remember { mutableStateOf(false) }
-  var contactQuery by remember(editingId) { mutableStateOf("") }
-  var pickingContact by remember { mutableStateOf(false) }
   var confirmDelete by remember { mutableStateOf(false) }
-  val contactPhotos = rememberContactPhotoUris()
 
-  val permissionLauncher = rememberLauncherForActivityResult(
-    ActivityResultContracts.RequestPermission(),
-  ) { granted ->
-    permissionDenied = !granted
-    if (granted) pickingContact = true
+  // A typed email is looked up as a Dimo account.
+  val sharing = store.lendingSharing
+  val typedEmail = draft.contactName.trim().lowercase().takeIf {
+    draft.invite == null && sharing.sharingAvailable && sharing.isOnline && EMAIL_PATTERN.matches(it)
+  }
+  var lookup by remember { mutableStateOf<Pair<String, LendUser?>?>(null) }
+  val currentLookup = lookup?.takeIf { it.first == typedEmail }
+  LaunchedEffect(typedEmail) {
+    val email = typedEmail ?: return@LaunchedEffect
+    delay(350)
+    runCatching { sharing.findUser(email) }.onSuccess { lookup = email to it }
   }
 
-  fun openContactPicker() {
-    if (ContactsLoader.hasPermission(context)) {
-      pickingContact = true
+  fun pickDimoUser(user: LendUser) {
+    val known = user.contactId
+    store.lendDraft = if (known != null) {
+      // Already shared, or already invited for this contact.
+      draft.copy(contactName = user.name, contactId = known, invite = null)
     } else {
-      permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+      val contactId = "contact_${UUID.randomUUID()}"
+      draft.copy(
+        contactName = user.name,
+        contactId = contactId,
+        invite = LendDraftInvite(user, contactId),
+      )
     }
   }
-
-  LaunchedEffect(pickingContact) {
-    if (pickingContact && contacts.isEmpty()) {
-      contacts = ContactsLoader.load(context)
-    }
-  }
+  val pendingDraftInvite = draft.invite?.takeIf { it.contactId == draft.contactId }
+  val sentInvite = draft.contactId?.let(sharing::pendingInvite)
 
   val settlementLimit = draft.contactId?.let { contactId ->
     LendSelectors.settlementLimit(
@@ -126,15 +128,35 @@ fun LendSheet(
   val exceedsLimit = settlementLimit != null && amountValue > settlementLimit + 0.000_001
   val canSave = amountValue > 0 &&
     draft.contactName.trim().isNotEmpty() &&
-    (draft.contactId != null || existing != null) &&
     !exceedsLimit
 
-  val recentContacts = LendSelectors.recentContacts(store.lends)
-  val filteredContacts = remember(contacts, contactQuery) {
-    val query = contactQuery.trim().lowercase()
-    if (query.isEmpty()) contacts.take(40) else {
-      contacts.filter { it.name.lowercase().contains(query) }.take(40)
-    }
+  // Shared ledgers are offered even before either side recorded anything.
+  val recentContacts = LendSelectors.recentContacts(store.lends) +
+    store.lendingSharing.connections
+      .filter { connection ->
+        connection.isActive &&
+          store.lends.none { it.contactId == connection.contactId }
+      }
+      .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) } +
+    // Someone invited before any entries were recorded with them.
+    store.lendingSharing.outgoingInvites
+      .mapNotNull { invite ->
+        invite.contactId
+          ?.takeIf { id -> store.lends.none { it.contactId == id } }
+          ?.let { LendContactSuggestion(contactName = invite.contactName, contactId = it) }
+      }
+  val isSharedContact = draft.contactId?.startsWith(SHARED_LEND_CONTACT_PREFIX) == true
+  // An edited entry keeps the currency it was recorded in.
+  val currencySymbol = existing?.currency?.let(CurrencyMeta::symbol)
+    ?: Formatting.currencySymbol(store.currency)
+  // A typed name that matches someone already tracked continues their balance.
+  val knownContacts = remember(store.lends) {
+    LendSelectors.recentContacts(store.lends, limit = Int.MAX_VALUE)
+  }
+  fun contactIdForName(name: String): String? {
+    val key = name.trim().lowercase()
+    if (key.isEmpty()) return null
+    return (knownContacts + recentContacts).firstOrNull { it.contactName.trim().lowercase() == key }?.contactId
   }
 
   val sheetTitle = when {
@@ -224,7 +246,7 @@ fun LendSheet(
         .padding(bottom = 24.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      if (canChooseDirection && !pickingContact) {
+      if (canChooseDirection) {
         SegmentedControl(
           options = listOf(LendKind.LENT, LendKind.BORROWED),
           selected = if (kind == LendKind.BORROWED) LendKind.BORROWED else LendKind.LENT,
@@ -247,7 +269,6 @@ fun LendSheet(
           ) {
             ContactAvatar(
               name = draft.contactName,
-              photoUri = draft.contactId?.let(contactPhotos::get),
               size = 28.dp,
               radius = 14.dp,
               fontSize = 11f,
@@ -262,130 +283,54 @@ fun LendSheet(
               modifier = Modifier.weight(1f),
             )
           }
-        } else if (pickingContact) {
+        } else {
           DimoTextField(
-            value = contactQuery,
-            onValueChange = { contactQuery = it },
-            placeholder = "Search contacts",
-            leading = {
-              Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = DimoColors.muted,
-                modifier = Modifier.size(16.dp),
+            value = draft.contactName,
+            onValueChange = { next ->
+              store.lendDraft = draft.copy(
+                contactName = next,
+                contactId = contactIdForName(next),
+                invite = null,
               )
             },
+            placeholder = "Their name or Dimo email",
           )
-        } else {
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .height(50.dp)
-              .cardSurface(12.dp, DimoColors.canvas)
-              .clickable(onClick = ::openContactPicker)
-              .padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            if (draft.contactName.isEmpty()) {
-              Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = DimoColors.muted,
-                modifier = Modifier.size(16.dp),
-              )
-            } else {
-              ContactAvatar(
-                name = draft.contactName,
-                photoUri = draft.contactId?.let(contactPhotos::get),
-                size = 28.dp,
-                radius = 14.dp,
-                fontSize = 11f,
-                monogram = lendContactInitials(draft.contactName),
-              )
-            }
-            Text(
-              text = draft.contactName.ifEmpty { "Search contacts" },
-              style = DimoFont.body(15f),
-              color = if (draft.contactName.isEmpty()) DimoColors.faint else DimoColors.ink,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.weight(1f),
-            )
-            Icon(
-              imageVector = Icons.Filled.KeyboardArrowDown,
-              contentDescription = "Choose from contacts",
-              tint = DimoColors.green,
-              modifier = Modifier.size(18.dp),
-            )
-          }
         }
 
-        if (permissionDenied) {
+        if (isSharedContact) {
           Text(
-            text = "Contacts permission is needed to keep same-named people apart.",
+            text = "Shared ledger \u2014 ${draft.contactName} sees this entry too",
             style = DimoFont.body(12f),
-            color = DimoColors.danger,
+            color = DimoColors.green,
+          )
+        } else if (pendingDraftInvite != null) {
+          Text(
+            text = "Saving invites ${pendingDraftInvite.user.email}. This entry stays private until they accept.",
+            style = DimoFont.body(12f),
+            color = DimoColors.muted,
+          )
+        } else if (sentInvite != null) {
+          Text(
+            text = "Invited ${sentInvite.inviteeEmail ?: sentInvite.contactName}. This entry is shared once they accept.",
+            style = DimoFont.body(12f),
+            color = DimoColors.muted,
           )
         }
 
-        if (pickingContact && !contactLocked) {
+        if (typedEmail != null && !contactLocked) {
           Column(
             modifier = Modifier
               .fillMaxWidth()
               .cardSurface(12.dp, DimoColors.popup)
               .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
           ) {
-            if (filteredContacts.isEmpty()) {
-              Text(
-                text = "No contacts found.",
-                style = DimoFont.body(13f),
-                color = DimoColors.muted,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
-              )
-            }
-            filteredContacts.forEach { contact ->
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .clip(RoundedCornerShape(10.dp))
-                  .clickable {
-                    store.lendDraft = draft.copy(
-                      contactName = contact.name,
-                      contactId = contact.id,
-                    )
-                    pickingContact = false
-                    contactQuery = ""
-                  }
-                  .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-              ) {
-                ContactAvatar(
-                  name = contact.name,
-                  photoUri = contact.photoUri,
-                  size = 32.dp,
-                  radius = 16.dp,
-                  fontSize = 13f,
-                  monogram = lendContactInitials(contact.name),
-                )
-                Text(
-                  text = contact.name,
-                  style = DimoFont.body(14f),
-                  color = DimoColors.ink,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                )
-              }
-            }
+            DimoUserResult(currentLookup, onPick = ::pickDimoUser)
           }
         }
 
         if (
           existing == null &&
           !contactLocked &&
-          !pickingContact &&
           draft.contactName.isEmpty() &&
           recentContacts.isNotEmpty()
         ) {
@@ -405,8 +350,8 @@ fun LendSheet(
                     store.lendDraft = draft.copy(
                       contactName = suggestion.contactName,
                       contactId = suggestion.contactId,
+                      invite = null,
                     )
-                    pickingContact = false
                   }
                   .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -414,7 +359,6 @@ fun LendSheet(
               ) {
                 ContactAvatar(
                   name = suggestion.contactName,
-                  photoUri = contactPhotos[suggestion.contactId],
                   size = 22.dp,
                   radius = 11.dp,
                   fontSize = 8f,
@@ -432,7 +376,7 @@ fun LendSheet(
         }
       }
 
-      if (!pickingContact) {
+      run {
         DateField(
           label = "Date",
           millis = draft.date.toEpochMilli(),
@@ -451,7 +395,7 @@ fun LendSheet(
             keyboardType = KeyboardType.Decimal,
             leading = {
               Text(
-                text = Formatting.currencySymbol(store.currency),
+                text = currencySymbol,
                 style = DimoFont.body(15f),
                 color = DimoColors.muted,
               )
@@ -545,5 +489,71 @@ private fun LendSheetHeader(
         modifier = Modifier.size(17.dp),
       )
     }
+  }
+}
+
+private val EMAIL_PATTERN = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+/** The Dimo account a typed email belongs to, or why it can't be picked. */
+@Composable
+private fun DimoUserResult(lookup: Pair<String, LendUser?>?, onPick: (LendUser) -> Unit) {
+  val user = lookup?.second
+  val note = when {
+    lookup == null -> "Looking for a Dimo account\u2026"
+    user == null -> "No Dimo account uses this email."
+    user.relation == "self" -> "That\u2019s your own account."
+    user.relation == "invitedYou" -> "${user.name} already invited you. Accept their invite in Lending first."
+    else -> null
+  }
+  if (note != null || user == null) {
+    Text(
+      text = note.orEmpty(),
+      style = DimoFont.body(13f),
+      color = DimoColors.muted,
+      modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+    )
+    return
+  }
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(10.dp))
+      .clickable { onPick(user) }
+      .padding(horizontal = 8.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    ContactAvatar(
+      name = user.name,
+      size = 32.dp,
+      radius = 16.dp,
+      fontSize = 13f,
+      monogram = lendContactInitials(user.name),
+    )
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+        text = user.name,
+        style = DimoFont.body(14f),
+        color = DimoColors.ink,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Text(
+        text = user.email,
+        style = DimoFont.body(12f),
+        color = DimoColors.muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+    Text(
+      text = when (user.relation) {
+        "connected" -> "Shared"
+        "invited" -> "Invited"
+        else -> "On Dimo"
+      },
+      style = DimoFont.body(12f, FontWeight.Medium),
+      color = DimoColors.green,
+    )
   }
 }

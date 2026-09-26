@@ -116,6 +116,7 @@ object PayloadSanitizer {
             amountMinor = max(1L, value.amountMinor),
             occurredAt = occurredAt,
             kind = value.kind ?: LendKind.LENT,
+            currency = value.currency?.takeIf { it.isNotEmpty() },
           ),
         )
       }

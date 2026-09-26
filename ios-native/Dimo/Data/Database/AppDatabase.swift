@@ -563,6 +563,14 @@ enum AppDatabase {
         columns: ["linkedTransactionId"]
       )
     }
+    migrator.registerMigration("v16-lend-sharing") { db in
+      try db.alter(table: "lends") { t in
+        t.add(column: "currency", .text)
+        t.add(column: "connectionId", .text)
+        t.add(column: "createdBy", .text)
+        t.add(column: "lastEditedBy", .text)
+      }
+    }
     return migrator
   }
 }

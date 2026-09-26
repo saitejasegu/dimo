@@ -1,113 +1,42 @@
-import Contacts
 import SwiftUI
 import UIKit
 
+/// Add or edit a lending entry as "I gave" / "I got". Whether it's a new loan
+/// or a repayment follows from the balance with that person, so users never
+/// pick between lent, borrowed, got back and paid back.
 struct AddLendSheet: View {
   @Bindable var store: AppStore
   @State private var confirmDelete = false
-  /// While the contact dropdown is open the rest of the form is hidden so the
-  /// search field and list stay visible above the keyboard.
-  @State private var contactSearchOpen = false
-  @State private var cachedRecentContacts: [LendContactSuggestion] = []
-  /// Cap for the draft's kind, or nil when the entry opens a balance rather
-  /// than settling one.
-  @State private var cachedSettlementLimit: Double?
+  /// Everyone in lend history plus shared and invited people, for matching.
+  @State private var knownContacts: [LendContactSuggestion] = []
+  @State private var recentContacts: [LendContactSuggestion] = []
 
-  private var kind: LendKind { store.lendDraft.kind }
-  private var isEditing: Bool { store.lendDraft.editingId != nil }
-  /// Settlements are always started from a contact's summary row, so their
-  /// counterparty is already decided.
-  private var isSettlement: Bool { kind == .repaid || kind == .returned }
-  /// Contact is locked when settling from the summary, or when editing.
-  private var contactLocked: Bool { isEditing || (isSettlement && !store.lendDraft.contactName.isEmpty) }
-  /// Direction is only choosable while opening a brand-new balance.
-  private var canChooseDirection: Bool { !isEditing && !isSettlement }
-
-  private var sheetTitle: String {
-    if isEditing {
-      switch kind {
-      case .lent: return "Edit lend"
-      case .repaid: return "Edit repayment"
-      case .borrowed: return "Edit borrowing"
-      case .returned: return "Edit payment"
-      }
-    }
-    switch kind {
-    case .lent: return "Add lend"
-    case .borrowed: return "Add borrowing"
-    case .repaid: return "Got back"
-    case .returned: return "Paid back"
-    }
-  }
-
-  private var saveTitle: String {
-    switch kind {
-    case .lent: return "Save lend"
-    case .borrowed: return "Save borrowing"
-    case .repaid: return isEditing ? "Save repayment" : "Save got back"
-    case .returned: return isEditing ? "Save payment" : "Save paid back"
-    }
-  }
-
-  private var contactLabel: String {
-    switch kind {
-    case .lent: return "Lent to"
-    case .borrowed: return "Borrowed from"
-    case .repaid: return "From"
-    case .returned: return "To"
-    }
-  }
-
-  private var amountLabel: String {
-    switch kind {
-    case .lent, .borrowed: return "Amount"
-    case .repaid: return "Amount got back"
-    case .returned: return "Amount paid back"
-    }
-  }
-
-  private var commentPlaceholder: String {
-    switch kind {
-    case .lent: return "e.g. Dinner split, emergency"
-    case .borrowed: return "e.g. Rent top-up, cab fare"
-    case .repaid: return "e.g. Partial repayment"
-    case .returned: return "e.g. Partial payment"
-    }
-  }
-
-  private var deleteTitle: String {
-    switch kind {
-    case .lent: return "Delete this lend?"
-    case .repaid: return "Delete this repayment?"
-    case .borrowed: return "Delete this borrowing?"
-    case .returned: return "Delete this payment?"
-    }
-  }
+  private var sharing: LendingSharingStore { store.lendingSharing }
+  private var draft: LendDraft { store.lendDraft }
+  private var isEditing: Bool { draft.editingId != nil }
+  private var contactLocked: Bool { isEditing || draft.contactLocked }
 
   var body: some View {
     SheetContainer(
-      title: sheetTitle,
+      title: isEditing ? "Edit entry" : "Add entry",
       onClose: { store.closeOverlay() },
       titleAlignment: isEditing ? .leading : .center
     ) {
       VStack(alignment: .leading, spacing: 16) {
-        if canChooseDirection && !contactSearchOpen {
-          directionSwitcher
-        }
+        LendFlowSwitcher(flow: $store.lendDraft.flow)
 
         VStack(alignment: .leading, spacing: 6) {
-          lendLabel(contactLabel)
+          lendLabel(draft.flow == .gave ? "To" : "From")
           if contactLocked {
             HStack(spacing: 10) {
-              ContactAvatar(
-                contact: LendContact(
-                  id: store.lendDraft.contactId ?? store.lendDraft.contactName,
-                  name: store.lendDraft.contactName,
-                  thumbnail: ContactsLoader.shared.thumbnail(contactId: store.lendDraft.contactId)
-                ),
-                size: 28
+              AvatarView(
+                name: draft.contactName,
+                photoUrl: draft.contactId.flatMap { sharing.photoUrl(contactId: $0) },
+                size: 28,
+                radius: 9,
+                fontSize: 12
               )
-              Text(store.lendDraft.contactName)
+              Text(draft.contactName)
                 .font(DimoFont.body(15))
                 .foregroundStyle(Theme.ink)
                 .lineLimit(1)
@@ -120,83 +49,87 @@ struct AddLendSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
           } else {
-            ContactDropdown(
-              selectedName: $store.lendDraft.contactName,
-              selectedContactId: $store.lendDraft.contactId,
-              isSearching: $contactSearchOpen
+            LendContactField(
+              name: draft.contactName,
+              searching: draft.contactId == nil && draft.invite == nil,
+              knownContacts: knownContacts,
+              sharing: sharing,
+              onEdit: editContactName,
+              onPickContact: { contact in
+                store.lendDraft.contactName = contact.contactName
+                store.lendDraft.contactId = contact.contactId
+                store.lendDraft.invite = nil
+              },
+              onPickDimoUser: pickDimoUser
             )
-            if !contactSearchOpen && store.lendDraft.contactName.isEmpty {
+            if draft.contactName.isEmpty {
               contactSuggestions
             }
           }
+          contactNote
         }
 
-        if !contactSearchOpen {
-          VStack(alignment: .leading, spacing: 6) {
-            lendLabel("Date")
-            DatePicker(
-              "Date",
-              selection: $store.lendDraft.date,
-              in: ...Date(),
-              displayedComponents: .date
-            )
-            .labelsHidden()
-            .datePickerStyle(.compact)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .frame(height: 50)
-            .background(Theme.canvas)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-            .tint(Theme.green)
-          }
+        VStack(alignment: .leading, spacing: 6) {
+          lendLabel("Date")
+          DatePicker(
+            "Date",
+            selection: $store.lendDraft.date,
+            in: ...Date(),
+            displayedComponents: .date
+          )
+          .labelsHidden()
+          .datePickerStyle(.compact)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 14)
+          .frame(height: 50)
+          .background(Theme.canvas)
+          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+          .tint(Theme.green)
+        }
 
-          lendField(amountLabel) {
+        VStack(alignment: .leading, spacing: 6) {
+          lendField("Amount") {
             HStack(spacing: 8) {
-              Text(Formatting.currencySymbol(store.currency))
+              Text(currencySymbol)
                 .foregroundStyle(Theme.muted)
               TextField("0", text: $store.lendDraft.amount)
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.plain)
-                .onChange(of: store.lendDraft.amount) { _, amount in
-                  clampToSettlementLimit(amount)
-                }
             }
           }
-
-          lendField("Comments (optional)") {
-            TextField(commentPlaceholder, text: $store.lendDraft.comment)
-              .textFieldStyle(.plain)
+          if let balanceText {
+            Text(balanceText)
+              .font(DimoFont.body(12))
+              .foregroundStyle(Theme.faint)
           }
-
-          Button {
-            store.saveLend()
-          } label: {
-            Text(saveTitle)
-              .font(DimoFont.body(16, weight: .semibold))
-              .foregroundStyle(Theme.onGreen)
-              .frame(maxWidth: .infinity)
-              .frame(height: 54)
-              .background(canSave ? Theme.green : Theme.disabled)
-              .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-          }
-          .buttonStyle(.plain)
-          .disabled(!canSave)
         }
+
+        lendField("Note (optional)") {
+          TextField("e.g. Dinner, cab fare", text: $store.lendDraft.comment)
+            .textFieldStyle(.plain)
+        }
+
+        Button {
+          store.saveLend()
+        } label: {
+          Text("Save")
+            .font(DimoFont.body(16, weight: .semibold))
+            .foregroundStyle(Theme.onGreen)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(canSave ? Theme.green : Theme.disabled)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSave)
       }
       .padding(.horizontal, 20)
       .padding(.vertical, 12)
-      .animation(.snappy(duration: 0.2), value: contactSearchOpen)
     }
     .presentationBackground(Theme.surface)
-    .onAppear {
-      ContactsLoader.shared.loadIfAuthorized()
-      refreshLendCaches()
-    }
-    .onChange(of: store.entities.revision) { _, _ in refreshLendCaches() }
-    .onChange(of: store.lendDraft.contactId) { _, _ in refreshSettlementLimit() }
-    .onChange(of: store.lendDraft.editingId) { _, _ in refreshSettlementLimit() }
-    .onChange(of: store.lendDraft.kind) { _, _ in refreshSettlementLimit() }
+    .onAppear { refreshContacts() }
+    .onChange(of: store.entities.revision) { _, _ in refreshContacts() }
     .overlay(alignment: .topTrailing) {
       if isEditing {
         Button { confirmDelete = true } label: {
@@ -212,102 +145,159 @@ struct AddLendSheet: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Delete entry")
         .padding(.top, 14)
         .padding(.trailing, 20)
       }
     }
-    .alert(deleteTitle, isPresented: $confirmDelete) {
+    .alert("Delete this entry?", isPresented: $confirmDelete) {
       Button("Delete", role: .destructive) {
-        guard let id = store.lendDraft.editingId else { return }
+        guard let id = draft.editingId else { return }
         store.deleteLend(id)
       }
       Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        isSharedContact
+          ? "This also removes it for \(draft.contactName)."
+          : "This can’t be undone."
+      )
     }
+  }
+
+  @ViewBuilder
+  private var contactNote: some View {
+    if isSharedContact {
+      Label("Shared with \(draft.contactName) — they see this entry too", systemImage: "person.2.fill")
+        .font(DimoFont.body(12))
+        .foregroundStyle(Theme.green)
+    } else if let invite = pendingDraftInvite {
+      Label(
+        "Saving invites \(invite.user.email ?? invite.user.name). This entry stays private until they accept.",
+        systemImage: "paperplane"
+      )
+      .font(DimoFont.body(12))
+      .foregroundStyle(Theme.muted)
+    } else if let contactId = draft.contactId, let sent = sharing.pendingInvite(contactId: contactId) {
+      Label(
+        "Invited \(sent.inviteeEmail ?? sent.contactName). This entry is shared once they accept.",
+        systemImage: "clock"
+      )
+      .font(DimoFont.body(12))
+      .foregroundStyle(Theme.muted)
+    }
+  }
+
+  /// An edited entry keeps the currency it was recorded in.
+  private var currencySymbol: String {
+    if let id = draft.editingId, let code = store.lends.first(where: { $0.id == id })?.currency {
+      return CurrencyMeta.symbol(code)
+    }
+    return Formatting.currencySymbol(store.currency)
+  }
+
+  /// "Priya owes you ₹100" / "You owe Priya ₹50", before this entry.
+  private var balanceText: String? {
+    guard let contactId = draft.contactId else { return nil }
+    let balance = LendSelectors.netBalance(for: contactId, in: store.lends, excludingLendId: draft.editingId)
+    guard abs(balance) > 0.0001 else { return nil }
+    let name = draft.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let amount = "\(currencySymbol)\(Self.amountText(abs(balance)))"
+    return balance > 0
+      ? "\(name.isEmpty ? "They" : name) owes you \(amount)"
+      : "You owe \(name.isEmpty ? "them" : name) \(amount)"
+  }
+
+  private static func amountText(_ amount: Double) -> String {
+    amount.rounded() == amount ? String(Int(amount)) : String(format: "%.2f", amount)
+  }
+
+  /// The invite saving will send, when the contact was picked as a Dimo account.
+  private var pendingDraftInvite: LendDraftInvite? {
+    guard let invite = draft.invite, invite.contactId == draft.contactId else { return nil }
+    return invite
+  }
+
+  private var isSharedContact: Bool {
+    draft.contactId.map { sharing.activeConnection(contactId: $0) != nil } ?? false
   }
 
   private var canSave: Bool {
-    let amount = Double(store.lendDraft.amount) ?? 0
-    return store.lendDraft.contactId != nil
-      && !store.lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && amount > 0
-      && (cachedSettlementLimit.map { amount <= $0 + 0.000_001 } ?? true)
+    let amount = Double(draft.amount) ?? 0
+    return !draft.contactName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && amount > 0
   }
 
-  private func refreshLendCaches() {
-    cachedRecentContacts = LendSelectors.recentContacts(store.lends)
-    refreshSettlementLimit()
+  /// A typed name that matches someone already tracked continues their balance.
+  private func editContactName(_ name: String) {
+    let key = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    store.lendDraft.contactName = name
+    store.lendDraft.invite = nil
+    store.lendDraft.contactId = key.isEmpty
+      ? nil
+      : knownContacts.first {
+        $0.contactName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == key
+      }?.contactId
   }
 
-  private func refreshSettlementLimit() {
-    guard let contactId = store.lendDraft.contactId else {
-      // No contact picked yet; a settlement cannot exceed a balance of zero.
-      cachedSettlementLimit = isSettlement ? 0 : nil
+  private func pickDimoUser(_ user: LendUser) {
+    if user.relation == "invitedYou" {
+      store.showToast("\(user.name) already invited you. Accept their invite in Lending first.")
       return
     }
-    cachedSettlementLimit = LendSelectors.settlementLimit(
-      for: kind,
-      contactId: contactId,
-      in: store.lends,
-      excludingLendId: store.lendDraft.editingId
-    )
-  }
-
-  /// Keeps a settlement from overshooting the balance it is closing.
-  private func clampToSettlementLimit(_ amountText: String) {
-    guard let limit = cachedSettlementLimit,
-          let amount = Double(amountText),
-          amount > limit
-    else { return }
-    store.lendDraft.amount = limit.rounded() == limit
-      ? String(Int(limit))
-      : String(format: "%.2f", limit)
-  }
-
-  /// Picks whether a fresh entry opens a balance in the user's favour or
-  /// against it. Same capsule pair as the Lending screen's section switcher.
-  private var directionSwitcher: some View {
-    HStack(spacing: 8) {
-      ForEach([LendKind.lent, .borrowed], id: \.self) { candidate in
-        let selected = kind == candidate
-        Button {
-          store.lendDraft.kind = candidate
-        } label: {
-          Text(candidate == .lent ? "I lent" : "I borrowed")
-            .font(DimoFont.body(15, weight: .semibold))
-            .foregroundStyle(selected ? Theme.canvas : Theme.muted)
-            .frame(maxWidth: .infinity)
-            .frame(height: 46)
-            .background(selected ? Theme.ink : Theme.canvas)
-            .clipShape(Capsule())
-            .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-      }
+    store.lendDraft.contactName = user.name
+    if let contactId = user.contactId {
+      // Already shared, or already invited for this contact.
+      store.lendDraft.contactId = contactId
+      store.lendDraft.invite = nil
+    } else {
+      let contactId = "contact_\(UUID().uuidString.lowercased())"
+      store.lendDraft.contactId = contactId
+      store.lendDraft.invite = LendDraftInvite(user: user, contactId: contactId)
     }
   }
 
-  /// Recent contacts from lend history, offered as one-tap picks until a
-  /// contact is chosen.
+  private func refreshContacts() {
+    // Shared people and invites are offered even before any entries.
+    var recent = LendSelectors.recentContacts(store.lends)
+    var extra: [LendContactSuggestion] = []
+    for connection in sharing.connections where connection.isActive {
+      extra.append(LendContactSuggestion(contactName: connection.contactName, contactId: connection.contactId))
+    }
+    for invite in sharing.outgoingInvites {
+      if let contactId = invite.contactId {
+        extra.append(LendContactSuggestion(contactName: invite.contactName, contactId: contactId))
+      }
+    }
+    for item in extra where !recent.contains(where: { $0.contactId == item.contactId }) {
+      recent.append(item)
+    }
+    recentContacts = recent
+    var known = LendSelectors.recentContacts(store.lends, limit: .max)
+    for item in extra where !known.contains(where: { $0.contactId == item.contactId }) {
+      known.append(item)
+    }
+    knownContacts = known
+  }
+
+  /// Recent people, offered as one-tap picks until someone is chosen.
   @ViewBuilder
   private var contactSuggestions: some View {
-    let suggestions = cachedRecentContacts
-    if !suggestions.isEmpty {
+    if !recentContacts.isEmpty {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 8) {
-          ForEach(suggestions) { suggestion in
+          ForEach(recentContacts) { suggestion in
             Button {
               store.lendDraft.contactName = suggestion.contactName
               store.lendDraft.contactId = suggestion.contactId
+              store.lendDraft.invite = nil
             } label: {
               HStack(spacing: 6) {
-                ContactAvatar(
-                  contact: LendContact(
-                    id: suggestion.contactId,
-                    name: suggestion.contactName,
-                    thumbnail: ContactsLoader.shared.thumbnail(contactId: suggestion.contactId)
-                  ),
-                  size: 22
+                AvatarView(
+                  name: suggestion.contactName,
+                  photoUrl: sharing.photoUrl(contactId: suggestion.contactId),
+                  size: 22,
+                  radius: 11,
+                  fontSize: 10
                 )
                 Text(suggestion.contactName)
                   .font(DimoFont.body(13, weight: .medium))
@@ -356,309 +346,167 @@ struct AddLendSheet: View {
   }
 }
 
-struct LendContact: Identifiable, Equatable {
-  let id: String
-  let name: String
-  var thumbnail: Data?
-}
+/// "I gave" / "I got" capsule pair.
+struct LendFlowSwitcher: View {
+  @Binding var flow: LendFlow
 
-/// Loads the address book with full Contacts access so contacts can be
-/// listed inline, including their photos. Photos are only ever read from the
-/// device address book at render time — they are never persisted or synced.
-@Observable
-final class ContactsLoader {
-  enum LoadState: Equatable {
-    case idle
-    case loading
-    case loaded
-    case denied
-  }
-
-  static let shared = ContactsLoader()
-
-  private(set) var state: LoadState = .idle
-  private(set) var contacts: [LendContact] = []
-  /// O(1) lookups by address-book identifier.
-  private var contactsById: [String: LendContact] = [:]
-  /// Decoded contact thumbnails keyed by address-book identifier.
-  private var thumbnailImages: [String: UIImage] = [:]
-
-  /// Thumbnail for a lend's contact, looked up strictly by identifier; nil
-  /// when the contact was removed from the address book.
-  func thumbnail(contactId: String?) -> Data? {
-    guard let contactId else { return nil }
-    if let data = contact(contactId: contactId)?.thumbnail { return data }
-    return loadThumbnailIfNeeded(contactId: contactId)
-  }
-
-  /// Pre-decoded thumbnail for list rows; avoids `UIImage(data:)` per body pass.
-  func thumbnailImage(contactId: String?) -> UIImage? {
-    guard let contactId, let data = thumbnail(contactId: contactId) else { return nil }
-    if let cached = thumbnailImages[contactId] { return cached }
-    guard let image = DecodedImageCache.image(from: data) else { return nil }
-    thumbnailImages[contactId] = image
-    return image
-  }
-
-  func contact(contactId: String?) -> LendContact? {
-    guard let contactId else { return nil }
-    return contactsById[contactId]
-  }
-
-  /// Fetches contacts only when access is already granted; never prompts.
-  func loadIfAuthorized() {
-    let status = CNContactStore.authorizationStatus(for: .contacts)
-    guard status != .denied, status != .restricted, status != .notDetermined else { return }
-    guard state == .idle else { return }
-    state = .loading
-    fetch(from: CNContactStore())
-  }
-
-  func load() {
-    guard state == .idle else { return }
-    switch CNContactStore.authorizationStatus(for: .contacts) {
-    case .denied, .restricted:
-      state = .denied
-    case .notDetermined:
-      state = .loading
-      let store = CNContactStore()
-      store.requestAccess(for: .contacts) { granted, _ in
-        DispatchQueue.main.async {
-          if granted {
-            self.fetch(from: store)
-          } else {
-            self.state = .denied
-          }
+  var body: some View {
+    HStack(spacing: 8) {
+      ForEach(LendFlow.allCases, id: \.self) { candidate in
+        let selected = flow == candidate
+        Button {
+          flow = candidate
+        } label: {
+          Text(candidate == .gave ? "I gave" : "I got")
+            .font(DimoFont.body(15, weight: .semibold))
+            .foregroundStyle(selected ? Theme.canvas : Theme.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(selected ? Theme.ink : Theme.canvas)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: selected ? 0 : 1))
+            .contentShape(Capsule())
         }
-      }
-    default:
-      state = .loading
-      fetch(from: CNContactStore())
-    }
-  }
-
-  private func fetch(from store: CNContactStore) {
-    DispatchQueue.global(qos: .userInitiated).async {
-      // Names only on the bulk pass — thumbnails decode on demand.
-      let keys: [CNKeyDescriptor] = [
-        CNContactFormatter.descriptorForRequiredKeys(for: .fullName),
-      ]
-      let request = CNContactFetchRequest(keysToFetch: keys)
-      request.sortOrder = .userDefault
-      var result: [LendContact] = []
-      try? store.enumerateContacts(with: request) { contact, _ in
-        let name = CNContactFormatter.string(from: contact, style: .fullName)
-          ?? [contact.givenName, contact.familyName].filter { !$0.isEmpty }.joined(separator: " ")
-        guard !name.isEmpty else { return }
-        result.append(
-          LendContact(id: contact.identifier, name: name, thumbnail: nil)
-        )
-      }
-      DispatchQueue.main.async {
-        let nextById = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
-        self.contactsById = nextById
-        self.thumbnailImages = self.thumbnailImages.filter { nextById[$0.key] != nil }
-        self.contacts = result
-        self.state = .loaded
+        .buttonStyle(.plain)
       }
     }
-  }
-
-  /// Loads a single contact thumbnail when a row first needs it.
-  private func loadThumbnailIfNeeded(contactId: String) -> Data? {
-    if let existing = contactsById[contactId]?.thumbnail { return existing }
-    let store = CNContactStore()
-    let keys: [CNKeyDescriptor] = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
-    guard let contact = try? store.unifiedContact(withIdentifier: contactId, keysToFetch: keys),
-          let data = contact.thumbnailImageData
-    else { return nil }
-    if var row = contactsById[contactId] {
-      row.thumbnail = data
-      contactsById[contactId] = row
-      if let index = contacts.firstIndex(where: { $0.id == contactId }) {
-        contacts[index] = row
-      }
-    }
-    return data
   }
 }
 
-/// Searchable single-select dropdown: the field doubles as the search box,
-/// and the list below filters as the user types.
-private struct ContactDropdown: View {
-  @Binding var selectedName: String
-  @Binding var selectedContactId: String?
-  @Binding var isSearching: Bool
-  private let loader = ContactsLoader.shared
-  @State private var text = ""
-  @FocusState private var searching: Bool
-
-  private var selectedContact: LendContact? {
-    loader.contact(contactId: selectedContactId)
+/// Short label for a Dimo user's relationship to you.
+func lendRelationLabel(_ user: LendUser) -> String {
+  switch user.relation {
+  case "connected": return "Shared"
+  case "invited": return "Invited"
+  case "invitedYou": return "Invited you"
+  default: return "On Dimo"
   }
+}
 
-  private var filtered: [LendContact] {
-    let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return loader.contacts }
-    return loader.contacts.filter { $0.name.localizedCaseInsensitiveContains(query) }
+/// Typed name that searches your people as you type and, from two letters,
+/// Dimo accounts by name or email. Picking a Dimo account makes saving invite
+/// them.
+private struct LendContactField: View {
+  var name: String
+  /// False once someone is picked, which hides the results.
+  var searching: Bool
+  var knownContacts: [LendContactSuggestion]
+  var sharing: LendingSharingStore
+  var onEdit: (String) -> Void
+  var onPickContact: (LendContactSuggestion) -> Void
+  var onPickDimoUser: (LendUser) -> Void
+
+  @State private var results: (query: String, users: [LendUser])?
+
+  private var query: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+  private var searchQuery: String? {
+    searching && sharing.isOnline && query.count >= 2 ? query : nil
+  }
+  private var dimoUsers: [LendUser]? {
+    guard let results, results.query == searchQuery else { return nil }
+    return results.users
+  }
+  private var matchingContacts: [LendContactSuggestion] {
+    guard searching, !query.isEmpty else { return [] }
+    // A Dimo result already stands for the contact it's shared or invited as.
+    let linked = Set((dimoUsers ?? []).compactMap(\.contactId))
+    return Array(
+      knownContacts
+        .filter { $0.contactName.localizedCaseInsensitiveContains(query) && !linked.contains($0.contactId) }
+        .prefix(5)
+    )
+  }
+  private var showsResults: Bool {
+    searching && !query.isEmpty && (!matchingContacts.isEmpty || dimoUsers != nil)
   }
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 10) {
-        if !searching, let contact = selectedContact {
-          ContactAvatar(contact: contact, size: 28)
-        } else {
-          Image(systemName: "magnifyingglass")
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(Theme.muted)
-        }
-        TextField(
-          selectedName.isEmpty ? "Search contacts" : selectedName,
-          text: $text
-        )
-        .font(DimoFont.body(15))
-        .foregroundStyle(Theme.ink)
-        .textFieldStyle(.plain)
-        .autocorrectionDisabled()
-        .focused($searching)
-        Button {
-          searching.toggle()
-        } label: {
-          Image(systemName: "chevron.down")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Theme.green)
-            .rotationEffect(.degrees(searching ? 180 : 0))
-            .frame(width: 32, height: 50)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(searching ? "Close contact list" : "Choose from contacts")
-      }
-      .padding(.leading, 14)
-      .padding(.trailing, 6)
+      TextField(
+        "Their name or Dimo email",
+        text: Binding(get: { name }, set: { onEdit($0) })
+      )
+      .font(DimoFont.body(15))
+      .foregroundStyle(Theme.ink)
+      .textFieldStyle(.plain)
+      .textInputAutocapitalization(.words)
+      .autocorrectionDisabled()
+      .padding(.horizontal, 14)
       .frame(height: 50)
 
-      if searching {
+      if showsResults {
         Divider().overlay(Theme.line)
-        dropdownBody
+        ForEach(matchingContacts) { contact in
+          resultRow(
+            name: contact.contactName,
+            detail: nil,
+            photoUrl: sharing.photoUrl(contactId: contact.contactId),
+            badge: sharing.activeConnection(contactId: contact.contactId) != nil ? "Shared" : "Your contact",
+            badgeTint: Theme.muted
+          ) { onPickContact(contact) }
+        }
+        ForEach(dimoUsers ?? [], id: \.userId) { user in
+          resultRow(
+            name: user.name,
+            detail: user.email,
+            photoUrl: user.photoUrl,
+            badge: lendRelationLabel(user),
+            badgeTint: Theme.green
+          ) { onPickDimoUser(user) }
+        }
+        if let dimoUsers, dimoUsers.isEmpty, matchingContacts.isEmpty {
+          Text("No one named “\(query)” yet. Saving adds them as a new person.")
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+        }
       }
     }
     .background(Theme.canvas)
     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
-    .animation(.snappy(duration: 0.2), value: searching)
-    .onAppear { text = selectedName }
-    .onChange(of: selectedName) { _, name in
-      // Selection can change from outside (suggestion chips); mirror it.
-      if !searching { text = name }
-    }
-    .onChange(of: searching) { _, focused in
-      isSearching = focused
-      if focused {
-        text = ""
-        loader.load()
-      } else {
-        // Closed without picking: revert to the current selection.
-        text = selectedName
-      }
+    .animation(.snappy(duration: 0.2), value: showsResults)
+    .task(id: searchQuery) {
+      guard let query = searchQuery else { return }
+      try? await Task.sleep(for: .milliseconds(250))
+      guard !Task.isCancelled, let users = try? await sharing.searchUsers(query) else { return }
+      results = (query, users)
     }
   }
 
-  @ViewBuilder
-  private var dropdownBody: some View {
-    switch loader.state {
-    case .idle, .loading:
-      ProgressView()
-        .frame(maxWidth: .infinity)
-        .frame(height: 72)
-    case .denied:
-      VStack(spacing: 10) {
-        Text("Contacts access is off. Allow access in Settings to pick a contact.")
-          .font(DimoFont.body(13))
-          .foregroundStyle(Theme.muted)
-          .multilineTextAlignment(.center)
-        Button("Open Settings") {
-          if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
+  private func resultRow(
+    name: String,
+    detail: String?,
+    photoUrl: String?,
+    badge: String,
+    badgeTint: Color,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 10) {
+        AvatarView(name: name, photoUrl: photoUrl, size: 32, radius: 10, fontSize: 13)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(name)
+            .font(DimoFont.body(15))
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+          if let detail {
+            Text(detail)
+              .font(DimoFont.body(12))
+              .foregroundStyle(Theme.muted)
+              .lineLimit(1)
           }
         }
-        .font(DimoFont.body(14, weight: .semibold))
-        .foregroundStyle(Theme.green)
+        Spacer(minLength: 0)
+        Text(badge)
+          .font(DimoFont.body(12, weight: .medium))
+          .foregroundStyle(badgeTint)
       }
-      .padding(14)
-      .frame(maxWidth: .infinity)
-    case .loaded:
-      if filtered.isEmpty {
-        Text(loader.contacts.isEmpty ? "No contacts found" : "No matches")
-          .font(DimoFont.body(13))
-          .foregroundStyle(Theme.muted)
-          .frame(maxWidth: .infinity)
-          .frame(height: 64)
-      } else {
-        ScrollView {
-          LazyVStack(spacing: 0) {
-            ForEach(filtered) { contact in
-              Button {
-                selectedName = contact.name
-                selectedContactId = contact.id
-                searching = false
-              } label: {
-                HStack(spacing: 10) {
-                  ContactAvatar(contact: contact, size: 32)
-                  Text(contact.name)
-                    .font(DimoFont.body(15))
-                    .foregroundStyle(Theme.ink)
-                    .lineLimit(1)
-                  Spacer(minLength: 0)
-                  if contact.id == selectedContact?.id {
-                    Image(systemName: "checkmark")
-                      .font(.system(size: 13, weight: .semibold))
-                      .foregroundStyle(Theme.green)
-                  }
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 48)
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        }
-        .frame(maxHeight: 240)
-        .scrollDismissesKeyboard(.never)
-      }
+      .padding(.horizontal, 14)
+      .frame(height: 54)
+      .contentShape(Rectangle())
     }
-  }
-}
-
-private struct ContactAvatar: View {
-  let contact: LendContact
-  let size: CGFloat
-
-  private var initials: String {
-    let parts = contact.name.split(separator: " ")
-    let letters = [parts.first, parts.count > 1 ? parts.last : nil]
-      .compactMap { $0?.first.map(String.init) }
-    return letters.joined().uppercased()
-  }
-
-  var body: some View {
-    Group {
-      if let image = ContactsLoader.shared.thumbnailImage(contactId: contact.id)
-        ?? contact.thumbnail.flatMap(DecodedImageCache.image(from:))
-      {
-        Image(uiImage: image)
-          .resizable()
-          .scaledToFill()
-      } else {
-        Text(initials)
-          .font(DimoFont.body(size * 0.38, weight: .semibold))
-          .foregroundStyle(Theme.green)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(Theme.greenSoft)
-      }
-    }
-    .frame(width: size, height: size)
-    .clipShape(Circle())
+    .buttonStyle(.plain)
   }
 }

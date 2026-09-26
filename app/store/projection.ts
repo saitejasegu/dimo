@@ -20,6 +20,7 @@ import {
 import {
   paymentMethodLabel,
   resolvePaymentMethodId,
+  toLendActor,
   toLendKind,
   type CategoryLimits,
   type EnterableCurrency,
@@ -320,6 +321,11 @@ export function projectEntities(
           occurredAt: item.occurredAt,
           comment: item.comment,
           kind: toLendKind(item.kind),
+          ...(item.currency ? { currency: item.currency } : {}),
+          ...(toLendActor(item.createdBy) ? { createdBy: toLendActor(item.createdBy) } : {}),
+          ...(toLendActor(item.lastEditedBy)
+            ? { lastEditedBy: toLendActor(item.lastEditedBy) }
+            : {}),
           time: formatTransactionTime(item.occurredAt),
           day: formatTransactionDay(item.occurredAt),
         }))

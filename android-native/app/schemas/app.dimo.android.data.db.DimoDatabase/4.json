@@ -1,0 +1,1654 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 4,
+    "identityHash": "a0b121f14493c0414c2bc4ce109003ea",
+    "entities": [
+      {
+        "tableName": "categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `name` TEXT NOT NULL, `emoji` TEXT, `monthlyBudgetMinor` INTEGER, `tint` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, `system` INTEGER NOT NULL, `archived` INTEGER NOT NULL DEFAULT 0, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emoji",
+            "columnName": "emoji",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "monthlyBudgetMinor",
+            "columnName": "monthlyBudgetMinor",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tint",
+            "columnName": "tint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "system",
+            "columnName": "system",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_categories_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_categories_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_categories_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_categories_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "paymentMethods",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL, `detail` TEXT NOT NULL, `archived` INTEGER NOT NULL, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detail",
+            "columnName": "detail",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_paymentMethods_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_paymentMethods_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_paymentMethods_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_paymentMethods_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "transactions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `name` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `occurredAt` INTEGER NOT NULL, `categoryId` TEXT NOT NULL, `paymentMethodId` TEXT, `currency` TEXT, `sourceCurrency` TEXT, `sourceAmountMinor` INTEGER, `exchangeRate` REAL, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amountMinor",
+            "columnName": "amountMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "occurredAt",
+            "columnName": "occurredAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethodId",
+            "columnName": "paymentMethodId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceCurrency",
+            "columnName": "sourceCurrency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceAmountMinor",
+            "columnName": "sourceAmountMinor",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "exchangeRate",
+            "columnName": "exchangeRate",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_transactions_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transactions_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_transactions_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_transactions_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "recurring",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `name` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `categoryId` TEXT NOT NULL, `paymentMethodId` TEXT, `frequency` TEXT NOT NULL, `anchorDate` TEXT NOT NULL, `paused` INTEGER NOT NULL, `currency` TEXT, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "amountMinor",
+            "columnName": "amountMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethodId",
+            "columnName": "paymentMethodId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "frequency",
+            "columnName": "frequency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorDate",
+            "columnName": "anchorDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paused",
+            "columnName": "paused",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recurring_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recurring_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_recurring_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_recurring_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lends",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `contactName` TEXT NOT NULL, `contactId` TEXT, `amountMinor` INTEGER NOT NULL, `occurredAt` INTEGER NOT NULL, `comment` TEXT NOT NULL, `kind` TEXT, `currency` TEXT, `connectionId` TEXT, `createdBy` TEXT, `lastEditedBy` TEXT, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contactName",
+            "columnName": "contactName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contactId",
+            "columnName": "contactId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "amountMinor",
+            "columnName": "amountMinor",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "occurredAt",
+            "columnName": "occurredAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "comment",
+            "columnName": "comment",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "connectionId",
+            "columnName": "connectionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdBy",
+            "columnName": "createdBy",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastEditedBy",
+            "columnName": "lastEditedBy",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_lends_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lends_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_lends_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_lends_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `profileName` TEXT NOT NULL, `profileEmail` TEXT NOT NULL, `currency` TEXT NOT NULL, `weekStart` TEXT NOT NULL, `theme` TEXT, `navGlassOpacity` INTEGER, `defaultView` TEXT NOT NULL, `defaultStatsRange` TEXT, `defaultPaymentMethodId` TEXT NOT NULL, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, `notif_bills` INTEGER NOT NULL, `notif_budget` INTEGER NOT NULL, `notif_weekly` INTEGER NOT NULL, `notif_large` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileName",
+            "columnName": "profileName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileEmail",
+            "columnName": "profileEmail",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weekStart",
+            "columnName": "weekStart",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "theme",
+            "columnName": "theme",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "navGlassOpacity",
+            "columnName": "navGlassOpacity",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "defaultView",
+            "columnName": "defaultView",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultStatsRange",
+            "columnName": "defaultStatsRange",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "defaultPaymentMethodId",
+            "columnName": "defaultPaymentMethodId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifications.bills",
+            "columnName": "notif_bills",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifications.budget",
+            "columnName": "notif_budget",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifications.weekly",
+            "columnName": "notif_weekly",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notifications.large",
+            "columnName": "notif_large",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_preferences_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_preferences_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_preferences_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_preferences_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "outbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `operationId` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityType` TEXT NOT NULL, `entityId` TEXT NOT NULL, `status` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `lastError` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_outbox_operationId",
+            "unique": true,
+            "columnNames": [
+              "operationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_outbox_operationId` ON `${TABLE_NAME}` (`operationId`)"
+          },
+          {
+            "name": "index_outbox_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_outbox_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_outbox_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_outbox_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "syncMeta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`workspaceId` TEXT NOT NULL, `lastPulledRevision` INTEGER NOT NULL, `lastSyncedAt` INTEGER, `error` TEXT, `syncing` INTEGER NOT NULL, `pulledRevisions` TEXT, PRIMARY KEY(`workspaceId`))",
+        "fields": [
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPulledRevision",
+            "columnName": "lastPulledRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "lastSyncedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncing",
+            "columnName": "syncing",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pulledRevisions",
+            "columnName": "pulledRevisions",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "workspaceId"
+          ]
+        }
+      },
+      {
+        "tableName": "deviceMeta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `clockTimestamp` INTEGER NOT NULL, `clockCounter` INTEGER NOT NULL, `bootstrapVersion` INTEGER NOT NULL, `lastPaymentMethodId` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "deviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clockTimestamp",
+            "columnName": "clockTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clockCounter",
+            "columnName": "clockCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bootstrapVersion",
+            "columnName": "bootstrapVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPaymentMethodId",
+            "columnName": "lastPaymentMethodId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "syncedEmailMessages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `workspaceId` TEXT NOT NULL, `entityId` TEXT NOT NULL, `deleted` INTEGER NOT NULL, `serverRevision` INTEGER NOT NULL, `accountId` TEXT NOT NULL, `accountEmail` TEXT NOT NULL, `gmailMessageId` TEXT NOT NULL, `threadId` TEXT NOT NULL, `rfcMessageId` TEXT, `senderName` TEXT, `senderAddress` TEXT NOT NULL, `subject` TEXT NOT NULL, `snippet` TEXT NOT NULL, `internalDate` INTEGER NOT NULL, `normalizedBodyText` TEXT, `analyzerType` TEXT, `modelVersion` TEXT, `promptVersion` INTEGER, `classification` TEXT, `merchant` TEXT, `amount` TEXT, `currency` TEXT, `occurredAt` INTEGER, `categoryId` TEXT, `paymentMethodId` TEXT, `paymentLastFour` TEXT, `reference` TEXT, `state` TEXT NOT NULL, `purchaseGroupId` TEXT, `linkedTransactionId` TEXT, `analyzedAt` INTEGER, `reviewedAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `versionTimestamp` INTEGER NOT NULL, `versionCounter` INTEGER NOT NULL, `versionDeviceId` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workspaceId",
+            "columnName": "workspaceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entityId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverRevision",
+            "columnName": "serverRevision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountEmail",
+            "columnName": "accountEmail",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gmailMessageId",
+            "columnName": "gmailMessageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "threadId",
+            "columnName": "threadId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rfcMessageId",
+            "columnName": "rfcMessageId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "senderName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderAddress",
+            "columnName": "senderAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subject",
+            "columnName": "subject",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snippet",
+            "columnName": "snippet",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "internalDate",
+            "columnName": "internalDate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedBodyText",
+            "columnName": "normalizedBodyText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analyzerType",
+            "columnName": "analyzerType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "modelVersion",
+            "columnName": "modelVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "promptVersion",
+            "columnName": "promptVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "classification",
+            "columnName": "classification",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "merchant",
+            "columnName": "merchant",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "amount",
+            "columnName": "amount",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "occurredAt",
+            "columnName": "occurredAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "paymentMethodId",
+            "columnName": "paymentMethodId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "paymentLastFour",
+            "columnName": "paymentLastFour",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reference",
+            "columnName": "reference",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purchaseGroupId",
+            "columnName": "purchaseGroupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "linkedTransactionId",
+            "columnName": "linkedTransactionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analyzedAt",
+            "columnName": "analyzedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "reviewedAt",
+            "columnName": "reviewedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.timestamp",
+            "columnName": "versionTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.counter",
+            "columnName": "versionCounter",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "version.deviceId",
+            "columnName": "versionDeviceId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_syncedEmailMessages_workspaceId_entityId",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "entityId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_syncedEmailMessages_workspaceId_entityId` ON `${TABLE_NAME}` (`workspaceId`, `entityId`)"
+          },
+          {
+            "name": "index_syncedEmailMessages_workspaceId_serverRevision",
+            "unique": false,
+            "columnNames": [
+              "workspaceId",
+              "serverRevision"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_syncedEmailMessages_workspaceId_serverRevision` ON `${TABLE_NAME}` (`workspaceId`, `serverRevision`)"
+          }
+        ]
+      },
+      {
+        "tableName": "emailAccounts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `emailAddress` TEXT NOT NULL, `historyId` TEXT, `backfillPageToken` TEXT, `backfillCompletedAt` INTEGER, `lastAttemptAt` INTEGER, `lastSuccessfulSyncAt` INTEGER, `syncState` TEXT NOT NULL, `lastError` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emailAddress",
+            "columnName": "emailAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "historyId",
+            "columnName": "historyId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backfillPageToken",
+            "columnName": "backfillPageToken",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "backfillCompletedAt",
+            "columnName": "backfillCompletedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAttemptAt",
+            "columnName": "lastAttemptAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSuccessfulSyncAt",
+            "columnName": "lastSuccessfulSyncAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "syncState",
+            "columnName": "syncState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_emailAccounts_emailAddress",
+            "unique": false,
+            "columnNames": [
+              "emailAddress"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_emailAccounts_emailAddress` ON `${TABLE_NAME}` (`emailAddress`)"
+          }
+        ]
+      },
+      {
+        "tableName": "emailMessages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `accountId` TEXT NOT NULL, `gmailMessageId` TEXT NOT NULL, `threadId` TEXT NOT NULL, `rfcMessageId` TEXT, `senderName` TEXT, `senderAddress` TEXT NOT NULL, `subject` TEXT NOT NULL, `snippet` TEXT NOT NULL, `internalDate` INTEGER NOT NULL, `normalizedBodyText` TEXT, `analysisProviderOverride` TEXT, `analyzerType` TEXT, `modelVersion` TEXT, `promptVersion` INTEGER, `classification` TEXT, `merchant` TEXT, `amount` TEXT, `currency` TEXT, `occurredAt` INTEGER, `categoryId` TEXT, `paymentMethodId` TEXT, `paymentLastFour` TEXT, `reference` TEXT, `state` TEXT NOT NULL, `purchaseGroupId` TEXT, `linkedTransactionId` TEXT, `analyzedAt` INTEGER, `reviewedAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gmailMessageId",
+            "columnName": "gmailMessageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "threadId",
+            "columnName": "threadId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rfcMessageId",
+            "columnName": "rfcMessageId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderName",
+            "columnName": "senderName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "senderAddress",
+            "columnName": "senderAddress",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "subject",
+            "columnName": "subject",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snippet",
+            "columnName": "snippet",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "internalDate",
+            "columnName": "internalDate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "normalizedBodyText",
+            "columnName": "normalizedBodyText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analysisProviderOverride",
+            "columnName": "analysisProviderOverride",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analyzerType",
+            "columnName": "analyzerType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "modelVersion",
+            "columnName": "modelVersion",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "promptVersion",
+            "columnName": "promptVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "classification",
+            "columnName": "classification",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "merchant",
+            "columnName": "merchant",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "amount",
+            "columnName": "amount",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "occurredAt",
+            "columnName": "occurredAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "paymentMethodId",
+            "columnName": "paymentMethodId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "paymentLastFour",
+            "columnName": "paymentLastFour",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "reference",
+            "columnName": "reference",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "purchaseGroupId",
+            "columnName": "purchaseGroupId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "linkedTransactionId",
+            "columnName": "linkedTransactionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "analyzedAt",
+            "columnName": "analyzedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "reviewedAt",
+            "columnName": "reviewedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_emailMessages_accountId",
+            "unique": false,
+            "columnNames": [
+              "accountId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_emailMessages_accountId` ON `${TABLE_NAME}` (`accountId`)"
+          },
+          {
+            "name": "index_emailMessages_state_internalDate",
+            "unique": false,
+            "columnNames": [
+              "state",
+              "internalDate"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_emailMessages_state_internalDate` ON `${TABLE_NAME}` (`state`, `internalDate`)"
+          },
+          {
+            "name": "index_emailMessages_linkedTransactionId",
+            "unique": false,
+            "columnNames": [
+              "linkedTransactionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_emailMessages_linkedTransactionId` ON `${TABLE_NAME}` (`linkedTransactionId`)"
+          },
+          {
+            "name": "index_emailMessages_purchaseGroupId",
+            "unique": false,
+            "columnNames": [
+              "purchaseGroupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_emailMessages_purchaseGroupId` ON `${TABLE_NAME}` (`purchaseGroupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "emailAnalysisSettings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `selectedProvider` TEXT, `openRouterAccessMode` TEXT, `openRouterModelId` TEXT, `lastFreeOpenRouterModelId` TEXT, `lastBYOKOpenRouterModelId` TEXT, `openRouterPrivacyMode` TEXT NOT NULL, `nonZDRConsentVersion` INTEGER, `lastFreeOpenRouterPrivacyMode` TEXT, `lastFreeNonZDRConsentVersion` INTEGER, `lastBYOKOpenRouterPrivacyMode` TEXT, `lastBYOKNonZDRConsentVersion` INTEGER, `syncWindow` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "selectedProvider",
+            "columnName": "selectedProvider",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "openRouterAccessMode",
+            "columnName": "openRouterAccessMode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "openRouterModelId",
+            "columnName": "openRouterModelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastFreeOpenRouterModelId",
+            "columnName": "lastFreeOpenRouterModelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastBYOKOpenRouterModelId",
+            "columnName": "lastBYOKOpenRouterModelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "openRouterPrivacyMode",
+            "columnName": "openRouterPrivacyMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nonZDRConsentVersion",
+            "columnName": "nonZDRConsentVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastFreeOpenRouterPrivacyMode",
+            "columnName": "lastFreeOpenRouterPrivacyMode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastFreeNonZDRConsentVersion",
+            "columnName": "lastFreeNonZDRConsentVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastBYOKOpenRouterPrivacyMode",
+            "columnName": "lastBYOKOpenRouterPrivacyMode",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastBYOKNonZDRConsentVersion",
+            "columnName": "lastBYOKNonZDRConsentVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "syncWindow",
+            "columnName": "syncWindow",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "emailAnalysisRetry",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `attempt` INTEGER NOT NULL, `notBefore` INTEGER, `reason` TEXT, `lastHttpStatus` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempt",
+            "columnName": "attempt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notBefore",
+            "columnName": "notBefore",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastHttpStatus",
+            "columnName": "lastHttpStatus",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a0b121f14493c0414c2bc4ce109003ea')"
+    ]
+  }
+}

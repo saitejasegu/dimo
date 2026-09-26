@@ -225,6 +225,19 @@ enum class LendKind(val wire: String) {
   }
 }
 
+/** Who created or last edited a shared lending entry, relative to the owner of this copy. */
+enum class LendActor(val wire: String) {
+  ME("me"),
+  CONTACT("contact");
+
+  companion object {
+    fun fromWire(value: String?): LendActor? = entries.firstOrNull { it.wire == value }
+  }
+}
+
+/** Prefix of the contactId the server assigns to a ledger shared with another Dimo account. */
+const val SHARED_LEND_CONTACT_PREFIX = "dimo:"
+
 data class LendEntity(
   val id: String,
   val contactName: String,
@@ -238,6 +251,12 @@ data class LendEntity(
   val comment: String,
   /** Optional so rows saved before repayments existed still decode; null means lent. */
   val kind: LendKind?,
+  /** Currency the amount was recorded in. Absent on rows saved before sharing. */
+  val currency: String? = null,
+  /** Server-assigned sharing metadata; set on copies of a shared entry. */
+  val connectionId: String? = null,
+  val createdBy: LendActor? = null,
+  val lastEditedBy: LendActor? = null,
 )
 
 data class PreferencesEntity(
@@ -423,7 +442,14 @@ data class Lend(
   val amountMinor: Long,
   val occurredAt: Long,
   val kind: LendKind,
+  /** Currency the amount was recorded in; null means the display currency. */
+  val currency: String? = null,
+  val createdBy: LendActor? = null,
+  val lastEditedBy: LendActor? = null,
 ) {
+  /** Recorded in a ledger shared with another Dimo account. */
+  val isShared: Boolean get() = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)
+
   /**
    * Positive for money that left the user's pocket (lent out, or paid back to
    * someone they borrowed from), negative for money that came in.

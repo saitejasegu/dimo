@@ -4,7 +4,7 @@ import { CURRENCY_META } from "@/features/currency/rates";
  * Symbol for any currency (account default or a foreign entry currency). Falls
  * back to the currency code itself for anything outside the enterable set.
  */
-function symbolFor(currency: string): string {
+export function symbolFor(currency: string): string {
   return CURRENCY_META[currency as keyof typeof CURRENCY_META]?.symbol ?? currency;
 }
 

@@ -1,6 +1,10 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { lendKindValidator, versionValidator } from "./values";
+import {
+  lendActorValidator,
+  lendKindValidator,
+  versionValidator,
+} from "./values";
 
 const syncMeta = {
   // Optional only so pre-auth rows can remain orphaned during rollout. All
@@ -100,6 +104,14 @@ export default defineSchema({
     occurredAt: v.number(),
     comment: v.string(),
     kind: v.optional(lendKindValidator),
+    /** Currency the amount was recorded in. Optional for pre-sharing rows. */
+    currency: v.optional(v.string()),
+    /** Set on this owner's copy of an entry shared through a connection.
+     * Kept after the connection is revoked so history stays labelled. */
+    connectionId: v.optional(v.id("lendConnections")),
+    /** Relative to this row's owner, for shared entries only. */
+    createdBy: v.optional(lendActorValidator),
+    lastEditedBy: v.optional(lendActorValidator),
   })
     .index("by_owner_workspace_entity", ["ownerId", "workspaceId", "entityId"])
     .index("by_owner_workspace_revision", ["ownerId", "workspaceId", "revision"])
@@ -108,7 +120,71 @@ export default defineSchema({
       "workspaceId",
       "occurredAt",
     ])
+    .index("by_owner_workspace_contactId_deleted", [
+      "ownerId",
+      "workspaceId",
+      "contactId",
+      "deleted",
+    ])
+    .index("by_owner_workspace_connectionId", [
+      "ownerId",
+      "workspaceId",
+      "connectionId",
+    ])
     .index("by_deleted", ["deleted"]),
+
+  /** Two accounts sharing one lending ledger. `memberA` created the invite. */
+  lendConnections: defineTable({
+    memberA: v.string(),
+    memberB: v.string(),
+    /** What each member calls the other; used as the contact name on their copies. */
+    contactNameForA: v.string(),
+    contactNameForB: v.string(),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_memberA_and_memberB", ["memberA", "memberB"])
+    .index("by_memberB_and_memberA", ["memberB", "memberA"]),
+
+  /** A request to share a lending ledger with the account that verified an
+   * email. Only the invitee may accept or decline it. */
+  lendInvites: defineTable({
+    inviterId: v.string(),
+    inviterName: v.string(),
+    inviteeId: v.string(),
+    /** Inviter's local contact whose history is shared on accept. */
+    contactId: v.optional(v.string()),
+    contactName: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("accepted"),
+      v.literal("declined"),
+      v.literal("revoked"),
+    ),
+    connectionId: v.optional(v.id("lendConnections")),
+    /** Set when the invite turns a stopped connection back on instead of
+     * creating a new one. */
+    reconnectId: v.optional(v.id("lendConnections")),
+  })
+    .index("by_inviterId_and_status", ["inviterId", "status"])
+    .index("by_inviteeId_and_status", ["inviteeId", "status"]),
+
+  /** Authoritative copy of a shared entry. `kindForA` is the direction from
+   * memberA's point of view; memberB's copy carries the mirrored kind. */
+  sharedLends: defineTable({
+    connectionId: v.id("lendConnections"),
+    entityId: v.string(),
+    version: versionValidator,
+    deleted: v.boolean(),
+    amountMinor: v.number(),
+    currency: v.optional(v.string()),
+    occurredAt: v.number(),
+    comment: v.string(),
+    kindForA: lendKindValidator,
+    authorId: v.string(),
+    lastEditorId: v.string(),
+  }).index("by_connectionId_and_entityId", ["connectionId", "entityId"]),
 
   emailMessages: defineTable({
     ...syncMeta,
@@ -207,7 +283,14 @@ export default defineSchema({
     name: v.optional(v.string()),
     /** Email for the account owner. Optional so existing rows keep validating. */
     email: v.optional(v.string()),
-  }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
+    /** Sign-in provider's profile photo (WorkOS-hosted), shown to people
+     * the owner shares lending with. */
+    photoUrl: v.optional(v.string()),
+  })
+    .index("by_owner_and_workspace", ["ownerId", "workspaceId"])
+    // Finding people to share a lending ledger with.
+    .index("by_email", ["email"])
+    .searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId"] }),
 
   // Typed per-(date, currency) rates. Base is stored as rate 1.
   exchangeRateEntries: defineTable({
