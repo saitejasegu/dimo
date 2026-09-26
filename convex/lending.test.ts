@@ -8,13 +8,12 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const pushLends = makeFunctionReference<"mutation">("syncTyped:pushLends");
 const pullLends = makeFunctionReference<"query">("syncTyped:pullLends");
 const clearWorkspace = makeFunctionReference<"mutation">("syncTyped:clearWorkspace");
-const createLendInvite = makeFunctionReference<"mutation">("lending:createLendInvite");
+const findLendUser = makeFunctionReference<"query">("lending:findLendUser");
+const sendLendInvite = makeFunctionReference<"mutation">("lending:sendLendInvite");
 const cancelLendInvite = makeFunctionReference<"mutation">("lending:cancelLendInvite");
-const previewLendInvite = makeFunctionReference<"query">("lending:previewLendInvite");
 const acceptLendInvite = makeFunctionReference<"mutation">("lending:acceptLendInvite");
 const listLendConnections = makeFunctionReference<"query">("lending:listLendConnections");
 const revokeLendConnection = makeFunctionReference<"mutation">("lending:revokeLendConnection");
-const inviteByEmail = makeFunctionReference<"mutation">("lending:inviteLendContactByEmail");
 const listIncoming = makeFunctionReference<"query">("lending:listIncomingLendInvites");
 const listOutgoing = makeFunctionReference<"query">("lending:listOutgoingLendInvites");
 const declineLendInvite = makeFunctionReference<"mutation">("lending:declineLendInvite");
@@ -78,7 +77,45 @@ function setup() {
   };
 }
 
-type Client = ReturnType<typeof setup>["alice"];
+type Env = ReturnType<typeof setup>;
+type Client = Env["alice"];
+
+/** Stands in for `refreshVerifiedEmail`, which reads the address from WorkOS. */
+async function verify(env: Env, identity: { tokenIdentifier: string }, email: string) {
+  await env.t.run(async (ctx) => {
+    await ctx.db.insert("accountEmails", {
+      ownerId: identity.tokenIdentifier,
+      email,
+      verifiedAt: Date.now(),
+    });
+  });
+}
+
+async function findUser(client: Client, email: string) {
+  return (await client.query(findLendUser, { email })) as {
+    userId: string;
+    name: string;
+    email: string;
+    relation: "none" | "self" | "connected" | "invited" | "invitedYou";
+    contactId?: string;
+  } | null;
+}
+
+/** `from` finds `toEmail` and invites them; returns the invite id. */
+async function invite(
+  from: Client,
+  toEmail: string,
+  fields: { contactName?: string; contactId?: string } = {},
+) {
+  const user = await findUser(from, toEmail);
+  if (!user) throw new Error(`No user for ${toEmail}`);
+  const { inviteId } = await from.mutation(sendLendInvite, {
+    userId: user.userId,
+    contactName: fields.contactName ?? "Bobby",
+    ...(fields.contactId ? { contactId: fields.contactId } : {}),
+  });
+  return inviteId as string;
+}
 
 async function pull(client: Client): Promise<PulledLend[]> {
   const page = await client.query(pullLends, {
@@ -95,19 +132,19 @@ async function byId(client: Client, entityId: string) {
 
 /** Alice invites Bob and Bob accepts; returns the shared contact id. */
 async function connect(
-  env: ReturnType<typeof setup>,
+  env: Env,
   options: {
     inviterContactId?: string;
     accepterContactId?: string;
     history?: "both" | "inviter" | "accepter";
   } = {},
 ) {
-  const { code } = await env.alice.mutation(createLendInvite, {
-    contactName: "Bobby",
-    ...(options.inviterContactId ? { contactId: options.inviterContactId } : {}),
+  await verify(env, BOB, "bob@example.com");
+  const inviteId = await invite(env.alice, "bob@example.com", {
+    contactId: options.inviterContactId,
   });
   const accepted = await env.bob.mutation(acceptLendInvite, {
-    code,
+    inviteId,
     history: options.history ?? "both",
     ...(options.accepterContactId ? { contactId: options.accepterContactId } : {}),
   });
@@ -365,40 +402,112 @@ describe("collaborative lending", () => {
     expect(bob.every((lend) => lend.contactId === contactId && lend.kind === "borrowed")).toBe(true);
   });
 
-  it("validates invites", async () => {
+  it("finds accounts only by their exact verified email", async () => {
     const env = setup();
-    const { code } = await env.alice.mutation(createLendInvite, { contactName: "Bobby" });
-    expect(code).toMatch(/^[A-Z2-9]{10}$/);
-
-    await expect(
-      env.alice.mutation(acceptLendInvite, { code, history: "both" }),
-    ).rejects.toThrow("your own invite");
-    expect(await env.bob.query(previewLendInvite, { code: code.toLowerCase() })).toMatchObject({
-      inviterName: "Alice",
-      status: "pending",
-      isOwnInvite: false,
+    await verify(env, ALICE, "alice@example.com");
+    await verify(env, BOB, "bob@example.com");
+    expect(await findUser(env.alice, "  BOB@example.com ")).toMatchObject({
+      email: "bob@example.com",
+      name: "bob",
+      relation: "none",
     });
+    expect(await findUser(env.alice, "bob@example")).toBeNull();
+    expect(await findUser(env.alice, "nobody@example.com")).toBeNull();
+    expect((await findUser(env.alice, "alice@example.com"))?.relation).toBe("self");
+  });
 
-    await env.bob.mutation(acceptLendInvite, { code, history: "both" });
+  it("keeps entries private until the invite is accepted", async () => {
+    const env = setup();
+    await env.alice.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [lendOp("alice-old", { contactId: "cn-bob", timestamp: 10 })],
+    });
+    await verify(env, BOB, "bob@example.com");
+    const inviteId = await invite(env.alice, "bob@example.com", { contactId: "cn-bob" });
+    await env.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect(await byId(env.alice, "alice-old")).toMatchObject({ contactId: "cn-bob" });
+    expect(await pull(env.bob)).toEqual([]);
+    expect(await env.alice.query(listOutgoing, {})).toMatchObject([
+      { inviteId, contactId: "cn-bob", contactName: "Bobby", inviteeEmail: "bob@example.com" },
+    ]);
+    expect(await env.bob.query(listIncoming, {})).toMatchObject([
+      { inviteId, inviterName: "Alice" },
+    ]);
+    expect(await findUser(env.alice, "bob@example.com")).toMatchObject({
+      relation: "invited",
+      contactId: "cn-bob",
+    });
+  });
+
+  it("only lets the invitee accept, once", async () => {
+    const env = setup();
+    await verify(env, ALICE, "alice@example.com");
+    await verify(env, BOB, "bob@example.com");
+    const inviteId = await invite(env.alice, "bob@example.com");
+
     await expect(
-      env.carol.mutation(acceptLendInvite, { code, history: "both" }),
+      env.alice.mutation(acceptLendInvite, { inviteId, history: "both" }),
+    ).rejects.toThrow("not found");
+    await expect(
+      env.carol.mutation(acceptLendInvite, { inviteId, history: "both" }),
+    ).rejects.toThrow("not found");
+
+    const { contactId } = await env.bob.mutation(acceptLendInvite, { inviteId, history: "both" });
+    await expect(
+      env.bob.mutation(acceptLendInvite, { inviteId, history: "both" }),
     ).rejects.toThrow("no longer valid");
+    expect(await env.bob.query(listIncoming, {})).toEqual([]);
+    expect(await env.alice.query(listOutgoing, {})).toEqual([]);
+    expect(await findUser(env.alice, "bob@example.com")).toMatchObject({
+      relation: "connected",
+      contactId,
+    });
+    await expect(invite(env.bob, "alice@example.com")).rejects.toThrow("already share a ledger");
+  });
 
-    const second = await env.alice.mutation(createLendInvite, { contactName: "Bob again" });
-    await expect(
-      env.bob.mutation(acceptLendInvite, { code: second.code, history: "both" }),
-    ).rejects.toThrow("already share a ledger");
+  it("rejects inviting yourself or someone who already invited you", async () => {
+    const env = setup();
+    await verify(env, ALICE, "alice@example.com");
+    await verify(env, BOB, "bob@example.com");
+    await expect(invite(env.alice, "alice@example.com")).rejects.toThrow("invite yourself");
 
-    const cancelled = await env.alice.mutation(createLendInvite, { contactName: "Carol" });
-    await env.alice.mutation(cancelLendInvite, { code: cancelled.code });
+    await invite(env.alice, "bob@example.com");
+    expect((await findUser(env.bob, "alice@example.com"))?.relation).toBe("invitedYou");
+    await expect(invite(env.bob, "alice@example.com")).rejects.toThrow("already invited you");
+  });
+
+  it("replaces an earlier invite to the same person", async () => {
+    const env = setup();
+    await verify(env, BOB, "bob@example.com");
+    const first = await invite(env.alice, "bob@example.com", { contactName: "Bob" });
+    const second = await invite(env.alice, "bob@example.com", { contactName: "Bobby" });
+    expect(await env.bob.query(listIncoming, {})).toMatchObject([{ inviteId: second }]);
     await expect(
-      env.carol.mutation(acceptLendInvite, { code: cancelled.code, history: "both" }),
+      env.bob.mutation(acceptLendInvite, { inviteId: first, history: "both" }),
     ).rejects.toThrow("no longer valid");
+  });
 
-    const expiring = await env.alice.mutation(createLendInvite, { contactName: "Carol" });
-    vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+  it("lets the inviter cancel and the invitee decline", async () => {
+    const env = setup();
+    await verify(env, BOB, "bob@example.com");
+    await verify(env, CAROL, "carol@example.com");
+    const toBob = await invite(env.alice, "bob@example.com");
+    const toCarol = await invite(env.alice, "carol@example.com", { contactName: "Carol" });
+
+    await expect(env.bob.mutation(cancelLendInvite, { inviteId: toBob })).rejects.toThrow(
+      "not found",
+    );
+    await env.alice.mutation(cancelLendInvite, { inviteId: toBob });
+    expect(await env.bob.query(listIncoming, {})).toEqual([]);
+
+    await expect(env.bob.mutation(declineLendInvite, { inviteId: toCarol })).rejects.toThrow(
+      "not found",
+    );
+    await env.carol.mutation(declineLendInvite, { inviteId: toCarol });
+    expect(await env.alice.query(listOutgoing, {})).toEqual([]);
     await expect(
-      env.carol.mutation(acceptLendInvite, { code: expiring.code, history: "both" }),
+      env.carol.mutation(acceptLendInvite, { inviteId: toCarol, history: "both" }),
     ).rejects.toThrow("no longer valid");
   });
 
@@ -491,10 +600,9 @@ describe("collaborative lending", () => {
     expect((await env.bob.query(listLendConnections, {}))[0].status).toBe("revoked");
   });
 
-  describe("email invites", () => {
+  describe("verified email", () => {
     const emails: Record<string, { email: string; email_verified: boolean }> = {
       user_alice: { email: "Alice@Example.com", email_verified: true },
-      user_bob: { email: "bob@example.com", email_verified: true },
       user_carol: { email: "carol@example.com", email_verified: false },
     };
 
@@ -524,7 +632,7 @@ describe("collaborative lending", () => {
       });
     });
 
-    it("only records verified addresses", async () => {
+    it("only makes verified addresses findable", async () => {
       const env = setup();
       expect(await env.alice.action(refreshVerifiedEmail, {})).toEqual({
         available: true,
@@ -534,61 +642,8 @@ describe("collaborative lending", () => {
         available: true,
         email: null,
       });
-    });
-
-    it("delivers an invite to the verified account and only it may accept", async () => {
-      const env = setup();
-      await env.alice.action(refreshVerifiedEmail, {});
-      const { code } = await env.bob.mutation(inviteByEmail, {
-        email: "  ALICE@example.com ",
-        contactName: "Alice",
-      });
-
-      expect(await env.alice.query(listIncoming, {})).toMatchObject([
-        { code, inviterName: "Bob" },
-      ]);
-      expect(await env.bob.query(listOutgoing, {})).toMatchObject([
-        { code, contactName: "Alice" },
-      ]);
-      await expect(
-        env.carol.mutation(acceptLendInvite, { code, history: "both" }),
-      ).rejects.toThrow("sent to someone else");
-
-      await env.alice.mutation(acceptLendInvite, { code, history: "both" });
-      expect(await env.alice.query(listIncoming, {})).toEqual([]);
-      expect(await env.bob.query(listOutgoing, {})).toEqual([]);
-      expect(await env.bob.query(listLendConnections, {})).toMatchObject([
-        { contactName: "Alice", status: "active" },
-      ]);
-    });
-
-    it("answers the same for unknown addresses and lets the code be shared", async () => {
-      const env = setup();
-      const unknown = await env.bob.mutation(inviteByEmail, {
-        email: "nobody@example.com",
-        contactName: "Nobody",
-      });
-      expect(unknown.code).toMatch(/^[A-Z2-9]{10}$/);
-      expect(await env.alice.query(listIncoming, {})).toEqual([]);
-      await env.carol.mutation(acceptLendInvite, { code: unknown.code, history: "both" });
-      await expect(
-        env.bob.mutation(inviteByEmail, { email: "not-an-email", contactName: "X" }),
-      ).rejects.toThrow("valid email");
-    });
-
-    it("lets the addressee decline", async () => {
-      const env = setup();
-      await env.alice.action(refreshVerifiedEmail, {});
-      const { code } = await env.bob.mutation(inviteByEmail, {
-        email: "alice@example.com",
-        contactName: "Alice",
-      });
-      await expect(env.carol.mutation(declineLendInvite, { code })).rejects.toThrow("not found");
-      await env.alice.mutation(declineLendInvite, { code });
-      expect(await env.alice.query(listIncoming, {})).toEqual([]);
-      await expect(
-        env.alice.mutation(acceptLendInvite, { code, history: "both" }),
-      ).rejects.toThrow("no longer valid");
+      expect(await findUser(env.bob, "alice@example.com")).toMatchObject({ name: "alice" });
+      expect(await findUser(env.bob, "carol@example.com")).toBeNull();
     });
   });
 });

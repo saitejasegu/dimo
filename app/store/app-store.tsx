@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -1119,7 +1118,6 @@ export function AppStoreProvider({
     return () => media.removeEventListener("change", apply);
   }, [theme]);
   const actions = useMemo(() => createActions(store.dispatch, store.getRaw), [store]);
-  const openLending = useCallback(() => actions.setView("lending"), [actions]);
   const sync: SyncState = useMemo(() => ({
     workspaceId: WORKSPACE_ID,
     lastPulledRevision: meta?.lastPulledRevision ?? 0,
@@ -1135,7 +1133,7 @@ export function AppStoreProvider({
     <AppStoreContext.Provider value={store}>
       <AppActionsContext.Provider value={actions}>
         <SyncStateContext.Provider value={sync}>
-          <LendingSharingProvider onOpenLending={openLending}>{children}</LendingSharingProvider>
+          <LendingSharingProvider>{children}</LendingSharingProvider>
         </SyncStateContext.Provider>
       </AppActionsContext.Provider>
     </AppStoreContext.Provider>

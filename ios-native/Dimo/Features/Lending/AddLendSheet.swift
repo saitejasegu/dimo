@@ -123,7 +123,9 @@ struct AddLendSheet: View {
             ContactDropdown(
               selectedName: $store.lendDraft.contactName,
               selectedContactId: $store.lendDraft.contactId,
-              isSearching: $contactSearchOpen
+              isSearching: $contactSearchOpen,
+              sharing: store.lendingSharing,
+              onPickDimoUser: pickDimoUser
             )
             if !contactSearchOpen && store.lendDraft.contactName.isEmpty {
               contactSuggestions
@@ -133,6 +135,22 @@ struct AddLendSheet: View {
             Label("Shared ledger — \(store.lendDraft.contactName) sees this entry too", systemImage: "person.2.fill")
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.green)
+          } else if !contactSearchOpen, let invite = pendingDraftInvite {
+            Label(
+              "Saving invites \(invite.user.email). This entry stays private until they accept.",
+              systemImage: "paperplane"
+            )
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
+          } else if !contactSearchOpen, let contactId = store.lendDraft.contactId,
+            let sent = store.lendingSharing.pendingInvite(contactId: contactId)
+          {
+            Label(
+              "Invited \(sent.inviteeEmail ?? sent.contactName). This entry is shared once they accept.",
+              systemImage: "clock"
+            )
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
           }
         }
 
@@ -239,6 +257,27 @@ struct AddLendSheet: View {
     return Formatting.currencySymbol(store.currency)
   }
 
+  /// The invite saving will send, when the contact was picked as a Dimo account.
+  private var pendingDraftInvite: LendDraftInvite? {
+    guard let invite = store.lendDraft.invite, invite.contactId == store.lendDraft.contactId else {
+      return nil
+    }
+    return invite
+  }
+
+  private func pickDimoUser(_ user: LendUser) {
+    store.lendDraft.contactName = user.name
+    if let contactId = user.contactId {
+      // Already shared, or already invited for this contact.
+      store.lendDraft.contactId = contactId
+      store.lendDraft.invite = nil
+    } else {
+      let contactId = "contact_\(UUID().uuidString.lowercased())"
+      store.lendDraft.contactId = contactId
+      store.lendDraft.invite = LendDraftInvite(user: user, contactId: contactId)
+    }
+  }
+
   private var isSharedContact: Bool {
     store.lendDraft.contactId?.hasPrefix(sharedLendContactPrefix) == true
   }
@@ -259,6 +298,12 @@ struct AddLendSheet: View {
         suggestions.append(
           LendContactSuggestion(contactName: connection.contactName, contactId: connection.contactId)
         )
+      }
+    }
+    // Someone invited before any entries were recorded with them.
+    for invite in store.lendingSharing.outgoingInvites {
+      if let contactId = invite.contactId, !suggestions.contains(where: { $0.contactId == contactId }) {
+        suggestions.append(LendContactSuggestion(contactName: invite.contactName, contactId: contactId))
       }
     }
     cachedRecentContacts = suggestions
@@ -516,9 +561,27 @@ private struct ContactDropdown: View {
   @Binding var selectedName: String
   @Binding var selectedContactId: String?
   @Binding var isSearching: Bool
+  var sharing: LendingSharingStore
+  var onPickDimoUser: (LendUser) -> Void
   private let loader = ContactsLoader.shared
   @State private var text = ""
   @FocusState private var searching: Bool
+  /// Result of looking the typed email up as a Dimo account.
+  @State private var lookup: (email: String, user: LendUser?)?
+
+  /// The typed text when it looks like an email worth looking up.
+  private var typedEmail: String? {
+    let query = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard sharing.sharingAvailable, sharing.isOnline,
+      query.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil
+    else { return nil }
+    return query
+  }
+
+  private var currentLookup: (email: String, user: LendUser?)? {
+    guard let lookup, lookup.email == typedEmail else { return nil }
+    return lookup
+  }
 
   private var selectedContact: LendContact? {
     loader.contact(contactId: selectedContactId)
@@ -541,12 +604,13 @@ private struct ContactDropdown: View {
             .foregroundStyle(Theme.muted)
         }
         TextField(
-          selectedName.isEmpty ? "Search contacts" : selectedName,
+          selectedName.isEmpty ? "Search contacts or Dimo email" : selectedName,
           text: $text
         )
         .font(DimoFont.body(15))
         .foregroundStyle(Theme.ink)
         .textFieldStyle(.plain)
+        .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .focused($searching)
         Button {
@@ -567,7 +631,23 @@ private struct ContactDropdown: View {
 
       if searching {
         Divider().overlay(Theme.line)
-        dropdownBody
+        if typedEmail != nil {
+          dimoResult
+        } else {
+          dropdownBody
+        }
+      }
+    }
+    .task(id: typedEmail) {
+      guard let email = typedEmail else { return }
+      try? await Task.sleep(for: .milliseconds(350))
+      guard !Task.isCancelled else { return }
+      do {
+        // `try?` would flatten "no account" into "failed", so catch explicitly.
+        let user = try await sharing.findUser(email: email)
+        lookup = (email, user)
+      } catch {
+        return
       }
     }
     .background(Theme.canvas)
@@ -589,6 +669,62 @@ private struct ContactDropdown: View {
         text = selectedName
       }
     }
+  }
+
+  @ViewBuilder
+  private var dimoResult: some View {
+    if let lookup = currentLookup {
+      if let user = lookup.user {
+        switch user.relation {
+        case "self":
+          dimoNote("That’s your own account.")
+        case "invitedYou":
+          dimoNote("\(user.name) already invited you. Accept their invite in Lending first.")
+        default:
+          Button {
+            onPickDimoUser(user)
+            searching = false
+          } label: {
+            HStack(spacing: 10) {
+              ContactAvatar(contact: LendContact(id: user.userId, name: user.name, thumbnail: nil), size: 32)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(user.name)
+                  .font(DimoFont.body(15))
+                  .foregroundStyle(Theme.ink)
+                  .lineLimit(1)
+                Text(user.email)
+                  .font(DimoFont.body(12))
+                  .foregroundStyle(Theme.muted)
+                  .lineLimit(1)
+              }
+              Spacer(minLength: 0)
+              Text(user.relation == "connected" ? "Shared" : user.relation == "invited" ? "Invited" : "On Dimo")
+                .font(DimoFont.body(12, weight: .medium))
+                .foregroundStyle(Theme.green)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+        }
+      } else {
+        dimoNote("No Dimo account uses this email.")
+      }
+    } else {
+      ProgressView()
+        .frame(maxWidth: .infinity)
+        .frame(height: 56)
+    }
+  }
+
+  private func dimoNote(_ text: String) -> some View {
+    Text(text)
+      .font(DimoFont.body(13))
+      .foregroundStyle(Theme.muted)
+      .multilineTextAlignment(.center)
+      .padding(14)
+      .frame(maxWidth: .infinity)
   }
 
   @ViewBuilder

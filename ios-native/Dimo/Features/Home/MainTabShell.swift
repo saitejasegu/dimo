@@ -150,10 +150,8 @@ struct MainTabShell: View {
       set: { store.lendingSharing.sheet = $0 }
     )) { sheet in
       switch sheet {
-      case .invite(let contactId, let contactName):
-        LedgerInviteSheet(store: store, initialContactId: contactId, initialContactName: contactName)
-      case .join(let code):
-        JoinLedgerSheet(store: store, initialCode: code)
+      case .accept(let invite):
+        AcceptInviteSheet(store: store, invite: invite)
       }
     }
     .sheet(item: Binding(

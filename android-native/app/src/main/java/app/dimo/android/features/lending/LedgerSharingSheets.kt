@@ -1,9 +1,5 @@
 package app.dimo.android.features.lending
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,9 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
 import app.dimo.android.design.DimoColors
@@ -41,26 +34,20 @@ import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.LendContactSuggestion
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.features.common.DimoBottomSheet
-import app.dimo.android.features.common.DimoTextField
 import app.dimo.android.features.common.FieldLabel
 import app.dimo.android.features.common.PrimaryButton
 import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.store.AppStore
 import app.dimo.android.store.LedgerSharingSheet
+import app.dimo.android.sync.IncomingLendInvite
 import app.dimo.android.sync.LendHistoryChoice
-import app.dimo.android.sync.LendInviteCode
-import app.dimo.android.sync.LendInviteLinks
-import app.dimo.android.sync.LendInvitePreview
 import kotlinx.coroutines.launch
-import java.text.DateFormat
-import java.util.Date
 
 /** Hosts whichever sharing sheet is open. Port of the iOS tab-shell sheet. */
 @Composable
 fun LedgerSharingSheetHost(store: AppStore) {
   when (val sheet = store.lendingSharing.sheet) {
-    is LedgerSharingSheet.Invite -> LedgerInviteSheet(store, sheet.contactId, sheet.contactName)
-    is LedgerSharingSheet.Join -> JoinLedgerSheet(store, sheet.code)
+    is LedgerSharingSheet.Accept -> AcceptInviteSheet(store, sheet.invite)
     null -> Unit
   }
 }
@@ -71,310 +58,108 @@ private fun shareableContacts(store: AppStore): List<LendContactSuggestion> =
     .filterNot { it.contactId.startsWith(SHARED_LEND_CONTACT_PREFIX) }
 
 /**
- * Invites another Dimo account to share a lending ledger, by link/code and
- * optionally by their verified email.
+ * Accepts or declines an invite, optionally linking a contact already tracked
+ * here so its history joins the shared ledger.
  */
 @Composable
-private fun LedgerInviteSheet(store: AppStore, initialContactId: String?, initialContactName: String) {
-  val sharing = store.lendingSharing
-  val context = LocalContext.current
-  val scope = rememberCoroutineScope()
-  var contactName by remember { mutableStateOf(initialContactName) }
-  var contactId by remember { mutableStateOf(initialContactId) }
-  var email by remember { mutableStateOf("") }
-  var invite by remember {
-    mutableStateOf(
-      initialContactId?.let { sharing.pendingInvite(it) }?.let { LendInviteCode(it.code, it.expiresAt) },
-    )
-  }
-  var sentByEmail by remember { mutableStateOf(false) }
-  var working by remember { mutableStateOf(false) }
-  var errorMessage by remember { mutableStateOf<String?>(null) }
-  val suggestions = remember(store.lends) { shareableContacts(store) }
-  val close = { sharing.sheet = null }
-
-  DimoBottomSheet(onDismiss = close, compactDragHandle = true) {
-    SheetTitle(if (invite == null) "Share a ledger" else "Invite ready")
-    SheetColumn {
-      val current = invite
-      if (current == null) {
-        Muted("You and the other person see the same entries, and either of you can add, edit or delete them.")
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-          FieldLabel("Who are you sharing with?")
-          DimoTextField(
-            value = contactName,
-            onValueChange = { next ->
-              contactName = next
-              // Typing a new name detaches a previously tapped contact.
-              if (suggestions.none { it.contactId == contactId && it.contactName == next }) {
-                if (initialContactId == null) contactId = null
-              }
-            },
-            placeholder = "Their name",
-            enabled = initialContactId == null,
-          )
-          if (initialContactId == null && suggestions.isNotEmpty()) {
-            ChipRow {
-              suggestions.forEach { suggestion ->
-                Chip(suggestion.contactName, selected = contactId == suggestion.contactId) {
-                  contactName = suggestion.contactName
-                  contactId = suggestion.contactId
-                }
-              }
-            }
-          }
-          if (contactId != null) Muted("Your past entries with $contactName will be shared too.", 12f)
-        }
-        if (sharing.emailInvitesAvailable) {
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            FieldLabel("Their Dimo email (optional)")
-            DimoTextField(
-              value = email,
-              onValueChange = { email = it },
-              placeholder = "name@example.com",
-              keyboardType = KeyboardType.Email,
-            )
-            Muted(
-              "If they use Dimo with this email, the invite appears in their Lending tab. You can also share the link.",
-              12f,
-            )
-          }
-        }
-        PrimaryButton(
-          title = if (working) "Creating…" else "Create invite",
-          enabled = contactName.isNotBlank() && !working,
-          onClick = {
-            scope.launch {
-              working = true
-              errorMessage = null
-              runCatching { sharing.createInvite(contactId, contactName, email) }
-                .onSuccess {
-                  invite = it
-                  sentByEmail = email.isNotBlank()
-                }
-                .onFailure { errorMessage = it.message }
-              working = false
-            }
-          },
-        )
-      } else {
-        if (sentByEmail) {
-          Muted("If $contactName uses Dimo with that email, they’ll see your invite in their Lending tab.")
-        }
-        Column(
-          modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(DimoColors.canvas)
-            .border(1.dp, DimoColors.line, RoundedCornerShape(14.dp))
-            .padding(vertical = 18.dp),
-          horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-          Text(
-            text = LendInviteLinks.grouped(current.code),
-            style = DimoFont.display(28f, FontWeight.SemiBold),
-            color = DimoColors.ink,
-          )
-          Muted("Expires ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(current.expiresAt.toLong()))}", 12f)
-        }
-        PrimaryButton(
-          title = "Share invite",
-          onClick = {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-              type = "text/plain"
-              putExtra(Intent.EXTRA_TEXT, LendInviteLinks.message(store.profileName, current.code))
-            }
-            context.startActivity(Intent.createChooser(intent, null))
-          },
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-          SecondaryAction("Copy code", modifier = Modifier.weight(1f)) {
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Dimo invite code", current.code))
-            store.showToast("Invite code copied")
-          }
-          SecondaryAction("Cancel invite", destructive = true, modifier = Modifier.weight(1f)) {
-            scope.launch {
-              runCatching { sharing.cancel(current.code) }
-                .onSuccess {
-                  store.showToast("Invite cancelled")
-                  close()
-                }
-                .onFailure { errorMessage = it.message }
-            }
-          }
-        }
-      }
-      errorMessage?.let { ErrorText(it) }
-    }
-  }
-}
-
-/**
- * Joins a ledger someone shared: preview the invite, optionally link an
- * existing contact, choose whose history to keep, then accept.
- */
-@Composable
-private fun JoinLedgerSheet(store: AppStore, initialCode: String) {
+private fun AcceptInviteSheet(store: AppStore, invite: IncomingLendInvite) {
   val sharing = store.lendingSharing
   val scope = rememberCoroutineScope()
-  var code by remember { mutableStateOf(initialCode) }
-  var preview by remember { mutableStateOf<LendInvitePreview?>(null) }
-  var previewedCode by remember { mutableStateOf<String?>(null) }
   var linkedContactId by remember { mutableStateOf<String?>(null) }
-  var contactName by remember { mutableStateOf("") }
+  var contactName by remember { mutableStateOf(invite.inviterName) }
   var history by remember { mutableStateOf(LendHistoryChoice.BOTH) }
   var working by remember { mutableStateOf(false) }
   var errorMessage by remember { mutableStateOf<String?>(null) }
   val linkable = remember(store.lends) { shareableContacts(store) }
   val close = { sharing.sheet = null }
-  val normalized = LendInviteLinks.normalize(code)
-  val isIncoming = sharing.incomingInvites.any { it.code == normalized }
 
-  suspend fun lookUp() {
-    working = true
-    errorMessage = null
-    runCatching { sharing.preview(code) }
-      .onSuccess { found ->
-        if (found == null) {
-          errorMessage = "No invite matches that code."
-        } else {
-          preview = found
-          previewedCode = LendInviteLinks.normalize(code)
-          if (contactName.isEmpty()) contactName = found.inviterName
+  fun run(done: String, action: suspend () -> Unit) {
+    scope.launch {
+      working = true
+      errorMessage = null
+      runCatching { action() }
+        .onSuccess {
+          store.showToast(done)
+          close()
         }
-      }
-      .onFailure { errorMessage = it.message }
-    working = false
-  }
-
-  LaunchedEffect(Unit) {
-    if (initialCode.isNotEmpty()) lookUp()
+        .onFailure { errorMessage = it.message }
+      working = false
+    }
   }
 
   DimoBottomSheet(onDismiss = close, compactDragHandle = true) {
-    SheetTitle("Join a shared ledger")
+    SheetTitle("Shared ledger invite")
     SheetColumn {
-      val current = preview?.takeIf { previewedCode == normalized }
-      if (current == null) {
-        Muted("Enter the code from the invite someone shared with you.")
-        DimoTextField(
-          value = code,
-          onValueChange = { code = it },
-          placeholder = "ABCDE-12345",
-          textStyle = DimoFont.display(20f, FontWeight.SemiBold),
-        )
-        PrimaryButton(
-          title = if (working) "Checking…" else "Continue",
-          enabled = normalized.length >= 6 && !working,
-          onClick = { scope.launch { lookUp() } },
-        )
-      } else if (!current.isAcceptable()) {
-        Muted(
-          when {
-            current.isOwnInvite -> "This is your own invite. Share it with the other person instead."
-            current.status == "accepted" -> "This invite has already been used."
-            current.status == "revoked" -> "This invite was cancelled."
-            else -> "This invite has expired. Ask ${current.inviterName} for a new one."
-          },
-          14f,
-        )
-        SecondaryAction("Try another code") {
-          preview = null
-          previewedCode = null
-        }
-      } else {
-        Text(
-          text = "${current.inviterName} wants to keep a shared lending ledger with you. " +
-            "You’ll both see the same entries, and either of you can edit them.",
-          style = DimoFont.body(14f),
-          color = DimoColors.ink,
-        )
-        if (linkable.isNotEmpty()) {
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            FieldLabel("Already tracking ${current.inviterName} here?")
-            ChipRow {
-              Chip("No", selected = linkedContactId == null) {
-                linkedContactId = null
-                contactName = current.inviterName
-              }
-              linkable.forEach { contact ->
-                Chip(contact.contactName, selected = linkedContactId == contact.contactId) {
-                  linkedContactId = contact.contactId
-                  contactName = contact.contactName
-                }
+      val from = invite.inviterEmail?.let { "${invite.inviterName} ($it)" } ?: invite.inviterName
+      Text(
+        text = "$from wants to keep a shared lending ledger with you. " +
+          "You’ll both see the same entries, and either of you can edit them.",
+        style = DimoFont.body(14f),
+        color = DimoColors.ink,
+      )
+      if (linkable.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+          FieldLabel("Already tracking ${invite.inviterName} here?")
+          ChipRow {
+            Chip("No", selected = linkedContactId == null) {
+              linkedContactId = null
+              contactName = invite.inviterName
+            }
+            linkable.forEach { contact ->
+              Chip(contact.contactName, selected = linkedContactId == contact.contactId) {
+                linkedContactId = contact.contactId
+                contactName = contact.contactName
               }
             }
           }
         }
-        if (linkedContactId != null) {
-          Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            FieldLabel("If you both recorded the same loans")
-            SegmentedControl(
-              options = LendHistoryChoice.entries.toList(),
-              selected = history,
-              label = {
-                when (it) {
-                  LendHistoryChoice.BOTH -> "Keep both"
-                  LendHistoryChoice.INVITER -> "Keep theirs"
-                  LendHistoryChoice.ACCEPTER -> "Keep mine"
-                }
-              },
-              onSelect = { history = it },
-            )
-            Muted(
-              when (history) {
-                LendHistoryChoice.BOTH -> "Both of your past entries are added to the shared ledger."
-                LendHistoryChoice.INVITER ->
-                  "Only ${current.inviterName}’s past entries are kept; yours with them are deleted so nothing is counted twice."
-                LendHistoryChoice.ACCEPTER ->
-                  "Only your past entries are kept; ${current.inviterName}’s are deleted so nothing is counted twice."
-              },
-              12f,
-            )
-          }
-        }
+      }
+      if (linkedContactId != null) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-          FieldLabel("Show them as")
-          DimoTextField(
-            value = contactName,
-            onValueChange = { contactName = it },
-            placeholder = current.inviterName,
+          FieldLabel("If you both recorded the same loans")
+          SegmentedControl(
+            options = LendHistoryChoice.entries.toList(),
+            selected = history,
+            label = {
+              when (it) {
+                LendHistoryChoice.BOTH -> "Keep both"
+                LendHistoryChoice.INVITER -> "Keep theirs"
+                LendHistoryChoice.ACCEPTER -> "Keep mine"
+              }
+            },
+            onSelect = { history = it },
+          )
+          Muted(
+            when (history) {
+              LendHistoryChoice.BOTH -> "Both of your past entries are added to the shared ledger."
+              LendHistoryChoice.INVITER ->
+                "Only ${invite.inviterName}’s past entries are kept; yours with them are deleted so nothing is counted twice."
+              LendHistoryChoice.ACCEPTER ->
+                "Only your past entries are kept; ${invite.inviterName}’s are deleted so nothing is counted twice."
+            },
+            12f,
           )
         }
-        PrimaryButton(
-          title = if (working) "Joining…" else "Join ledger",
-          enabled = !working,
-          onClick = {
-            scope.launch {
-              working = true
-              errorMessage = null
-              runCatching {
+      }
+      Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        SecondaryAction("Decline", modifier = Modifier.weight(1f)) {
+          run("Invite declined") { sharing.decline(invite) }
+        }
+        Box(modifier = Modifier.weight(1f)) {
+          PrimaryButton(
+            title = if (working) "Accepting…" else "Accept",
+            enabled = !working,
+            onClick = {
+              run("Ledger shared with ${contactName.trim()}") {
                 sharing.accept(
-                  code = code,
+                  invite = invite,
                   contactId = linkedContactId,
                   contactName = contactName.trim(),
                   history = if (linkedContactId == null) LendHistoryChoice.BOTH else history,
                 )
               }
-                .onSuccess {
-                  store.showToast("Ledger shared with ${contactName.trim()}")
-                  close()
-                }
-                .onFailure { errorMessage = it.message }
-              working = false
-            }
-          },
-        )
-        if (isIncoming) {
-          SecondaryAction("Decline", destructive = true) {
-            scope.launch {
-              runCatching { sharing.decline(normalized) }
-                .onSuccess { close() }
-                .onFailure { errorMessage = it.message }
-            }
-          }
+            },
+          )
         }
       }
       errorMessage?.let { ErrorText(it) }

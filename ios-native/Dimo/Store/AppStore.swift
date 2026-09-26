@@ -696,9 +696,21 @@ final class AppStore {
       lastEditedBy: shared ? .me : existing?.lastEditedBy
     )
     write { try $0.saveEntity(entityType: .lend, payload: .lend(entity)) }
+    let invite = lendDraft.invite.flatMap { $0.contactId == contactId && existing == nil ? $0 : nil }
     closeOverlay()
     let noun = Self.lendNoun(for: kind)
     showToast(existing == nil ? "\(noun) saved" : "\(noun) updated")
+    // The entry stays private until they accept; accepting shares it.
+    if let invite {
+      Task {
+        do {
+          try await lendingSharing.sendInvite(to: invite.user, contactId: contactId, contactName: contact)
+          showToast("Invite sent to \(contact)")
+        } catch {
+          showToast("Saved, but the invite failed: \(error.localizedDescription)")
+        }
+      }
+    }
   }
 
   private static func lendNoun(for kind: LendKind) -> String {
@@ -1443,6 +1455,15 @@ struct LendDraft: Equatable {
   var amount = ""
   var date = Date()
   var comment = ""
+  /// A Dimo account picked by email; saving the entry invites them.
+  var invite: LendDraftInvite?
+}
+
+/// The Dimo account a new lend's contact was found as, and the contactId
+/// generated for them so the entry is shared once they accept.
+struct LendDraftInvite: Equatable {
+  var user: LendUser
+  var contactId: String
 }
 
 extension AppStore {

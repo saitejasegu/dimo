@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
 import { formatTransactionDay } from "@/lib/dates";
 import { cn } from "@/lib/cn";
-import { useAppState } from "@/store/app-store";
-import { useLendingSharing } from "@/store/lending-sharing";
+import { useAppActions, useAppState } from "@/store/app-store";
+import { useLendingSharing, type OutgoingLendInvite } from "@/store/lending-sharing";
 import {
   groupLendsByDay,
   isIncomingLend,
@@ -50,6 +50,7 @@ function EmptyState({
 
 export function LendingScreen() {
   const { lends, currency } = useAppState("lends", "currency");
+  const { showToast } = useAppActions();
   const sharing = useLendingSharing();
   const [section, setSection] = useState<LendingSection>("summary");
   const [editor, setEditor] = useState<LendEditorTarget | null>(null);
@@ -57,6 +58,20 @@ export function LendingScreen() {
   const summaries = useMemo(() => lendContactSummaries(lends), [lends]);
   const totals = useMemo(() => lendingTotals(summaries), [summaries]);
   const dayGroups = useMemo(() => groupLendsByDay(lends), [lends]);
+  function cancelInvite(invite: OutgoingLendInvite) {
+    sharing
+      .cancel(invite.inviteId)
+      .then(() => showToast("Invite cancelled"))
+      .catch(() => showToast("Couldn’t cancel the invite"));
+  }
+  // Invites whose contact has no outstanding balance to show a row for.
+  const invitedOnly = useMemo(
+    () =>
+      sharing.outgoingInvites.filter(
+        (invite) => !summaries.some((summary) => summary.contactId === invite.contactId),
+      ),
+    [sharing.outgoingInvites, summaries],
+  );
 
   return (
     <WebScreen>
@@ -65,44 +80,43 @@ export function LendingScreen() {
         subtitle="Money lent and borrowed, shared with the people involved."
         align="center"
         action={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => sharing.setDialog({ kind: "join", code: "" })}
-            >
-              Join ledger
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => sharing.setDialog({ kind: "invite", contactName: "" })}
-            >
-              Share a ledger
-            </Button>
-            <Button size="sm" onClick={() => setEditor({ mode: "new" })}>
-              Add entry
-            </Button>
-          </div>
+          <Button size="sm" onClick={() => setEditor({ mode: "new" })}>
+            Add entry
+          </Button>
         }
       />
 
       {sharing.incomingInvites.map((invite) => (
         <Card
-          key={invite.code}
+          key={invite.inviteId}
           className="mb-4 flex items-center justify-between gap-4 border-green/50 px-5 py-4"
         >
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-semibold text-ink">
               {invite.inviterName} wants to share a lending ledger
             </div>
-            <div className="mt-0.5 text-xs text-muted">
-              You’ll both see and edit the same entries.
+            <div className="mt-0.5 truncate text-xs text-muted">
+              {invite.inviterEmail ? `${invite.inviterEmail} · ` : ""}You’ll both see and edit the
+              same entries.
             </div>
           </div>
-          <Button size="sm" onClick={() => sharing.setDialog({ kind: "join", code: invite.code })}>
-            Review
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                sharing
+                  .decline(invite.inviteId)
+                  .then(() => showToast("Invite declined"))
+                  .catch(() => showToast("Couldn’t decline the invite"));
+              }}
+            >
+              Decline
+            </Button>
+            <Button size="sm" onClick={() => sharing.setDialog({ kind: "accept", invite })}>
+              Accept
+            </Button>
+          </div>
         </Card>
       ))}
 
@@ -139,6 +153,45 @@ export function LendingScreen() {
           {lends.length} {lends.length === 1 ? "entry" : "entries"}
         </div>
       </div>
+
+      {section === "summary" && invitedOnly.length > 0 ? (
+        <Card className="mb-4 overflow-hidden">
+          {invitedOnly.map((invite, index) => (
+            <div
+              key={invite.inviteId}
+              className={cn(
+                "flex items-center gap-3.5 px-5 py-4",
+                index > 0 && "border-t border-line-soft",
+              )}
+            >
+              <Avatar
+                initial={invite.contactName.charAt(0).toUpperCase()}
+                size={42}
+                radius={13}
+                textClassName="text-[15px]"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-semibold text-ink">
+                    {invite.contactName}
+                  </span>
+                  <Badge label="Invited" tone="muted" />
+                </div>
+                <div className="mt-0.5 truncate text-xs text-muted">
+                  {invite.inviteeEmail ?? "Waiting for them to accept"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => cancelInvite(invite)}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted hover:text-danger"
+              >
+                Cancel invite
+              </button>
+            </div>
+          ))}
+        </Card>
+      ) : null}
 
       {section === "summary" ? (
         summaries.length > 0 ? (
@@ -183,7 +236,7 @@ export function LendingScreen() {
                           {summary.contactName}
                         </span>
                         {summary.shared ? <Badge label="Shared" tone="green" /> : null}
-                        {pending ? <Badge label="Invite sent" tone="muted" /> : null}
+                        {pending ? <Badge label="Invited" tone="muted" /> : null}
                       </div>
                       <div className="mt-0.5 truncate text-xs text-muted">
                         {summary.entryCount} {summary.entryCount === 1 ? "entry" : "entries"}
@@ -214,21 +267,15 @@ export function LendingScreen() {
                         Stop sharing
                       </button>
                     ) : null
-                  ) : (
+                  ) : pending ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        sharing.setDialog({
-                          kind: "invite",
-                          contactId: summary.contactId,
-                          contactName: summary.contactName,
-                        })
-                      }
-                      className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-green hover:bg-green-soft"
+                      onClick={() => cancelInvite(pending)}
+                      className="shrink-0 rounded-lg px-2 py-1 text-xs text-muted hover:text-danger"
                     >
-                      {pending ? "View invite" : "Share"}
+                      Cancel invite
                     </button>
-                  )}
+                  ) : null}
                 </div>
               );
             })}
@@ -238,7 +285,7 @@ export function LendingScreen() {
             title={lends.length === 0 ? "Nothing recorded yet" : "All settled"}
             description={
               lends.length === 0
-                ? "Record money you lend or borrow, or share a ledger with someone so you both keep it up to date."
+                ? "Record money you lend or borrow. Enter someone’s Dimo email to keep the ledger together."
                 : "Nothing outstanding either way. Past entries are still available in Activity."
             }
           />

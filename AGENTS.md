@@ -200,8 +200,13 @@ from derived UI models.
   revisions. Either member may edit; LWW compares against the shared copy.
   `connectionId`, `createdBy`/`lastEditedBy` (`me`/`contact`, relative to the
   row owner) and the shared contact name are server-assigned and ignored on
-  push. Accounts connect through single-use invite codes
-  (`createLendInvite` → `acceptLendInvite`); accepting links existing history
+  push. Accounts connect by in-app invite only, from the add-lend contact
+  field: typing an email runs `findLendUser` (exact verified email), picking
+  the result gives the entry a new contactId, and saving the entry calls
+  `sendLendInvite` for that contact. There is no separate share screen. The invitee
+  accepts (`acceptLendInvite`) or declines. There are no codes or links, and
+  invites don't expire. Until acceptance the inviter's entries for the invited
+  contact stay private and clients mark the contact "Invited"; accepting links existing history
   in scheduled batches and, for `history: "inviter" | "accepter"`, tombstones
   the other side's duplicate private entries. A revoked connection stops
   mirroring and each member keeps their copies as detached history.
@@ -209,17 +214,13 @@ from derived UI models.
   cannot drop the ledger the other member relies on. Only account deletion may
   pass `includeSharedLends: true`, which also revokes the caller's
   connections; every client's account-deletion path does so.
-- Invites can also be addressed by email (`inviteLendContactByEmail`). The
-  address is matched only against `accountEmails`, which the
+- `findLendUser` matches only against `accountEmails`, which the
   `lendingEmail:refreshVerifiedEmail` action fills from WorkOS's verified
-  email — never from client-settable workspace or preference emails. The
-  response is identical whether or not the address has an account. Clients
+  email — never from client-settable workspace or preference emails. Clients
   call the action once per session; without `WORKOS_API_KEY` it reports
-  `available: false` and clients hide the email field.
-- Invite links are `https://dimoapp.xyz/invite?code=…` (the web `/invite` page
-  parks the code in session storage across sign-in) and `dimo://invite/<code>`
-  on iOS/Android. Client state for invites and connections lives in
-  `LendingSharingStore` (native) and `app/store/lending-sharing.tsx` (web).
+  `available: false` and clients say sharing is unavailable. Client state for
+  invites and connections lives in `LendingSharingStore` (native) and
+  `app/store/lending-sharing.tsx` (web).
 - Shared-ledger push errors (`Not a member of this lending connection`,
   `Unknown lending connection`, `Lend id collides`) are permanent and block
   the single operation on every client.
@@ -290,7 +291,7 @@ from derived UI models.
   `NEXT_PUBLIC_WORKOS_CLIENT_ID`, `NEXT_PUBLIC_WORKOS_REDIRECT_URI`.
 - Convex deployment variables: `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY`, which
   provisioning uses and `lendingEmail:refreshVerifiedEmail` reads at runtime to
-  look up verified emails for lending invites. Do not commit `.env*` or secret xcconfig files.
+  look up verified emails so people can find each other for shared lending. Do not commit `.env*` or secret xcconfig files.
 - `NEXT_PUBLIC_*` values are embedded at build time and frozen into Electron
   packages. Deploy/configure Convex before building clients against it.
 - Although some docs describe cloud sync as optional, the current web

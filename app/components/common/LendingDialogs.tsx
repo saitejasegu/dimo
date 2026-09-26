@@ -8,7 +8,7 @@ import {
   lendEditorTitle,
   type LendEditorTarget,
 } from "@/components/forms/LendEntryForm";
-import { JoinLedgerForm, LedgerInviteForm } from "@/components/forms/LedgerSharingForms";
+import { AcceptInviteForm } from "@/components/forms/LedgerSharingForms";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Modal } from "@/components/ui/Modal";
@@ -95,22 +95,14 @@ export function LendEditorDialog({
   );
 }
 
-/** Whichever invite/join dialog the sharing context has open. */
+/** The accept dialog for an incoming invite, when open. */
 export function LedgerSharingDialogs({ variant }: { variant: Variant }) {
   const { dialog, setDialog } = useLendingSharing();
   if (!dialog) return null;
   const close = () => setDialog(null);
-  return dialog.kind === "invite" ? (
-    <Frame variant={variant} title="Share a ledger" onClose={close}>
-      <LedgerInviteForm
-        initialContactId={dialog.contactId}
-        initialContactName={dialog.contactName}
-        onDone={close}
-      />
-    </Frame>
-  ) : (
-    <Frame variant={variant} title="Join a shared ledger" onClose={close}>
-      <JoinLedgerForm initialCode={dialog.code} onDone={close} />
+  return (
+    <Frame variant={variant} title="Shared ledger invite" onClose={close}>
+      <AcceptInviteForm invite={dialog.invite} onDone={close} />
     </Frame>
   );
 }

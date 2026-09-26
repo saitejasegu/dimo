@@ -14,8 +14,7 @@ import app.dimo.android.data.model.OutboxStatus
 import app.dimo.android.data.model.SyncOperation
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.sync.ConvexAPI
-import app.dimo.android.sync.LendInviteLinks
-import app.dimo.android.sync.LendInvitePreview
+import app.dimo.android.sync.LendUser
 import app.dimo.android.sync.isPermanentSyncError
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -51,27 +50,6 @@ class LendSharingTests {
   }
 
   @Test
-  fun inviteLinksParseEverySupportedForm() {
-    assertEquals("ABCDE23456", LendInviteLinks.code("dimo", "invite", "/abcde-23456", null))
-    assertEquals("ABCDE23456", LendInviteLinks.code("dimo", "invite", "", "ABCDE23456"))
-    assertEquals(
-      "ABCDE23456",
-      LendInviteLinks.code("https", "dimoapp.xyz", "/invite", "abcde23456"),
-    )
-    assertNull(LendInviteLinks.code("https", "example.com", "/invite", "ABCDE23456"))
-    assertNull(LendInviteLinks.code("dimo", "widget", "/add-expense", null))
-    assertNull(LendInviteLinks.code("dimo", "invite", "", null))
-  }
-
-  @Test
-  fun inviteMessageMatchesIos() {
-    val message = LendInviteLinks.message("Alice", "ABCDE23456")
-    assertTrue(message.startsWith("Alice wants"))
-    assertTrue(message.contains("https://dimoapp.xyz/invite?code=ABCDE23456"))
-    assertTrue(message.contains("ABCDE-23456"))
-  }
-
-  @Test
   fun lendingPermissionErrorsAreBlockedNotRetried() {
     assertTrue(isPermanentSyncError("Uncaught Error: Not a member of this lending connection"))
     assertTrue(isPermanentSyncError("Unknown lending connection"))
@@ -79,13 +57,18 @@ class LendSharingTests {
   }
 
   @Test
-  fun previewAcceptability() {
-    val now = 1_000_000L
-    val pending = LendInvitePreview("A", "pending", (now + 1_000).toDouble(), isOwnInvite = false)
-    assertTrue(pending.isAcceptable(now))
-    assertFalse(pending.copy(isOwnInvite = true).isAcceptable(now))
-    assertFalse(pending.copy(expiresAt = (now - 1).toDouble()).isAcceptable(now))
-    assertFalse(pending.copy(status = "accepted").isAcceptable(now))
+  fun foundUserDecodesWithOptionalContactId() {
+    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+    val found = json.decodeFromString(
+      LendUser.serializer(),
+      """{"userId":"u1","name":"Bob","email":"bob@example.com","relation":"connected","contactId":"dimo:c1"}""",
+    )
+    assertEquals("dimo:c1", found.contactId)
+    val fresh = json.decodeFromString(
+      LendUser.serializer(),
+      """{"userId":"u1","name":"Bob","email":"bob@example.com","relation":"none"}""",
+    )
+    assertNull(fresh.contactId)
   }
 
   @Test

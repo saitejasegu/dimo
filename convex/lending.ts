@@ -36,11 +36,7 @@ type Connection = Doc<"lendConnections">;
 
 const WORKSPACE_ID = "global";
 export const SHARED_CONTACT_PREFIX = "dimo:";
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PENDING_INVITES = 20;
-const INVITE_CODE_LENGTH = 10;
-/** No 0/O, 1/I/L so codes survive being read aloud or retyped. */
-const INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const LINK_BATCH_SIZE = 50;
 const LIST_LIMIT = 100;
 const SERVER_DEVICE_ID = "convex-lend-share";
@@ -465,130 +461,165 @@ async function revokeAllConnections(ctx: MutationCtx, ownerId: string) {
   for (const invite of invites) await ctx.db.patch(invite._id, { status: "revoked" });
 }
 
-function generateInviteCode() {
-  const bytes = new Uint8Array(INVITE_CODE_LENGTH);
-  crypto.getRandomValues(bytes);
-  let code = "";
-  for (const byte of bytes) code += INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length];
-  return code;
-}
-
-function normalizeInviteCode(code: string) {
-  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
 function displayName(identity: AuthIdentity, workspace: Doc<"workspaces"> | null) {
   return workspace?.name?.trim() || identity.name?.trim() || "Dimo user";
 }
-
-async function findInvite(ctx: QueryCtx, code: string) {
-  return await ctx.db
-    .query("lendInvites")
-    .withIndex("by_code", (q) => q.eq("code", normalizeInviteCode(code)))
-    .unique();
-}
-
-async function insertInvite(
-  ctx: MutationCtx,
-  identity: AuthIdentity,
-  args: { contactId?: string; contactName: string; inviteeId?: string },
-) {
-  const ownerId = identity.tokenIdentifier;
-  const contactName = cleanName(args.contactName);
-  if (!contactName) throw new Error("Contact name is required");
-  const contactId = args.contactId?.trim() || undefined;
-  if (contactId?.startsWith(SHARED_CONTACT_PREFIX)) {
-    throw new Error("This contact is already shared");
-  }
-
-  const now = Date.now();
-  const pending = await ctx.db
-    .query("lendInvites")
-    .withIndex("by_inviterId_and_status", (q) =>
-      q.eq("inviterId", ownerId).eq("status", "pending"),
-    )
-    .take(MAX_PENDING_INVITES * 2);
-  const live = pending.filter((invite) => invite.expiresAt > now);
-  // An invite for the same contact replaces the older one.
-  const replaced = live.filter((invite) => contactId && invite.contactId === contactId);
-  if (live.length - replaced.length >= MAX_PENDING_INVITES) {
-    throw new Error("Too many pending invites");
-  }
-  for (const invite of replaced) await ctx.db.patch(invite._id, { status: "revoked" });
-
-  let code = generateInviteCode();
-  while (await findInvite(ctx, code)) code = generateInviteCode();
-  const workspace = await loadWorkspace(ctx, ownerId, WORKSPACE_ID);
-  const expiresAt = now + INVITE_TTL_MS;
-  await ctx.db.insert("lendInvites", {
-    code,
-    inviterId: ownerId,
-    inviterName: displayName(identity, workspace),
-    ...(contactId ? { contactId } : {}),
-    contactName,
-    status: "pending",
-    expiresAt,
-    ...(args.inviteeId ? { inviteeId: args.inviteeId } : {}),
-  });
-  return { code, expiresAt };
-}
-
-const inviteResultValidator = v.object({ code: v.string(), expiresAt: v.number() });
-
-export const createLendInvite = mutation({
-  args: {
-    /** The inviter's local contact whose history is shared once accepted. */
-    contactId: v.optional(v.string()),
-    /** What the inviter calls the person being invited. */
-    contactName: v.string(),
-  },
-  returns: inviteResultValidator,
-  handler: async (ctx, args) => insertInvite(ctx, await requireIdentity(ctx), args),
-});
 
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+async function verifiedEmailOf(ctx: QueryCtx, ownerId: string) {
+  const row = await ctx.db
+    .query("accountEmails")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  return row?.email;
+}
+
+async function pendingInvitesFrom(ctx: QueryCtx, inviterId: string) {
+  return await ctx.db
+    .query("lendInvites")
+    .withIndex("by_inviterId_and_status", (q) =>
+      q.eq("inviterId", inviterId).eq("status", "pending"),
+    )
+    .take(MAX_PENDING_INVITES * 2);
+}
+
+async function pendingInviteBetween(ctx: QueryCtx, inviterId: string, inviteeId: string) {
+  return (await pendingInvitesFrom(ctx, inviterId)).find(
+    (invite) => invite.inviteeId === inviteeId,
+  );
+}
+
+const userRelationValidator = v.union(
+  v.literal("none"),
+  v.literal("self"),
+  v.literal("connected"),
+  v.literal("invited"),
+  v.literal("invitedYou"),
+);
+
 /**
- * Addresses an invite to whoever has verified `email`. The response is the
- * same whether or not that address belongs to a Dimo account, so the endpoint
- * cannot be used to discover who uses Dimo; the returned code can still be
- * shared as a link.
+ * Finds the Dimo account that verified `email`, so it can be invited. Only an
+ * exact address matches; there is no browsing of other accounts.
  */
-export const inviteLendContactByEmail = mutation({
-  args: {
-    email: v.string(),
-    contactId: v.optional(v.string()),
-    contactName: v.string(),
-  },
-  returns: inviteResultValidator,
+export const findLendUser = query({
+  args: { email: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      userId: v.id("accountEmails"),
+      name: v.string(),
+      email: v.string(),
+      relation: userRelationValidator,
+      /** The caller's contactId for them: the shared ledger when connected,
+       * or the contact a pending invite is for. */
+      contactId: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
+    const ownerId = identity.tokenIdentifier;
     const email = normalizeEmail(args.email);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-      throw new Error("Enter a valid email address");
-    }
+    if (!email || email.length > 254) return null;
     const account = await ctx.db
       .query("accountEmails")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first();
-    const inviteeId =
-      account && account.ownerId !== identity.tokenIdentifier ? account.ownerId : undefined;
-    return await insertInvite(ctx, identity, {
-      contactId: args.contactId,
-      contactName: args.contactName,
+    if (!account) return null;
+    const workspace = await loadWorkspace(ctx, account.ownerId, WORKSPACE_ID);
+    const base = {
+      userId: account._id,
+      name: workspace?.name?.trim() || email.split("@")[0],
+      email: account.email,
+    };
+    if (account.ownerId === ownerId) return { ...base, relation: "self" as const };
+    const connection = await findConnectionBetween(ctx, ownerId, account.ownerId);
+    if (connection) {
+      return {
+        ...base,
+        relation: "connected" as const,
+        contactId: sharedContactId(connection._id),
+      };
+    }
+    if (await pendingInviteBetween(ctx, account.ownerId, ownerId)) {
+      return { ...base, relation: "invitedYou" as const };
+    }
+    const sent = await pendingInviteBetween(ctx, ownerId, account.ownerId);
+    if (sent) {
+      return {
+        ...base,
+        relation: "invited" as const,
+        ...(sent.contactId !== undefined ? { contactId: sent.contactId } : {}),
+      };
+    }
+    return { ...base, relation: "none" as const };
+  },
+});
+
+/**
+ * Invites the account found by `findLendUser`. Until they accept, the
+ * inviter's entries with `contactId` stay private.
+ */
+export const sendLendInvite = mutation({
+  args: {
+    userId: v.id("accountEmails"),
+    /** The inviter's local contact whose history is shared once accepted. */
+    contactId: v.optional(v.string()),
+    /** What the inviter calls the person being invited. */
+    contactName: v.string(),
+  },
+  returns: v.object({ inviteId: v.id("lendInvites") }),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const ownerId = identity.tokenIdentifier;
+    const contactName = cleanName(args.contactName);
+    if (!contactName) throw new Error("Contact name is required");
+    const contactId = args.contactId?.trim() || undefined;
+    if (contactId?.startsWith(SHARED_CONTACT_PREFIX)) {
+      throw new Error("This contact is already shared");
+    }
+    const account = await ctx.db.get(args.userId);
+    if (!account) throw new Error("User not found");
+    const inviteeId = account.ownerId;
+    if (inviteeId === ownerId) throw new Error("You cannot invite yourself");
+    if (await findConnectionBetween(ctx, ownerId, inviteeId)) {
+      throw new Error("You already share a ledger with this person");
+    }
+    if (await pendingInviteBetween(ctx, inviteeId, ownerId)) {
+      throw new Error("They already invited you. Accept their invite in Lending");
+    }
+
+    const pending = await pendingInvitesFrom(ctx, ownerId);
+    // A new invite to the same person or for the same contact replaces the older one.
+    const replaced = pending.filter(
+      (invite) => invite.inviteeId === inviteeId || (contactId && invite.contactId === contactId),
+    );
+    if (pending.length - replaced.length >= MAX_PENDING_INVITES) {
+      throw new Error("Too many pending invites");
+    }
+    for (const invite of replaced) await ctx.db.patch(invite._id, { status: "revoked" });
+
+    const workspace = await loadWorkspace(ctx, ownerId, WORKSPACE_ID);
+    const inviteId = await ctx.db.insert("lendInvites", {
+      inviterId: ownerId,
+      inviterName: displayName(identity, workspace),
       inviteeId,
+      ...(contactId ? { contactId } : {}),
+      contactName,
+      status: "pending",
     });
+    return { inviteId };
   },
 });
 
 export const cancelLendInvite = mutation({
-  args: { code: v.string() },
+  args: { inviteId: v.id("lendInvites") },
   returns: v.null(),
-  handler: async (ctx, { code }) => {
+  handler: async (ctx, { inviteId }) => {
     const identity = await requireIdentity(ctx);
-    const invite = await findInvite(ctx, code);
+    const invite = await ctx.db.get(inviteId);
     if (!invite || invite.inviterId !== identity.tokenIdentifier) {
       throw new Error("Invite not found");
     }
@@ -597,41 +628,17 @@ export const cancelLendInvite = mutation({
   },
 });
 
-/** What the invitee sees before accepting. Expiry is enforced on accept. */
-export const previewLendInvite = query({
-  args: { code: v.string() },
-  returns: v.union(
-    v.null(),
-    v.object({
-      inviterName: v.string(),
-      status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("revoked")),
-      expiresAt: v.number(),
-      isOwnInvite: v.boolean(),
-    }),
-  ),
-  handler: async (ctx, { code }) => {
-    const identity = await requireIdentity(ctx);
-    const invite = await findInvite(ctx, code);
-    if (!invite) return null;
-    return {
-      inviterName: invite.inviterName,
-      status: invite.status,
-      expiresAt: invite.expiresAt,
-      isOwnInvite: invite.inviterId === identity.tokenIdentifier,
-    };
-  },
-});
-
-const invitePreviewValidator = v.object({
-  code: v.string(),
-  inviterName: v.string(),
-  expiresAt: v.number(),
-});
-
-/** Invites addressed to the caller by email. Callers filter out expired ones. */
+/** Invites waiting for the caller to accept or decline. */
 export const listIncomingLendInvites = query({
   args: {},
-  returns: v.array(invitePreviewValidator),
+  returns: v.array(
+    v.object({
+      inviteId: v.id("lendInvites"),
+      inviterName: v.string(),
+      inviterEmail: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
   handler: async (ctx) => {
     const identity = await requireIdentity(ctx);
     const invites = await ctx.db
@@ -640,52 +647,60 @@ export const listIncomingLendInvites = query({
         q.eq("inviteeId", identity.tokenIdentifier).eq("status", "pending"),
       )
       .take(LIST_LIMIT);
-    return invites.map((invite) => ({
-      code: invite.code,
-      inviterName: invite.inviterName,
-      expiresAt: invite.expiresAt,
-    }));
+    return await Promise.all(
+      invites.map(async (invite) => {
+        const inviterEmail = await verifiedEmailOf(ctx, invite.inviterId);
+        return {
+          inviteId: invite._id,
+          inviterName: invite.inviterName,
+          ...(inviterEmail !== undefined ? { inviterEmail } : {}),
+          createdAt: invite._creationTime,
+        };
+      }),
+    );
   },
 });
 
-/** Pending invites the caller sent, so a contact can show "Invite pending". */
+/** Pending invites the caller sent, so their contacts can show "Invited". */
 export const listOutgoingLendInvites = query({
   args: {},
   returns: v.array(
     v.object({
-      code: v.string(),
+      inviteId: v.id("lendInvites"),
       contactName: v.string(),
       contactId: v.optional(v.string()),
-      expiresAt: v.number(),
+      inviteeEmail: v.optional(v.string()),
+      createdAt: v.number(),
     }),
   ),
   handler: async (ctx) => {
     const identity = await requireIdentity(ctx);
-    const invites = await ctx.db
-      .query("lendInvites")
-      .withIndex("by_inviterId_and_status", (q) =>
-        q.eq("inviterId", identity.tokenIdentifier).eq("status", "pending"),
-      )
-      .take(MAX_PENDING_INVITES * 2);
-    return invites.map((invite) => ({
-      code: invite.code,
-      contactName: invite.contactName,
-      ...(invite.contactId !== undefined ? { contactId: invite.contactId } : {}),
-      expiresAt: invite.expiresAt,
-    }));
+    const invites = await pendingInvitesFrom(ctx, identity.tokenIdentifier);
+    return await Promise.all(
+      invites.map(async (invite) => {
+        const inviteeEmail = await verifiedEmailOf(ctx, invite.inviteeId);
+        return {
+          inviteId: invite._id,
+          contactName: invite.contactName,
+          ...(invite.contactId !== undefined ? { contactId: invite.contactId } : {}),
+          ...(inviteeEmail !== undefined ? { inviteeEmail } : {}),
+          createdAt: invite._creationTime,
+        };
+      }),
+    );
   },
 });
 
 export const declineLendInvite = mutation({
-  args: { code: v.string() },
+  args: { inviteId: v.id("lendInvites") },
   returns: v.null(),
-  handler: async (ctx, { code }) => {
+  handler: async (ctx, { inviteId }) => {
     const identity = await requireIdentity(ctx);
-    const invite = await findInvite(ctx, code);
+    const invite = await ctx.db.get(inviteId);
     if (!invite || invite.inviteeId !== identity.tokenIdentifier) {
       throw new Error("Invite not found");
     }
-    if (invite.status === "pending") await ctx.db.patch(invite._id, { status: "revoked" });
+    if (invite.status === "pending") await ctx.db.patch(invite._id, { status: "declined" });
     return null;
   },
 });
@@ -714,7 +729,7 @@ export const storeVerifiedEmail = internalMutation({
 
 export const acceptLendInvite = mutation({
   args: {
-    code: v.string(),
+    inviteId: v.id("lendInvites"),
     /** The accepter's existing local contact for the inviter, if any. */
     contactId: v.optional(v.string()),
     /** What the accepter calls the inviter. Defaults to the inviter's name. */
@@ -733,14 +748,9 @@ export const acceptLendInvite = mutation({
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
-    const invite = await findInvite(ctx, args.code);
-    if (!invite || invite.status !== "pending" || invite.expiresAt <= Date.now()) {
-      throw new Error("Invite is no longer valid");
-    }
-    if (invite.inviterId === ownerId) throw new Error("You cannot accept your own invite");
-    if (invite.inviteeId && invite.inviteeId !== ownerId) {
-      throw new Error("This invite was sent to someone else");
-    }
+    const invite = await ctx.db.get(args.inviteId);
+    if (!invite || invite.inviteeId !== ownerId) throw new Error("Invite not found");
+    if (invite.status !== "pending") throw new Error("Invite is no longer valid");
     if (await findConnectionBetween(ctx, invite.inviterId, ownerId)) {
       throw new Error("You already share a ledger with this person");
     }
@@ -757,11 +767,10 @@ export const acceptLendInvite = mutation({
       status: "active",
       createdAt: Date.now(),
     });
-    await ctx.db.patch(invite._id, {
-      status: "accepted",
-      acceptedBy: ownerId,
-      connectionId,
-    });
+    await ctx.db.patch(invite._id, { status: "accepted", connectionId });
+    // Any invite the accepter had sent the other way is now moot.
+    const reverse = await pendingInviteBetween(ctx, ownerId, invite.inviterId);
+    if (reverse) await ctx.db.patch(reverse._id, { status: "revoked" });
 
     const jobs: Array<{ ownerId: string; contactId: string; mode: "share" | "discard" }> = [];
     if (invite.contactId) {

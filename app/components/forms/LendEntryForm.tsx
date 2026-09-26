@@ -1,18 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import { localDateKey, localDateTimeTimestamp } from "@/lib/dates";
 import { symbolFor } from "@/lib/format";
 import { isSharedLendContact, type Lend, type LendKind } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { useLendingSharing } from "@/store/lending-sharing";
+import { useLendingSharing, type LendUser } from "@/store/lending-sharing";
+import { errorText } from "@/components/forms/LedgerSharingForms";
 import {
   recentLendContacts,
   settlementKind,
   settlementLimit,
   type LendDirection,
 } from "@/features/lending/selectors";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { DateField } from "@/components/ui/DateField";
@@ -76,6 +78,25 @@ function initialKind(target: LendEditorTarget): LendKind {
   return "lent";
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** A typed email looked up against Dimo accounts; `user` is null when none matched. */
+interface DimoLookup {
+  email: string;
+  user: LendUser | null;
+}
+
+function dimoUserNote(user: LendUser) {
+  switch (user.relation) {
+    case "self":
+      return "That’s your own account.";
+    case "invitedYou":
+      return `${user.name} already invited you. Accept their invite in Lending first.`;
+    default:
+      return null;
+  }
+}
+
 function amountText(amount: number) {
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
@@ -93,8 +114,9 @@ export function LendEntryForm({
   onDone: () => void;
 }) {
   const { lends, currency, weekStart } = useAppState("lends", "currency", "weekStart");
-  const { saveLend } = useAppActions();
-  const { connections } = useLendingSharing();
+  const { saveLend, showToast } = useAppActions();
+  const sharing = useLendingSharing();
+  const { connections, outgoingInvites } = sharing;
   const editing = target.mode === "edit" ? target.lend : null;
 
   const [kind, setKind] = useState<LendKind>(() => initialKind(target));
@@ -109,9 +131,41 @@ export function LendEntryForm({
   );
   const [amount, setAmount] = useState(() => (editing ? amountText(editing.amount) : ""));
   const [comment, setComment] = useState(() => editing?.comment ?? "");
+  // The Dimo account picked from an email lookup; saving invites them.
+  const [dimoUser, setDimoUser] = useState<LendUser | null>(null);
+  const [lookup, setLookup] = useState<DimoLookup | null>(null);
 
   const settling = kind === "repaid" || kind === "returned";
   const contactLocked = target.mode !== "new";
+  const typedEmail = contactName.trim().toLowerCase();
+  const searchable =
+    !contactLocked && !dimoUser && sharing.sharingAvailable && EMAIL_PATTERN.test(typedEmail);
+  const currentLookup = searchable && lookup?.email === typedEmail ? lookup : null;
+
+  // Typing an email looks for the Dimo account that uses it.
+  useEffect(() => {
+    if (!searchable) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      sharing
+        .findUser(typedEmail)
+        .then((user) => {
+          if (!cancelled) setLookup({ email: typedEmail, user });
+        })
+        .catch(() => undefined);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchable, typedEmail, sharing]);
+
+  function pickDimoUser(user: LendUser) {
+    setDimoUser(user);
+    setContactName(user.name);
+    // Reuse the shared ledger or the contact a pending invite is for.
+    setContactId(user.contactId ?? null);
+  }
 
   const suggestions = useMemo(() => {
     const recent = recentLendContacts(lends, 8);
@@ -121,8 +175,15 @@ export function LendEntryForm({
         recent.push({ contactName: connection.contactName, contactId: connection.contactId });
       }
     }
+    // Someone invited before any entries were recorded with them.
+    for (const invite of outgoingInvites) {
+      const { contactId } = invite;
+      if (contactId && !recent.some((suggestion) => suggestion.contactId === contactId)) {
+        recent.push({ contactName: invite.contactName, contactId });
+      }
+    }
     return recent;
-  }, [lends, connections]);
+  }, [lends, connections, outgoingInvites]);
 
   const limit = contactId
     ? settlementLimit(kind, contactId, lends, editing?.id)
@@ -146,17 +207,27 @@ export function LendEntryForm({
         : date === today
           ? Date.now()
           : localDateTimeTimestamp(date, "12:00");
+    // A newly typed name starts a new person; ids are opaque.
+    const savedContactId = contactId ?? `contact_${crypto.randomUUID()}`;
     const saved = saveLend({
       ...(editing ? { id: editing.id } : {}),
-      // A newly typed name starts a new person; ids are opaque.
-      contactId: contactId ?? `contact_${crypto.randomUUID()}`,
+      contactId: savedContactId,
       contactName,
       kind,
       amount: parsed,
       occurredAt,
       comment,
     });
-    if (saved) onDone();
+    if (!saved) return;
+    // The entry stays private until they accept; accepting shares it.
+    if (dimoUser?.relation === "none") {
+      const name = contactName.trim() || dimoUser.name;
+      sharing
+        .sendInvite({ userId: dimoUser.userId, contactId: savedContactId, contactName: name })
+        .then(() => showToast(`Invite sent to ${name}`))
+        .catch((cause) => showToast(`Saved, but the invite failed: ${errorText(cause)}`));
+    }
+    onDone();
   }
 
   return (
@@ -179,11 +250,47 @@ export function LendEntryForm({
               onChange={(event) => {
                 setContactName(event.target.value);
                 setContactId(null);
+                setDimoUser(null);
               }}
-              placeholder="Their name"
+              placeholder="Their name or Dimo email"
               className="w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint"
             />
-            {suggestions.length > 0 ? (
+            {currentLookup?.user && !dimoUserNote(currentLookup.user) ? (
+              <button
+                type="button"
+                onClick={() => currentLookup.user && pickDimoUser(currentLookup.user)}
+                className="mt-2 flex w-full items-center gap-3 rounded-xl border border-green/50 bg-surface px-3 py-2.5 text-left"
+              >
+                <Avatar
+                  initial={currentLookup.user.name.charAt(0).toUpperCase()}
+                  size={32}
+                  radius={10}
+                  textClassName="text-xs"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-ink">
+                    {currentLookup.user.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted">
+                    {currentLookup.user.email}
+                  </span>
+                </span>
+                <span className="shrink-0 text-xs font-medium text-green">
+                  {currentLookup.user.relation === "connected"
+                    ? "Shared"
+                    : currentLookup.user.relation === "invited"
+                      ? "Invited"
+                      : "On Dimo"}
+                </span>
+              </button>
+            ) : null}
+            {currentLookup?.user && dimoUserNote(currentLookup.user) ? (
+              <p className="mt-1.5 text-xs text-muted">{dimoUserNote(currentLookup.user)}</p>
+            ) : null}
+            {currentLookup && !currentLookup.user ? (
+              <p className="mt-1.5 text-xs text-muted">No Dimo account uses this email.</p>
+            ) : null}
+            {suggestions.length > 0 && !searchable && !dimoUser ? (
               <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                 {suggestions.map((suggestion) => (
                   <Chip
@@ -204,6 +311,12 @@ export function LendEntryForm({
         {shared ? (
           <p className="mt-1.5 text-xs text-green">
             Shared ledger — {contactName} sees this entry too.
+          </p>
+        ) : dimoUser ? (
+          <p className="mt-1.5 text-xs text-muted">
+            {dimoUser.relation === "invited"
+              ? `Invited ${dimoUser.email}. This entry is shared once they accept.`
+              : `Saving invites ${dimoUser.email}. This entry stays private until they accept.`}
           </p>
         ) : null}
       </div>

@@ -4,6 +4,7 @@ import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.RecurringFrequency
 import app.dimo.android.domain.DateHelpers
+import app.dimo.android.sync.LendUser
 import java.time.Instant
 import java.time.LocalDate
 
@@ -51,4 +52,12 @@ data class LendDraft(
   val amount: String = "",
   val date: Instant = Instant.now(),
   val comment: String = "",
+  /** A Dimo account picked by email; saving the entry invites them. */
+  val invite: LendDraftInvite? = null,
 )
+
+/**
+ * The Dimo account a new lend's contact was found as, and the contactId
+ * generated for them so the entry is shared once they accept.
+ */
+data class LendDraftInvite(val user: LendUser, val contactId: String)

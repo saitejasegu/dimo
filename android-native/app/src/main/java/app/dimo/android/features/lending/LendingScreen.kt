@@ -12,13 +12,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.outlined.IosShare
@@ -70,6 +70,7 @@ import app.dimo.android.features.common.ScreenContentPadding
 import app.dimo.android.store.AppStore
 import app.dimo.android.store.LedgerSharingSheet
 import app.dimo.android.sync.IncomingLendInvite
+import app.dimo.android.sync.OutgoingLendInvite
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -98,6 +99,13 @@ fun LendingScreen(
   val contactPhotos = rememberContactPhotoUris()
   val sharing = store.lendingSharing
   val scope = rememberCoroutineScope()
+  fun cancelInvite(invite: OutgoingLendInvite) {
+    scope.launch {
+      runCatching { sharing.cancel(invite) }
+        .onSuccess { store.showToast("Invite cancelled") }
+        .onFailure { store.showToast(it.message ?: "Couldn’t cancel the invite") }
+    }
+  }
   var stopSharingTarget by remember { mutableStateOf<LendContactSummary?>(null) }
 
   // A fresh section starts at the first page, matching the iOS reset.
@@ -131,7 +139,6 @@ fun LendingScreen(
       ScreenHeader(
         title = "Lending",
         modifier = Modifier.statusBarsPadding(),
-        trailing = { SharingMenu(store) },
       )
       HeroCard(modifier = Modifier.padding(top = 16.dp)) {
         Row(
@@ -180,9 +187,26 @@ fun LendingScreen(
       store.syncMeta?.error?.let { error ->
         item("sync-error") { SyncErrorBanner(error) }
       }
-      items(sharing.liveIncomingInvites(), key = { "invite-${it.code}" }) { invite ->
-        IncomingInviteBanner(invite) {
-          sharing.sheet = LedgerSharingSheet.Join(invite.code)
+      items(sharing.incomingInvites, key = { "invite-${it.inviteId}" }) { invite ->
+        IncomingInviteBanner(
+          invite = invite,
+          onAccept = { sharing.sheet = LedgerSharingSheet.Accept(invite) },
+          onDecline = {
+            scope.launch {
+              runCatching { sharing.decline(invite) }
+                .onSuccess { store.showToast("Invite declined") }
+                .onFailure { store.showToast(it.message ?: "Couldn’t decline the invite") }
+            }
+          },
+        )
+      }
+      if (section == LendingSection.Summary) {
+        // Sent invites whose contact has no outstanding balance to show a row for.
+        val invitedOnly = sharing.outgoingInvites.filter { invite ->
+          summaries.none { it.contactId == invite.contactId }
+        }
+        items(invitedOnly, key = { "invited-${it.inviteId}" }) { invite ->
+          InvitedRow(invite) { cancelInvite(invite) }
         }
       }
 
@@ -213,6 +237,7 @@ fun LendingScreen(
                 summary = summary,
                 photoUri = contactPhotos[summary.contactId],
                 onStopSharing = { stopSharingTarget = summary },
+                onCancelInvite = ::cancelInvite,
               )
             }
           }
@@ -271,78 +296,107 @@ fun LendingScreen(
 }
 
 @Composable
-private fun SharingMenu(store: AppStore) {
-  var expanded by remember { mutableStateOf(false) }
-  Box {
-    Box(
-      modifier = Modifier
-        .size(44.dp)
-        .clickable { expanded = true },
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(
-        imageVector = Icons.Filled.GroupAdd,
-        contentDescription = "Shared ledgers",
-        tint = DimoColors.green,
-        modifier = Modifier.size(22.dp),
-      )
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-      DropdownMenuItem(
-        text = { Text("Share a ledger", style = DimoFont.body(14f), color = DimoColors.ink) },
-        onClick = {
-          expanded = false
-          store.lendingSharing.sheet = LedgerSharingSheet.Invite(contactId = null, contactName = "")
-        },
-      )
-      DropdownMenuItem(
-        text = { Text("Join with a code", style = DimoFont.body(14f), color = DimoColors.ink) },
-        onClick = {
-          expanded = false
-          store.lendingSharing.sheet = LedgerSharingSheet.Join(code = "")
-        },
-      )
-    }
-  }
-}
-
-@Composable
-private fun IncomingInviteBanner(invite: IncomingLendInvite, onClick: () -> Unit) {
-  Row(
+private fun IncomingInviteBanner(
+  invite: IncomingLendInvite,
+  onAccept: () -> Unit,
+  onDecline: () -> Unit,
+) {
+  Column(
     modifier = Modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(14.dp))
       .background(DimoColors.surface)
       .border(1.dp, DimoColors.green.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-      .clickable(onClick = onClick)
+      .padding(12.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Box(
+        modifier = Modifier
+          .size(38.dp)
+          .clip(RoundedCornerShape(11.dp))
+          .background(DimoColors.greenSoft),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(Icons.Filled.People, contentDescription = null, tint = DimoColors.green, modifier = Modifier.size(18.dp))
+      }
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+          text = "${invite.inviterName} wants to share a ledger",
+          style = DimoFont.body(14f, FontWeight.Medium),
+          color = DimoColors.ink,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        invite.inviterEmail?.let {
+          Text(text = it, style = DimoFont.body(12f), color = DimoColors.muted, maxLines = 1)
+        }
+      }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      InviteAction("Decline", primary = false, modifier = Modifier.weight(1f), onClick = onDecline)
+      InviteAction("Accept", primary = true, modifier = Modifier.weight(1f), onClick = onAccept)
+    }
+  }
+}
+
+@Composable
+private fun InviteAction(title: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
+  Box(
+    modifier = modifier
+      .height(38.dp)
+      .clip(RoundedCornerShape(50))
+      .background(if (primary) DimoColors.green else DimoColors.canvas)
+      .border(1.dp, if (primary) DimoColors.green else DimoColors.line, RoundedCornerShape(50))
+      .clickable(onClick = onClick),
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      text = title,
+      style = DimoFont.body(14f, FontWeight.SemiBold),
+      color = if (primary) DimoColors.onGreen else DimoColors.ink,
+    )
+  }
+}
+
+@Composable
+private fun InvitedRow(invite: OutgoingLendInvite, onCancel: () -> Unit) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .cardSurface(14.dp)
       .padding(12.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    Box(
-      modifier = Modifier
-        .size(38.dp)
-        .clip(RoundedCornerShape(11.dp))
-        .background(DimoColors.greenSoft),
-      contentAlignment = Alignment.Center,
-    ) {
-      Icon(Icons.Filled.People, contentDescription = null, tint = DimoColors.green, modifier = Modifier.size(18.dp))
-    }
+    ContactAvatar(name = invite.contactName, photoUri = null, size = 38.dp, radius = 11.dp, fontSize = 15f)
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
-        text = "${invite.inviterName} wants to share a ledger",
+        text = invite.contactName,
         style = DimoFont.body(14f, FontWeight.Medium),
         color = DimoColors.ink,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
-      Text(text = "Tap to review", style = DimoFont.body(12f), color = DimoColors.muted)
+      Text(
+        text = "Invited · ${invite.inviteeEmail ?: "waiting for them to accept"}",
+        style = DimoFont.body(12f),
+        color = DimoColors.muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
     }
-    Icon(
-      Icons.AutoMirrored.Filled.KeyboardArrowRight,
-      contentDescription = null,
-      tint = DimoColors.faint,
-      modifier = Modifier.size(18.dp),
+    Text(
+      text = "Cancel",
+      style = DimoFont.body(13f, FontWeight.Medium),
+      color = DimoColors.muted,
+      modifier = Modifier
+        .clip(RoundedCornerShape(8.dp))
+        .clickable(onClick = onCancel)
+        .padding(horizontal = 6.dp, vertical = 4.dp),
     )
   }
 }
@@ -373,6 +427,7 @@ private fun ContactSummaryRow(
   summary: LendContactSummary,
   photoUri: String?,
   onStopSharing: () -> Unit,
+  onCancelInvite: (OutgoingLendInvite) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val context = LocalContext.current
@@ -385,7 +440,7 @@ private fun ContactSummaryRow(
   val pendingInvite = sharing.pendingInvite(summary.contactId)
   val sharingLabel = when {
     summary.isShared -> "Shared · "
-    pendingInvite != null -> "Invite sent · "
+    pendingInvite != null -> "Invited · "
     else -> ""
   }
 
@@ -451,18 +506,12 @@ private fun ContactSummaryRow(
               },
             )
           }
-        } else {
+        } else if (pendingInvite != null) {
           DropdownMenuItem(
-            text = {
-              Text(
-                if (pendingInvite == null) "Share ledger with ${summary.contactName}" else "View invite",
-                style = DimoFont.body(14f),
-                color = DimoColors.ink,
-              )
-            },
+            text = { Text("Cancel invite", style = DimoFont.body(14f), color = DimoColors.danger) },
             onClick = {
               menuOpen = false
-              sharing.sheet = LedgerSharingSheet.Invite(summary.contactId, summary.contactName)
+              onCancelInvite(pendingInvite)
             },
           )
         }

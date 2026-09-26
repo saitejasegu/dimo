@@ -1,6 +1,5 @@
 package app.dimo.android.sync
 
-import android.net.Uri
 import app.dimo.android.auth.WorkOSSession
 import dev.convex.android.ConvexClientWithAuth
 import kotlinx.coroutines.flow.first
@@ -16,32 +15,38 @@ import kotlinx.serialization.json.JsonNull
  * Collaborative lending calls (`convex/lending.ts`). Port of
  * `ios-native/Dimo/Sync/LendingSharingTransport.swift`.
  */
+/** A Dimo account found by its verified email. */
 @Serializable
-data class LendInviteCode(val code: String, val expiresAt: Double)
+data class LendUser(
+  val userId: String,
+  val name: String,
+  val email: String,
+  /** `none`, `self`, `connected`, `invited` or `invitedYou`. */
+  val relation: String,
+  /**
+   * Your contactId for them: the shared ledger when connected, or the contact
+   * a pending invite is for.
+   */
+  val contactId: String? = null,
+)
 
+/** An invite waiting for this account to accept or decline. */
 @Serializable
-data class LendInvitePreview(
+data class IncomingLendInvite(
+  val inviteId: String,
   val inviterName: String,
-  /** `pending`, `accepted` or `revoked`. */
-  val status: String,
-  val expiresAt: Double,
-  val isOwnInvite: Boolean,
-) {
-  fun isAcceptable(nowMillis: Long = System.currentTimeMillis()): Boolean =
-    status == "pending" && !isOwnInvite && expiresAt > nowMillis
-}
+  val inviterEmail: String? = null,
+  val createdAt: Double,
+)
 
-/** An invite addressed to this account by its verified email. */
-@Serializable
-data class IncomingLendInvite(val code: String, val inviterName: String, val expiresAt: Double)
-
-/** An invite this account sent that nobody has accepted yet. */
+/** An invite this account sent that hasn't been accepted yet. */
 @Serializable
 data class OutgoingLendInvite(
-  val code: String,
+  val inviteId: String,
   val contactName: String,
   val contactId: String? = null,
-  val expiresAt: Double,
+  val inviteeEmail: String? = null,
+  val createdAt: Double,
 )
 
 @Serializable
@@ -78,77 +83,32 @@ enum class LendHistoryChoice(val wire: String) {
   ACCEPTER("accepter"),
 }
 
-object LendInviteLinks {
-  const val WEB_BASE = "https://dimoapp.xyz/invite"
-
-  fun webUrl(code: String): String = "$WEB_BASE?code=$code"
-
-  /** Same normalisation as the server: uppercase ASCII letters and digits only. */
-  fun normalize(code: String): String =
-    code.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }
-
-  /** Accepts `dimo://invite/CODE`, `dimo://invite?code=CODE` and the web link. */
-  fun code(scheme: String?, host: String?, path: String?, codeParam: String?): String? {
-    val isInvite = when (scheme) {
-      "dimo" -> host == "invite"
-      "https" -> host == "dimoapp.xyz" && path.orEmpty().startsWith("/invite")
-      else -> false
-    }
-    if (!isInvite) return null
-    val pathCode = if (scheme == "dimo") {
-      path.orEmpty().trim('/').split('/').lastOrNull()?.takeIf { it.isNotEmpty() && it != "invite" }
-    } else {
-      null
-    }
-    return (codeParam ?: pathCode)?.let(::normalize)?.takeIf { it.isNotEmpty() }
-  }
-
-  fun code(uri: Uri): String? =
-    code(uri.scheme, uri.host, uri.path, uri.getQueryParameter("code"))
-
-  fun grouped(code: String): String =
-    if (code.length == 10) "${code.take(5)}-${code.takeLast(5)}" else code
-
-  /** Plain-text invite for `ACTION_SEND`, matching the iOS share sheet. */
-  fun message(inviterName: String, code: String): String =
-    "$inviterName wants to keep a shared lending ledger with you on Dimo.\n\n" +
-      "Open ${webUrl(code)}\n" +
-      "or enter code ${grouped(code)} in Dimo → Lending → Join."
-}
-
 class LendingSharingTransport(
   private val client: ConvexClientWithAuth<WorkOSSession>,
 ) {
   private val json = Json { ignoreUnknownKeys = true }
 
-  suspend fun createInvite(contactId: String?, contactName: String, email: String?): LendInviteCode {
-    val args = buildMap<String, Any?> {
-      put("contactName", contactName)
-      if (contactId != null) put("contactId", contactId)
-      if (!email.isNullOrEmpty()) put("email", email)
-    }
-    val path = if (email.isNullOrEmpty()) {
-      "lending:createLendInvite"
-    } else {
-      "lending:inviteLendContactByEmail"
-    }
-    return decode(LendInviteCode.serializer(), mutation(path, args))
+  suspend fun findUser(email: String): LendUser? {
+    val element = query("lending:findLendUser", mapOf("email" to email))
+    if (element == null || element is JsonNull) return null
+    return decode(LendUser.serializer(), element)
   }
 
-  suspend fun preview(code: String): LendInvitePreview? {
-    val element = query("lending:previewLendInvite", mapOf("code" to code))
-    if (element == null || element is JsonNull) return null
-    return decode(LendInvitePreview.serializer(), element)
+  suspend fun sendInvite(userId: String, contactId: String, contactName: String) {
+    mutation(
+      "lending:sendLendInvite",
+      mapOf("userId" to userId, "contactId" to contactId, "contactName" to contactName),
+    )
   }
 
   suspend fun accept(
-    code: String,
+    inviteId: String,
     contactId: String?,
     contactName: String?,
     history: LendHistoryChoice,
   ): AcceptedLendInvite {
     val args = buildMap<String, Any?> {
-      put("code", code)
+      put("inviteId", inviteId)
       put("history", history.wire)
       if (contactId != null) put("contactId", contactId)
       if (!contactName.isNullOrEmpty()) put("contactName", contactName)
@@ -156,12 +116,12 @@ class LendingSharingTransport(
     return decode(AcceptedLendInvite.serializer(), mutation("lending:acceptLendInvite", args))
   }
 
-  suspend fun decline(code: String) {
-    mutation("lending:declineLendInvite", mapOf("code" to code))
+  suspend fun decline(inviteId: String) {
+    mutation("lending:declineLendInvite", mapOf("inviteId" to inviteId))
   }
 
-  suspend fun cancel(code: String) {
-    mutation("lending:cancelLendInvite", mapOf("code" to code))
+  suspend fun cancel(inviteId: String) {
+    mutation("lending:cancelLendInvite", mapOf("inviteId" to inviteId))
   }
 
   suspend fun revoke(connectionId: String) {

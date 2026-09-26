@@ -1,8 +1,8 @@
 /**
- * Reads the caller's verified sign-in email from WorkOS so lending invites can
- * be addressed by email. The address never comes from the client: workspace
- * and preference emails are client-settable and would let anyone claim
- * someone else's invites.
+ * Reads the caller's verified sign-in email from WorkOS so other people can
+ * find this account to share a lending ledger. The address never comes from
+ * the client: workspace and preference emails are client-settable and would
+ * let anyone pose as someone else.
  */
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";

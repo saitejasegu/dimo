@@ -698,11 +698,18 @@ class AppStore(
       createdBy = if (shared) existing?.createdBy ?: LendActor.ME else existing?.createdBy,
       lastEditedBy = if (shared) LendActor.ME else existing?.lastEditedBy,
     )
+    val invite = lendDraft.invite?.takeIf { it.contactId == contactId && existing == null }
     viewModelScope.launch {
       repository?.saveEntity(EntityPayload.Lend(entity))
       closeOverlay()
       val noun = lendNoun(kind)
       showToast(if (existing == null) "$noun saved" else "$noun updated")
+      // The entry stays private until they accept; accepting shares it.
+      if (invite != null) {
+        runCatching { lendingSharing.sendInvite(invite.user, contactId, contact) }
+          .onSuccess { showToast("Invite sent to $contact") }
+          .onFailure { showToast("Saved, but the invite failed: ${it.message}") }
+      }
     }
   }
 

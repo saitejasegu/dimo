@@ -147,32 +147,28 @@ export default defineSchema({
     .index("by_memberA_and_memberB", ["memberA", "memberB"])
     .index("by_memberB_and_memberA", ["memberB", "memberA"]),
 
-  /** Single-use code that lets another account join the inviter's ledger. */
+  /** A request to share a lending ledger with the account that verified an
+   * email. Only the invitee may accept or decline it. */
   lendInvites: defineTable({
-    code: v.string(),
     inviterId: v.string(),
     inviterName: v.string(),
+    inviteeId: v.string(),
     /** Inviter's local contact whose history is shared on accept. */
     contactId: v.optional(v.string()),
     contactName: v.string(),
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),
+      v.literal("declined"),
       v.literal("revoked"),
     ),
-    expiresAt: v.number(),
-    acceptedBy: v.optional(v.string()),
     connectionId: v.optional(v.id("lendConnections")),
-    /** Set when the invite was addressed to an account by verified email;
-     * only that account may accept it, and it shows in their Lending tab. */
-    inviteeId: v.optional(v.string()),
   })
-    .index("by_code", ["code"])
     .index("by_inviterId_and_status", ["inviterId", "status"])
     .index("by_inviteeId_and_status", ["inviteeId", "status"]),
 
   /** Verified sign-in email per account, read from WorkOS by the server so
-   * clients cannot claim someone else's address. Used to address invites. */
+   * clients cannot claim someone else's address. Used to find people to invite. */
   accountEmails: defineTable({
     ownerId: v.string(),
     email: v.string(),

@@ -1,19 +1,14 @@
 import Foundation
 import Observation
 
-/// Which sharing sheet is open. Presented from the tab shell so a deep link can
-/// open it before the Lending tab has ever been visited.
+/// Which sharing sheet is open. Presented from the tab shell.
 enum LedgerSharingSheet: Identifiable, Equatable {
-  /// Invite someone to share a ledger, optionally for an existing contact.
-  case invite(contactId: String?, contactName: String)
-  /// Join a ledger with a code, optionally prefilled from a link or an
-  /// email-addressed invite.
-  case join(code: String)
+  /// Accept or decline an invite someone sent.
+  case accept(IncomingLendInvite)
 
   var id: String {
     switch self {
-    case .invite(let contactId, let contactName): return "invite-\(contactId ?? contactName)"
-    case .join(let code): return "join-\(code)"
+    case .accept(let invite): return "accept-\(invite.inviteId)"
     }
   }
 }
@@ -30,8 +25,8 @@ final class LendingSharingStore {
   /// Verified sign-in email the server knows for this account, if any.
   private(set) var verifiedEmail: String?
   /// False when the server cannot look up verified emails (no WorkOS API key),
-  /// in which case invites can only be shared as a link or code.
-  private(set) var emailInvitesAvailable = true
+  /// in which case nobody can be found to share with.
+  private(set) var sharingAvailable = true
   var sheet: LedgerSharingSheet?
 
   private var transport: LendingSharingTransport?
@@ -58,23 +53,17 @@ final class LendingSharingStore {
 
   /// A pending invite already sent for this local contact.
   func pendingInvite(contactId: String) -> OutgoingLendInvite? {
-    let now = Date().timeIntervalSince1970 * 1000
-    return outgoingInvites.first { $0.contactId == contactId && $0.expiresAt > now }
-  }
-
-  var liveIncomingInvites: [IncomingLendInvite] {
-    let now = Date().timeIntervalSince1970 * 1000
-    return incomingInvites.filter { $0.expiresAt > now }
+    outgoingInvites.first { $0.contactId == contactId }
   }
 
   /// Reloads invites and connections, and records the verified email once per
-  /// session so email-addressed invites can reach this account.
+  /// session so other people can find this account.
   func refresh() async {
     guard let transport else { return }
     if !didRefreshEmail {
       didRefreshEmail = true
       if let result = try? await transport.refreshVerifiedEmail() {
-        emailInvitesAvailable = result.available
+        sharingAvailable = result.available
         verifiedEmail = result.email
       } else {
         didRefreshEmail = false
@@ -88,46 +77,46 @@ final class LendingSharingStore {
     if let value = try? await outgoing { self.outgoingInvites = value }
   }
 
-  func createInvite(contactId: String?, contactName: String, email: String?) async throws -> LendInviteCode {
-    let transport = try requireTransport()
-    let trimmedEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let invite = try await transport.createInvite(
-      contactId: contactId,
-      contactName: contactName.trimmingCharacters(in: .whitespacesAndNewlines),
-      email: (trimmedEmail?.isEmpty == false) ? trimmedEmail : nil
+  func findUser(email: String) async throws -> LendUser? {
+    try await requireTransport().findUser(
+      email: email.trimmingCharacters(in: .whitespacesAndNewlines)
     )
-    await refresh()
-    return invite
   }
 
-  func preview(code: String) async throws -> LendInvitePreview? {
-    try await requireTransport().preview(code: LendInviteLinks.normalize(code))
+  /// Invites `user`; entries with `contactId` are shared once they accept.
+  func sendInvite(to user: LendUser, contactId: String, contactName: String) async throws {
+    let name = contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+    try await requireTransport().sendInvite(
+      userId: user.userId,
+      contactId: contactId,
+      contactName: name.isEmpty ? user.name : name
+    )
+    await refresh()
   }
 
   func accept(
-    code: String,
+    _ invite: IncomingLendInvite,
     contactId: String?,
     contactName: String?,
     history: LendHistoryChoice
-  ) async throws -> AcceptedLendInvite {
-    let accepted = try await requireTransport().accept(
-      code: LendInviteLinks.normalize(code),
+  ) async throws {
+    _ = try await requireTransport().accept(
+      inviteId: invite.inviteId,
       contactId: contactId,
       contactName: contactName,
       history: history
     )
     await refresh()
     onLedgerChanged?()
-    return accepted
   }
 
-  func decline(code: String) async throws {
-    try await requireTransport().decline(code: code)
+  func decline(_ invite: IncomingLendInvite) async throws {
+    try await requireTransport().decline(inviteId: invite.inviteId)
     await refresh()
   }
 
-  func cancel(code: String) async throws {
-    try await requireTransport().cancel(code: code)
+  func cancel(_ invite: OutgoingLendInvite) async throws {
+    try await requireTransport().cancel(inviteId: invite.inviteId)
     await refresh()
   }
 

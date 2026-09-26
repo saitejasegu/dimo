@@ -130,7 +130,7 @@ period-offset family. This is the single largest functional gap outside Email.
 | Share unsettled cycle as plain text | ✅ `UIActivityViewController` | ✅ `ACTION_SEND`, byte-compatible format |
 | **Contact photos in list rows** | ✅ `ContactsLoader.thumbnailImage(contactId:)` | ❌ initials only — photos appear only in the contact picker (`LendSheet.kt:316`) |
 | History pagination | ✅ `LendSelectors.paginateByDay` | ❌ renders every lend |
-| Shared ledgers (invite by link/code/email, join, stop sharing) | ✅ `LendingSharingStore`, `LedgerSharingSheets.swift` | ✅ `LendingSharingStore.kt`, `LedgerSharingSheets.kt` |
+| Shared ledgers (Dimo email in add-lend contact search invites, accept/decline, stop sharing) | ✅ `LendingSharingStore`, `LedgerSharingSheets.swift` | ✅ `LendingSharingStore.kt`, `LedgerSharingSheets.kt` |
 | "Added by / Edited by" on shared entries, per-entry currency | ✅ | ✅ |
 
 > `AGENTS.md` (Platform rules → Lending) still says Android coerces unknown

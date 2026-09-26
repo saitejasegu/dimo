@@ -2,51 +2,15 @@ import XCTest
 @testable import Dimo
 
 final class LendSharingTests: XCTestCase {
-  func testInviteLinksParseEverySupportedForm() {
-    XCTAssertEqual(
-      LendInviteLinks.code(from: URL(string: "dimo://invite/abcde-23456")!),
-      "ABCDE23456"
-    )
-    XCTAssertEqual(
-      LendInviteLinks.code(from: URL(string: "dimo://invite?code=ABCDE23456")!),
-      "ABCDE23456"
-    )
-    XCTAssertEqual(
-      LendInviteLinks.code(from: URL(string: "https://dimoapp.xyz/invite?code=abcde23456")!),
-      "ABCDE23456"
-    )
-    XCTAssertNil(LendInviteLinks.code(from: URL(string: "https://example.com/invite?code=ABCDE23456")!))
-    XCTAssertNil(LendInviteLinks.code(from: URL(string: "dimo://widget/add-expense")!))
-    XCTAssertNil(LendInviteLinks.code(from: URL(string: "dimo://invite")!))
-  }
-
-  func testInviteMessageCarriesLinkAndGroupedCode() {
-    let message = LendInviteLinks.message(inviterName: "Alice", code: "ABCDE23456")
-    XCTAssertTrue(message.contains("https://dimoapp.xyz/invite?code=ABCDE23456"))
-    XCTAssertTrue(message.contains("ABCDE-23456"))
-    XCTAssertTrue(message.hasPrefix("Alice wants"))
-  }
-
   func testLendingPermissionErrorsAreBlockedNotRetried() {
     XCTAssertTrue(isPermanentSyncError("Uncaught Error: Not a member of this lending connection"))
     XCTAssertTrue(isPermanentSyncError("Unknown lending connection"))
     XCTAssertTrue(isPermanentSyncError("Lend id collides with an unshared entry"))
   }
 
-  func testPreviewAcceptability() {
-    let future = (Date().timeIntervalSince1970 + 3_600) * 1000
-    let past = (Date().timeIntervalSince1970 - 3_600) * 1000
-    let pending = LendInvitePreview(inviterName: "A", status: "pending", expiresAt: future, isOwnInvite: false)
-    XCTAssertTrue(pending.isAcceptable)
-    var own = pending
-    own.isOwnInvite = true
-    XCTAssertFalse(own.isAcceptable)
-    var expired = pending
-    expired.expiresAt = past
-    XCTAssertFalse(expired.isAcceptable)
-    var used = pending
-    used.status = "accepted"
-    XCTAssertFalse(used.isAcceptable)
+  func testSheetIdsDistinguishInvites() {
+    let invite = IncomingLendInvite(inviteId: "i1", inviterName: "A", inviterEmail: nil, createdAt: 0)
+    XCTAssertEqual(LedgerSharingSheet.accept(invite).id, "accept-i1")
   }
 
   func testWireDecodesSharingMetadataAndEncodesOnlyCurrency() throws {

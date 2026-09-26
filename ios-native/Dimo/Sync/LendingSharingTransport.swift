@@ -1,44 +1,37 @@
 import ConvexMobile
 import Foundation
 
-/// Invite code handed out by `createLendInvite` / `inviteLendContactByEmail`.
-struct LendInviteCode: Decodable, Sendable, Equatable {
-  var code: String
-  var expiresAt: Double
-
-  /// Shareable link; the web app handles it and native apps accept the code.
-  var link: URL { LendInviteLinks.webURL(code: code) }
+/// A Dimo account found by its verified email.
+struct LendUser: Decodable, Sendable, Equatable {
+  var userId: String
+  var name: String
+  var email: String
+  /// `none`, `self`, `connected`, `invited` or `invitedYou`.
+  var relation: String
+  /// Your contactId for them: the shared ledger when connected, or the
+  /// contact a pending invite is for.
+  var contactId: String?
 }
 
-struct LendInvitePreview: Decodable, Sendable, Equatable {
-  var inviterName: String
-  /// `pending`, `accepted` or `revoked`.
-  var status: String
-  var expiresAt: Double
-  var isOwnInvite: Bool
-
-  var isAcceptable: Bool {
-    status == "pending" && !isOwnInvite && expiresAt > Date().timeIntervalSince1970 * 1000
-  }
-}
-
-/// An invite addressed to this account by its verified email.
+/// An invite waiting for this account to accept or decline.
 struct IncomingLendInvite: Decodable, Sendable, Identifiable, Equatable {
-  var code: String
+  var inviteId: String
   var inviterName: String
-  var expiresAt: Double
+  var inviterEmail: String?
+  var createdAt: Double
 
-  var id: String { code }
+  var id: String { inviteId }
 }
 
-/// An invite this account sent that nobody has accepted yet.
+/// An invite this account sent that hasn't been accepted yet.
 struct OutgoingLendInvite: Decodable, Sendable, Identifiable, Equatable {
-  var code: String
+  var inviteId: String
   var contactName: String
   var contactId: String?
-  var expiresAt: Double
+  var inviteeEmail: String?
+  var createdAt: Double
 
-  var id: String { code }
+  var id: String { inviteId }
 }
 
 struct LendConnectionSummary: Decodable, Sendable, Identifiable, Equatable {
@@ -53,6 +46,10 @@ struct LendConnectionSummary: Decodable, Sendable, Identifiable, Equatable {
 
   var id: String { connectionId }
   var isActive: Bool { status == "active" }
+}
+
+struct SentLendInvite: Decodable, Sendable {
+  var inviteId: String
 }
 
 struct AcceptedLendInvite: Decodable, Sendable {
@@ -76,51 +73,6 @@ enum LendHistoryChoice: String, CaseIterable, Identifiable, Sendable {
   var id: String { rawValue }
 }
 
-enum LendInviteLinks {
-  static let webBase = "https://dimoapp.xyz/invite"
-
-  static func webURL(code: String) -> URL {
-    var components = URLComponents(string: webBase)!
-    components.queryItems = [URLQueryItem(name: "code", value: code)]
-    return components.url!
-  }
-
-  /// Accepts `dimo://invite/CODE`, `dimo://invite?code=CODE` and the web link.
-  static func code(from url: URL) -> String? {
-    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-    let queryCode = components?.queryItems?.first { $0.name == "code" }?.value
-    let isInviteURL: Bool
-    switch url.scheme {
-    case "dimo":
-      isInviteURL = url.host == "invite"
-    case "https":
-      isInviteURL = url.host == "dimoapp.xyz" && url.path.hasPrefix("/invite")
-    default:
-      isInviteURL = false
-    }
-    guard isInviteURL else { return nil }
-    let pathCode = url.pathComponents.dropFirst().last.flatMap { $0 == "invite" ? nil : $0 }
-    let raw = queryCode ?? (url.scheme == "dimo" ? pathCode : nil)
-    return raw.map(normalize).flatMap { $0.isEmpty ? nil : $0 }
-  }
-
-  /// Same normalisation as the server: uppercase letters and digits only.
-  static func normalize(_ code: String) -> String {
-    code.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }
-  }
-
-  /// Plain-text invite for the share sheet.
-  static func message(inviterName: String, code: String) -> String {
-    let grouped = code.count == 10 ? "\(code.prefix(5))-\(code.suffix(5))" : code
-    return """
-    \(inviterName) wants to keep a shared lending ledger with you on Dimo.
-
-    Open \(webURL(code: code).absoluteString)
-    or enter code \(grouped) in Dimo → Lending → Join.
-    """
-  }
-}
-
 /// Authenticated calls for collaborative lending (`convex/lending.ts`).
 final class LendingSharingTransport: @unchecked Sendable {
   private let client: ConvexClientWithAuth<WorkOSSession>
@@ -129,35 +81,28 @@ final class LendingSharingTransport: @unchecked Sendable {
     self.client = client
   }
 
-  func createInvite(contactId: String?, contactName: String, email: String?) async throws -> LendInviteCode {
-    var args: [String: ConvexEncodable?] = ["contactName": contactName]
-    if let contactId { args["contactId"] = contactId }
-    if let email, !email.isEmpty {
-      args["email"] = email
-      let sendable = args
-      return try await withTimeout(seconds: 45) {
-        try await self.client.mutation("lending:inviteLendContactByEmail", with: sendable)
-      }
-    }
-    let sendable = args
-    return try await withTimeout(seconds: 45) {
-      try await self.client.mutation("lending:createLendInvite", with: sendable)
-    }
-  }
-
-  func preview(code: String) async throws -> LendInvitePreview? {
+  func findUser(email: String) async throws -> LendUser? {
     try await firstValue(
-      client.subscribe(to: "lending:previewLendInvite", with: ["code": code])
+      client.subscribe(to: "lending:findLendUser", with: ["email": email])
     )
   }
 
+  func sendInvite(userId: String, contactId: String, contactName: String) async throws {
+    let _: SentLendInvite = try await withTimeout(seconds: 45) {
+      try await self.client.mutation(
+        "lending:sendLendInvite",
+        with: ["userId": userId, "contactId": contactId, "contactName": contactName]
+      )
+    }
+  }
+
   func accept(
-    code: String,
+    inviteId: String,
     contactId: String?,
     contactName: String?,
     history: LendHistoryChoice
   ) async throws -> AcceptedLendInvite {
-    var args: [String: ConvexEncodable?] = ["code": code, "history": history.rawValue]
+    var args: [String: ConvexEncodable?] = ["inviteId": inviteId, "history": history.rawValue]
     if let contactId { args["contactId"] = contactId }
     if let contactName, !contactName.isEmpty { args["contactName"] = contactName }
     let sendable = args
@@ -166,15 +111,15 @@ final class LendingSharingTransport: @unchecked Sendable {
     }
   }
 
-  func decline(code: String) async throws {
+  func decline(inviteId: String) async throws {
     try await withTimeout(seconds: 45) {
-      try await self.client.mutation("lending:declineLendInvite", with: ["code": code])
+      try await self.client.mutation("lending:declineLendInvite", with: ["inviteId": inviteId])
     }
   }
 
-  func cancel(code: String) async throws {
+  func cancel(inviteId: String) async throws {
     try await withTimeout(seconds: 45) {
-      try await self.client.mutation("lending:cancelLendInvite", with: ["code": code])
+      try await self.client.mutation("lending:cancelLendInvite", with: ["inviteId": inviteId])
     }
   }
 

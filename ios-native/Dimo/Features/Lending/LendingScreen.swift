@@ -37,7 +37,6 @@ struct LendingScreen: View {
             .font(DimoFont.display(24, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Spacer()
-          sharingMenu
         }
         .frame(minHeight: 56)
 
@@ -53,8 +52,13 @@ struct LendingScreen: View {
 
       ScrollView {
         LazyVStack(spacing: 8) {
-          ForEach(sharing.liveIncomingInvites) { invite in
+          ForEach(sharing.incomingInvites) { invite in
             incomingInviteBanner(invite)
+          }
+          if section == .summary {
+            ForEach(invitedOnly) { invite in
+              invitedRow(invite)
+            }
           }
           if entities.lends.isEmpty {
             emptyState
@@ -212,32 +216,15 @@ struct LendingScreen: View {
     .padding(.vertical, 44)
   }
 
-  private var sharingMenu: some View {
-    Menu {
-      Button {
-        sharing.sheet = .invite(contactId: nil, contactName: "")
-      } label: {
-        Label("Share a ledger", systemImage: "person.2.badge.plus")
-      }
-      Button {
-        sharing.sheet = .join(code: "")
-      } label: {
-        Label("Join with a code", systemImage: "ticket")
-      }
-    } label: {
-      Image(systemName: "person.2.badge.plus")
-        .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(Theme.green)
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
+  /// Sent invites whose contact has no outstanding balance to show a row for.
+  private var invitedOnly: [OutgoingLendInvite] {
+    sharing.outgoingInvites.filter { invite in
+      !entities.lendSummaries.contains { $0.contactId == invite.contactId }
     }
-    .accessibilityLabel("Shared ledgers")
   }
 
   private func incomingInviteBanner(_ invite: IncomingLendInvite) -> some View {
-    Button {
-      sharing.sheet = .join(code: invite.code)
-    } label: {
+    VStack(alignment: .leading, spacing: 10) {
       HStack(spacing: 12) {
         Image(systemName: "person.2.fill")
           .font(.system(size: 15, weight: .semibold))
@@ -250,24 +237,102 @@ struct LendingScreen: View {
             .font(DimoFont.body(14, weight: .medium))
             .foregroundStyle(Theme.ink)
             .lineLimit(1)
-          Text("Tap to review")
-            .font(DimoFont.body(12))
-            .foregroundStyle(Theme.muted)
+          if let email = invite.inviterEmail {
+            Text(email)
+              .font(DimoFont.body(12))
+              .foregroundStyle(Theme.muted)
+              .lineLimit(1)
+          }
         }
-        Spacer()
-        Image(systemName: "chevron.right")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Theme.faint)
+        Spacer(minLength: 0)
       }
-      .padding(12)
-      .background(Theme.surface)
-      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .stroke(Theme.green.opacity(0.5), lineWidth: 1)
-      )
+      HStack(spacing: 8) {
+        Button {
+          Task {
+            do {
+              try await sharing.decline(invite)
+              store.showToast("Invite declined")
+            } catch {
+              store.showToast(error.localizedDescription)
+            }
+          }
+        } label: {
+          Text("Decline")
+            .font(DimoFont.body(14, weight: .semibold))
+            .foregroundStyle(Theme.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(Theme.canvas)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        Button {
+          sharing.sheet = .accept(invite)
+        } label: {
+          Text("Accept")
+            .font(DimoFont.body(14, weight: .semibold))
+            .foregroundStyle(Theme.onGreen)
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background(Theme.green)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+      }
     }
-    .buttonStyle(.plain)
+    .padding(12)
+    .background(Theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Theme.green.opacity(0.5), lineWidth: 1)
+    )
+  }
+
+  private func cancel(_ invite: OutgoingLendInvite) {
+    Task {
+      do {
+        try await sharing.cancel(invite)
+        store.showToast("Invite cancelled")
+      } catch {
+        store.showToast(error.localizedDescription)
+      }
+    }
+  }
+
+  private func invitedRow(_ invite: OutgoingLendInvite) -> some View {
+    HStack(spacing: 12) {
+      AvatarView(
+        name: invite.contactName,
+        photoImage: contactPhotos.thumbnailImage(contactId: invite.contactId),
+        size: 38,
+        radius: 11,
+        fontSize: 15
+      )
+      VStack(alignment: .leading, spacing: 2) {
+        Text(invite.contactName)
+          .font(DimoFont.body(14, weight: .medium))
+          .foregroundStyle(Theme.ink)
+          .lineLimit(1)
+        Text("Invited · \(invite.inviteeEmail ?? "waiting for them to accept")")
+          .font(DimoFont.body(12))
+          .foregroundStyle(Theme.muted)
+          .lineLimit(1)
+      }
+      Spacer(minLength: 0)
+      Button("Cancel") { cancel(invite) }
+      .font(DimoFont.body(13, weight: .medium))
+      .foregroundStyle(Theme.muted)
+      .buttonStyle(.plain)
+    }
+    .padding(12)
+    .background(Theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(Theme.line, lineWidth: 1)
+    )
   }
 
   private func money(_ amount: Double, currencyCode: String?) -> String {
@@ -283,7 +348,7 @@ struct LendingScreen: View {
     if summary.isShared {
       parts.append("Shared")
     } else if sharing.pendingInvite(contactId: summary.contactId) != nil {
-      parts.append("Invite sent")
+      parts.append("Invited")
     }
     parts.append("\(summary.count) entr\(summary.count == 1 ? "y" : "ies")")
     parts.append("last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
@@ -362,16 +427,11 @@ struct LendingScreen: View {
             Label("Stop sharing", systemImage: "person.2.slash")
           }
         }
-      } else {
-        Button {
-          sharing.sheet = .invite(contactId: summary.contactId, contactName: summary.contactName)
+      } else if let invite = sharing.pendingInvite(contactId: summary.contactId) {
+        Button(role: .destructive) {
+          cancel(invite)
         } label: {
-          Label(
-            sharing.pendingInvite(contactId: summary.contactId) == nil
-              ? "Share ledger with \(summary.contactName)"
-              : "View invite",
-            systemImage: "person.2.badge.plus"
-          )
+          Label("Cancel invite", systemImage: "xmark.circle")
         }
       }
     }

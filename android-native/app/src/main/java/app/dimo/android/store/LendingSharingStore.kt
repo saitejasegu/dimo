@@ -3,13 +3,10 @@ package app.dimo.android.store
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import app.dimo.android.sync.AcceptedLendInvite
 import app.dimo.android.sync.IncomingLendInvite
 import app.dimo.android.sync.LendConnectionSummary
 import app.dimo.android.sync.LendHistoryChoice
-import app.dimo.android.sync.LendInviteCode
-import app.dimo.android.sync.LendInviteLinks
-import app.dimo.android.sync.LendInvitePreview
+import app.dimo.android.sync.LendUser
 import app.dimo.android.sync.LendingSharingTransport
 import app.dimo.android.sync.OutgoingLendInvite
 import kotlinx.coroutines.async
@@ -17,19 +14,8 @@ import kotlinx.coroutines.coroutineScope
 
 /** Which sharing sheet is open. */
 sealed interface LedgerSharingSheet {
-  /** Invite someone to share a ledger, optionally for an existing contact. */
-  data class Invite(val contactId: String?, val contactName: String) : LedgerSharingSheet
-
-  /** Join a ledger with a code, optionally prefilled from a link or email invite. */
-  data class Join(val code: String) : LedgerSharingSheet
-}
-
-/**
- * Invite codes from `dimo://invite/...` links, held until a signed-in shell can
- * open the join sheet.
- */
-object LendInviteLinkBus {
-  var pendingCode by mutableStateOf<String?>(null)
+  /** Accept or decline an invite someone sent. */
+  data class Accept(val invite: IncomingLendInvite) : LedgerSharingSheet
 }
 
 /**
@@ -47,8 +33,11 @@ class LendingSharingStore {
   var verifiedEmail by mutableStateOf<String?>(null)
     private set
 
-  /** False when the server cannot look up verified emails (no WorkOS API key). */
-  var emailInvitesAvailable by mutableStateOf(true)
+  /**
+   * False when the server cannot look up verified emails (no WorkOS API key),
+   * in which case nobody can be found to share with.
+   */
+  var sharingAvailable by mutableStateOf(true)
     private set
   var sheet by mutableStateOf<LedgerSharingSheet?>(null)
 
@@ -57,6 +46,8 @@ class LendingSharingStore {
 
   /** Pulls fresh lends after the ledger changed on the server. */
   var onLedgerChanged: (() -> Unit)? = null
+
+  val isOnline: Boolean get() = transport != null
 
   fun attach(next: LendingSharingTransport?) {
     transport = next
@@ -71,15 +62,12 @@ class LendingSharingStore {
   fun activeConnection(contactId: String): LendConnectionSummary? =
     connections.firstOrNull { it.contactId == contactId && it.isActive }
 
-  fun pendingInvite(contactId: String, nowMillis: Long = System.currentTimeMillis()): OutgoingLendInvite? =
-    outgoingInvites.firstOrNull { it.contactId == contactId && it.expiresAt > nowMillis }
-
-  fun liveIncomingInvites(nowMillis: Long = System.currentTimeMillis()): List<IncomingLendInvite> =
-    incomingInvites.filter { it.expiresAt > nowMillis }
+  fun pendingInvite(contactId: String): OutgoingLendInvite? =
+    outgoingInvites.firstOrNull { it.contactId == contactId }
 
   /**
    * Reloads invites and connections, and records the verified email once per
-   * session so email-addressed invites can reach this account.
+   * session so other people can find this account.
    */
   suspend fun refresh() {
     val transport = transport ?: return
@@ -87,7 +75,7 @@ class LendingSharingStore {
       didRefreshEmail = true
       runCatching { transport.refreshVerifiedEmail() }
         .onSuccess {
-          emailInvitesAvailable = it.available
+          sharingAvailable = it.available
           verifiedEmail = it.email
         }
         .onFailure { didRefreshEmail = false }
@@ -102,43 +90,41 @@ class LendingSharingStore {
     }
   }
 
-  suspend fun createInvite(contactId: String?, contactName: String, email: String?): LendInviteCode {
-    val invite = requireTransport().createInvite(
+  suspend fun findUser(email: String): LendUser? = requireTransport().findUser(email.trim())
+
+  /** Invites [user]; entries with [contactId] are shared once they accept. */
+  suspend fun sendInvite(user: LendUser, contactId: String, contactName: String) {
+    requireTransport().sendInvite(
+      userId = user.userId,
       contactId = contactId,
-      contactName = contactName.trim(),
-      email = email?.trim()?.takeIf { it.isNotEmpty() },
+      contactName = contactName.trim().ifEmpty { user.name },
     )
     refresh()
-    return invite
   }
 
-  suspend fun preview(code: String): LendInvitePreview? =
-    requireTransport().preview(LendInviteLinks.normalize(code))
-
   suspend fun accept(
-    code: String,
+    invite: IncomingLendInvite,
     contactId: String?,
     contactName: String?,
     history: LendHistoryChoice,
-  ): AcceptedLendInvite {
-    val accepted = requireTransport().accept(
-      code = LendInviteLinks.normalize(code),
+  ) {
+    requireTransport().accept(
+      inviteId = invite.inviteId,
       contactId = contactId,
       contactName = contactName,
       history = history,
     )
     refresh()
     onLedgerChanged?.invoke()
-    return accepted
   }
 
-  suspend fun decline(code: String) {
-    requireTransport().decline(code)
+  suspend fun decline(invite: IncomingLendInvite) {
+    requireTransport().decline(invite.inviteId)
     refresh()
   }
 
-  suspend fun cancel(code: String) {
-    requireTransport().cancel(code)
+  suspend fun cancel(invite: OutgoingLendInvite) {
+    requireTransport().cancel(invite.inviteId)
     refresh()
   }
 

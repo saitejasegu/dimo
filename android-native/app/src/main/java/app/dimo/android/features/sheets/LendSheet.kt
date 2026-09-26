@@ -61,6 +61,10 @@ import app.dimo.android.features.common.SegmentedControl
 import app.dimo.android.features.common.cardSurface
 import app.dimo.android.features.common.rememberContactPhotoUris
 import app.dimo.android.store.AppStore
+import app.dimo.android.store.LendDraftInvite
+import app.dimo.android.sync.LendUser
+import kotlinx.coroutines.delay
+import java.util.UUID
 import java.time.Instant
 import kotlin.math.roundToLong
 
@@ -99,7 +103,8 @@ fun LendSheet(
     ActivityResultContracts.RequestPermission(),
   ) { granted ->
     permissionDenied = !granted
-    if (granted) pickingContact = true
+    // Searching still works without contacts: a Dimo email can be typed.
+    pickingContact = true
   }
 
   fun openContactPicker() {
@@ -109,6 +114,38 @@ fun LendSheet(
       permissionLauncher.launch(Manifest.permission.READ_CONTACTS)
     }
   }
+
+  // A typed email is looked up as a Dimo account.
+  val sharing = store.lendingSharing
+  val typedEmail = contactQuery.trim().lowercase().takeIf {
+    sharing.sharingAvailable && sharing.isOnline && EMAIL_PATTERN.matches(it)
+  }
+  var lookup by remember { mutableStateOf<Pair<String, LendUser?>?>(null) }
+  val currentLookup = lookup?.takeIf { it.first == typedEmail }
+  LaunchedEffect(typedEmail) {
+    val email = typedEmail ?: return@LaunchedEffect
+    delay(350)
+    runCatching { sharing.findUser(email) }.onSuccess { lookup = email to it }
+  }
+
+  fun pickDimoUser(user: LendUser) {
+    val known = user.contactId
+    store.lendDraft = if (known != null) {
+      // Already shared, or already invited for this contact.
+      draft.copy(contactName = user.name, contactId = known, invite = null)
+    } else {
+      val contactId = "contact_${UUID.randomUUID()}"
+      draft.copy(
+        contactName = user.name,
+        contactId = contactId,
+        invite = LendDraftInvite(user, contactId),
+      )
+    }
+    pickingContact = false
+    contactQuery = ""
+  }
+  val pendingDraftInvite = draft.invite?.takeIf { it.contactId == draft.contactId }
+  val sentInvite = draft.contactId?.let(sharing::pendingInvite)
 
   LaunchedEffect(pickingContact) {
     if (pickingContact && contacts.isEmpty()) {
@@ -139,7 +176,14 @@ fun LendSheet(
         connection.isActive &&
           store.lends.none { it.contactId == connection.contactId }
       }
-      .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) }
+      .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) } +
+    // Someone invited before any entries were recorded with them.
+    store.lendingSharing.outgoingInvites
+      .mapNotNull { invite ->
+        invite.contactId
+          ?.takeIf { id -> store.lends.none { it.contactId == id } }
+          ?.let { LendContactSuggestion(contactName = invite.contactName, contactId = it) }
+      }
   val isSharedContact = draft.contactId?.startsWith(SHARED_LEND_CONTACT_PREFIX) == true
   // An edited entry keeps the currency it was recorded in.
   val currencySymbol = existing?.currency?.let(CurrencyMeta::symbol)
@@ -280,7 +324,7 @@ fun LendSheet(
           DimoTextField(
             value = contactQuery,
             onValueChange = { contactQuery = it },
-            placeholder = "Search contacts",
+            placeholder = "Search contacts or Dimo email",
             leading = {
               Icon(
                 imageVector = Icons.Filled.Search,
@@ -341,9 +385,21 @@ fun LendSheet(
             style = DimoFont.body(12f),
             color = DimoColors.green,
           )
+        } else if (pendingDraftInvite != null && !pickingContact) {
+          Text(
+            text = "Saving invites ${pendingDraftInvite.user.email}. This entry stays private until they accept.",
+            style = DimoFont.body(12f),
+            color = DimoColors.muted,
+          )
+        } else if (sentInvite != null && !pickingContact) {
+          Text(
+            text = "Invited ${sentInvite.inviteeEmail ?: sentInvite.contactName}. This entry is shared once they accept.",
+            style = DimoFont.body(12f),
+            color = DimoColors.muted,
+          )
         }
 
-        if (permissionDenied) {
+        if (permissionDenied && typedEmail == null) {
           Text(
             text = "Contacts permission is needed to keep same-named people apart.",
             style = DimoFont.body(12f),
@@ -359,7 +415,9 @@ fun LendSheet(
               .padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
           ) {
-            if (filteredContacts.isEmpty()) {
+            if (typedEmail != null) {
+              DimoUserResult(currentLookup, onPick = ::pickDimoUser)
+            } else if (filteredContacts.isEmpty()) {
               Text(
                 text = "No contacts found.",
                 style = DimoFont.body(13f),
@@ -367,7 +425,7 @@ fun LendSheet(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
               )
             }
-            filteredContacts.forEach { contact ->
+            if (typedEmail == null) filteredContacts.forEach { contact ->
               Row(
                 modifier = Modifier
                   .fillMaxWidth()
@@ -376,6 +434,7 @@ fun LendSheet(
                     store.lendDraft = draft.copy(
                       contactName = contact.name,
                       contactId = contact.id,
+                      invite = null,
                     )
                     pickingContact = false
                     contactQuery = ""
@@ -567,5 +626,72 @@ private fun LendSheetHeader(
         modifier = Modifier.size(17.dp),
       )
     }
+  }
+}
+
+private val EMAIL_PATTERN = Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")
+
+/** The Dimo account a typed email belongs to, or why it can't be picked. */
+@Composable
+private fun DimoUserResult(lookup: Pair<String, LendUser?>?, onPick: (LendUser) -> Unit) {
+  val user = lookup?.second
+  val note = when {
+    lookup == null -> "Looking for a Dimo account\u2026"
+    user == null -> "No Dimo account uses this email."
+    user.relation == "self" -> "That\u2019s your own account."
+    user.relation == "invitedYou" -> "${user.name} already invited you. Accept their invite in Lending first."
+    else -> null
+  }
+  if (note != null || user == null) {
+    Text(
+      text = note.orEmpty(),
+      style = DimoFont.body(13f),
+      color = DimoColors.muted,
+      modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+    )
+    return
+  }
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(10.dp))
+      .clickable { onPick(user) }
+      .padding(horizontal = 8.dp, vertical = 8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    ContactAvatar(
+      name = user.name,
+      photoUri = null,
+      size = 32.dp,
+      radius = 16.dp,
+      fontSize = 13f,
+      monogram = lendContactInitials(user.name),
+    )
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+        text = user.name,
+        style = DimoFont.body(14f),
+        color = DimoColors.ink,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Text(
+        text = user.email,
+        style = DimoFont.body(12f),
+        color = DimoColors.muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+    Text(
+      text = when (user.relation) {
+        "connected" -> "Shared"
+        "invited" -> "Invited"
+        else -> "On Dimo"
+      },
+      style = DimoFont.body(12f, FontWeight.Medium),
+      color = DimoColors.green,
+    )
   }
 }
