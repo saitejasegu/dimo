@@ -232,6 +232,9 @@ final class AppStore {
       let repo = Repository(db: db)
       try repo.initializeLocalDatabase()
       repository = repo
+      lendingSharing.restore(try? repo.lendingSharingSnapshot()) { snapshot in
+        try? repo.saveLendingSharingSnapshot(snapshot)
+      }
 
       entityObservation = repo.observeEntities { [weak self] batch in
         Task { @MainActor in self?.scheduleHydrate(batch) }
@@ -343,8 +346,8 @@ final class AppStore {
         Task { await self?.coordinator?.request() }
       }
       lendingSharing.profilePhotoUrl = { [weak self] in self?.profilePhotoUrl }
-      await coordinator.start()
       Task { await lendingSharing.refresh() }
+      await coordinator.start()
       await refreshExchangeRates()
     } catch is CancellationError {
       return
@@ -385,6 +388,7 @@ final class AppStore {
   }
 
   func sceneBecameActive() {
+    Task { await lendingSharing.refresh() }
     rehydrateIfDayChanged()
     emailController?.sceneBecameActive()
     Task {

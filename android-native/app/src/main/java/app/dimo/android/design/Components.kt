@@ -86,6 +86,12 @@ fun FabButton(
   }
 }
 
+/** Remote avatars already loaded this session, so lists don't refetch them. */
+private val avatarCache = object : LinkedHashMap<String, androidx.compose.ui.graphics.ImageBitmap>(32, 0.75f, true) {
+  override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, androidx.compose.ui.graphics.ImageBitmap>) =
+    size > 64
+}
+
 @Composable
 fun AvatarView(
   name: String,
@@ -101,18 +107,18 @@ fun AvatarView(
     photoBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
   }
   var remoteBitmap by remember(photoUrl) {
-    mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    mutableStateOf(photoUrl?.let { synchronized(avatarCache) { avatarCache[it] } })
   }
   LaunchedEffect(photoUrl) {
-    remoteBitmap = null
     val url = photoUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+    if (remoteBitmap != null) return@LaunchedEffect
     remoteBitmap = withContext(Dispatchers.IO) {
       runCatching {
         URL(url).openStream().use { stream ->
           BitmapFactory.decodeStream(stream)?.asImageBitmap()
         }
       }.getOrNull()
-    }
+    }?.also { bitmap -> synchronized(avatarCache) { avatarCache[url] = bitmap } }
   }
   Box(
     modifier = modifier

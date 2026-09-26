@@ -17,6 +17,25 @@ final class Repository: @unchecked Sendable {
     self.db = db
   }
 
+  func lendingSharingSnapshot() throws -> LendingSharingSnapshot? {
+    try db.read { db in
+      guard let data = try Data.fetchOne(db, sql: "SELECT snapshot FROM lendingSharingCache WHERE id = 'sharing'")
+      else { return nil }
+      return try JSONDecoder().decode(LendingSharingSnapshot.self, from: data)
+    }
+  }
+
+  /// Device-local server metadata; this never enters the entity outbox.
+  func saveLendingSharingSnapshot(_ snapshot: LendingSharingSnapshot) throws {
+    let data = try JSONEncoder().encode(snapshot)
+    try db.write { db in
+      try db.execute(
+        sql: "INSERT OR REPLACE INTO lendingSharingCache (id, snapshot) VALUES ('sharing', ?)",
+        arguments: [data]
+      )
+    }
+  }
+
   @discardableResult
   func onLocalWrite(_ listener: @escaping () -> Void) -> UUID {
     let id = UUID()

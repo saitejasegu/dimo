@@ -11,7 +11,24 @@ final class LendingSharingStore {
   private(set) var incomingInvites: [IncomingLendInvite] = []
   private(set) var outgoingInvites: [OutgoingLendInvite] = []
 
-  private var transport: LendingSharingTransport?
+  private var transport: (any LendingSharingAPI)?
+  private var generation = 0
+  private var persist: ((LendingSharingSnapshot) -> Void)?
+
+  /// Hydrated before local entries become visible. The cache belongs to the
+  /// account database, so sign-out deletes it together with the ledger.
+  func restore(_ snapshot: LendingSharingSnapshot?, persist: @escaping (LendingSharingSnapshot) -> Void) {
+    connections = snapshot?.connections ?? []
+    incomingInvites = snapshot?.incomingInvites ?? []
+    outgoingInvites = snapshot?.outgoingInvites ?? []
+    self.persist = persist
+  }
+
+  private func saveSnapshot() {
+    persist?(LendingSharingSnapshot(
+      connections: connections, incomingInvites: incomingInvites, outgoingInvites: outgoingInvites
+    ))
+  }
   private var publishedPhoto: String??
   /// Pulls fresh lends after sharing changed on the server.
   var onLedgerChanged: (() -> Void)?
@@ -20,13 +37,15 @@ final class LendingSharingStore {
 
   var isOnline: Bool { transport != nil }
 
-  func attach(_ transport: LendingSharingTransport?) {
+  func attach(_ transport: (any LendingSharingAPI)?) {
+    generation += 1
     self.transport = transport
     if transport == nil {
       connections = []
       incomingInvites = []
       outgoingInvites = []
       publishedPhoto = nil
+      persist = nil
     }
   }
 
@@ -51,19 +70,47 @@ final class LendingSharingStore {
       ?? outgoingInvites.first { $0.contactId == contactId }?.inviteePhotoUrl
   }
 
-  /// Reloads invites and connections, and publishes this account's photo.
+  /// Each result reaches the UI as soon as it arrives. In particular, neither
+  /// the photo mutation nor a slow connection query holds up outgoing invites.
   func refresh() async {
     guard let transport else { return }
+    generation += 1
+    let current = generation
+    async let connections: Void = refreshConnections(transport, generation: current)
+    async let incoming: Void = refreshIncoming(transport, generation: current)
+    async let outgoing: Void = refreshOutgoing(transport, generation: current)
+    async let photo: Void = publishPhoto(transport, generation: current)
+    _ = await (connections, incoming, outgoing, photo)
+  }
+
+  private func refreshConnections(_ transport: any LendingSharingAPI, generation: Int) async {
+    guard let value = try? await transport.connections(), self.generation == generation,
+      !Task.isCancelled else { return }
+    connections = value
+    saveSnapshot()
+  }
+
+  private func refreshIncoming(_ transport: any LendingSharingAPI, generation: Int) async {
+    guard let value = try? await transport.incomingInvites(), self.generation == generation,
+      !Task.isCancelled else { return }
+    incomingInvites = value
+    saveSnapshot()
+  }
+
+  private func refreshOutgoing(_ transport: any LendingSharingAPI, generation: Int) async {
+    guard let value = try? await transport.outgoingInvites(), self.generation == generation,
+      !Task.isCancelled else { return }
+    outgoingInvites = value
+    saveSnapshot()
+  }
+
+  private func publishPhoto(_ transport: any LendingSharingAPI, generation: Int) async {
     let photo = profilePhotoUrl?()
-    if publishedPhoto != .some(photo) {
-      if (try? await transport.setProfilePhoto(photo)) != nil { publishedPhoto = .some(photo) }
+    guard publishedPhoto != .some(photo) else { return }
+    if (try? await transport.setProfilePhoto(photo)) != nil,
+      self.generation == generation, !Task.isCancelled {
+      publishedPhoto = .some(photo)
     }
-    async let connections = transport.connections()
-    async let incoming = transport.incomingInvites()
-    async let outgoing = transport.outgoingInvites()
-    if let value = try? await connections { self.connections = value }
-    if let value = try? await incoming { self.incomingInvites = value }
-    if let value = try? await outgoing { self.outgoingInvites = value }
   }
 
   /// Dimo accounts (never this one) matching a name or email.
@@ -120,7 +167,7 @@ final class LendingSharingStore {
     await refresh()
   }
 
-  private func requireTransport() throws -> LendingSharingTransport {
+  private func requireTransport() throws -> any LendingSharingAPI {
     guard let transport else { throw LendingSharingError.offline }
     return transport
   }

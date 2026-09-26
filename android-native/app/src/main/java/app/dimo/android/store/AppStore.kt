@@ -50,6 +50,7 @@ import app.dimo.android.domain.Formatting
 import app.dimo.android.domain.ExpenseReminderSettings
 import app.dimo.android.domain.ExpenseReminderStore
 import app.dimo.android.domain.LendDirection
+import app.dimo.android.domain.LendFlow
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.domain.OnboardingStore
 import app.dimo.android.domain.RateTable
@@ -107,6 +108,9 @@ class AppStore(
   var accountReturnView by mutableStateOf<ViewKey?>(null)
   var overlay by mutableStateOf<OverlayKey?>(null)
   var detailId by mutableStateOf<String?>(null)
+
+  /** The person whose Lending page is open; the entry sheet opens on top of it. */
+  var lendPersonId by mutableStateOf<String?>(null)
   var toast by mutableStateOf<String?>(null)
   val lendingSharing = LendingSharingStore()
   private var toastJob: Job? = null
@@ -311,6 +315,7 @@ class AppStore(
 
       lendingSharing.attach(LendingSharingTransport(client))
       lendingSharing.onLedgerChanged = { viewModelScope.launch { coordinator?.request() } }
+      lendingSharing.profilePhotoUrl = { profilePhotoUrl }
       viewModelScope.launch { lendingSharing.refresh() }
 
       val transport = ConvexSyncTransport(client)
@@ -663,15 +668,8 @@ class AppStore(
     val existing = lendDraft.editingId?.let { id -> lends.firstOrNull { it.id == id } }
     // A newly typed name starts a new person; ids are opaque.
     val contactId = lendDraft.contactId ?: existing?.contactId ?: "contact_${UUID.randomUUID()}"
-    // Editing never flips direction; the saved row's kind wins.
-    val kind = existing?.kind ?: lendDraft.kind
-    val limit = LendSelectors.settlementLimit(
-      kind = kind,
-      contactId = contactId,
-      lends = lends,
-      excludingLendId = existing?.id,
-    )
-    if (limit != null && amount > limit + 0.000_001) return
+    val balance = LendSelectors.netBalance(contactId, lends, existing?.id)
+    val kind = LendSelectors.kindFor(lendDraft.flow, amount, balance)
     val zone = DateHelpers.zone()
     val occurredAt = if (
       existing != null &&
@@ -703,8 +701,7 @@ class AppStore(
     viewModelScope.launch {
       repository?.saveEntity(EntityPayload.Lend(entity))
       closeOverlay()
-      val noun = lendNoun(kind)
-      showToast(if (existing == null) "$noun saved" else "$noun updated")
+      showToast(if (existing == null) "Entry saved" else "Entry updated")
       // The entry stays private until they accept; accepting shares it.
       if (invite != null) {
         runCatching { lendingSharing.sendInvite(invite.user, contactId, contact) }
@@ -718,7 +715,7 @@ class AppStore(
     val lend = lends.firstOrNull { it.id == id } ?: return
     lendDraft = LendDraft(
       editingId = id,
-      kind = lend.kind,
+      flow = LendFlow.of(lend.kind),
       contactName = lend.contactName,
       contactId = lend.contactId,
       amount = if (lend.amount.roundToLong().toDouble() == lend.amount) {
@@ -732,33 +729,51 @@ class AppStore(
     overlay = OverlayKey.Lend
   }
 
-  /**
-   * Opens the sheet pre-set to whichever entry closes this contact's balance:
-   * a repayment when they owe the user, a payment back when the user owes them.
-   */
-  fun openAddSettlement(contactName: String, contactId: String, direction: LendDirection) {
+  /** Opens the entry sheet for a known person with "I gave" or "I got" preset. */
+  fun openAddLend(contactName: String, contactId: String, flow: LendFlow) {
     lendDraft = LendDraft(
-      kind = direction.settlementKind,
+      flow = flow,
+      contactLocked = true,
       contactName = contactName,
       contactId = contactId,
     )
     overlay = OverlayKey.Lend
   }
 
-  fun deleteLend(id: String) {
-    val kind = lends.firstOrNull { it.id == id }?.kind ?: LendKind.LENT
+  /** Renames every private entry with this person, e.g. to their Dimo account name. */
+  fun renameLendContact(contactId: String, name: String) {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty() || contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)) return
+    val rows = lends.filter { it.contactId == contactId && it.contactName != trimmed }
+    if (rows.isEmpty()) return
     viewModelScope.launch {
-      repository?.removeEntity(EntityType.LEND, id)
-      closeOverlay()
-      showToast("${lendNoun(kind)} deleted")
+      for (lend in rows) {
+        repository?.saveEntity(
+          EntityPayload.Lend(
+            LendEntity(
+              id = lend.id,
+              contactName = trimmed,
+              contactId = contactId,
+              amountMinor = lend.amountMinor,
+              occurredAt = lend.occurredAt,
+              comment = lend.comment,
+              kind = lend.kind,
+              currency = lend.currency,
+              createdBy = lend.createdBy,
+              lastEditedBy = lend.lastEditedBy,
+            ),
+          ),
+        )
+      }
     }
   }
 
-  private fun lendNoun(kind: LendKind): String = when (kind) {
-    LendKind.LENT -> "Lend"
-    LendKind.REPAID -> "Repayment"
-    LendKind.BORROWED -> "Borrowing"
-    LendKind.RETURNED -> "Payment"
+  fun deleteLend(id: String) {
+    viewModelScope.launch {
+      repository?.removeEntity(EntityType.LEND, id)
+      closeOverlay()
+      showToast("Entry deleted")
+    }
   }
 
   /** Today keeps the current time so entries order naturally; past dates pin to noon. */

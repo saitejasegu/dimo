@@ -571,6 +571,12 @@ enum AppDatabase {
         t.add(column: "lastEditedBy", .text)
       }
     }
+    migrator.registerMigration("v17-lending-sharing-cache") { db in
+      try db.create(table: "lendingSharingCache") { t in
+        t.column("id", .text).primaryKey()
+        t.column("snapshot", .blob).notNull()
+      }
+    }
     return migrator
   }
 }

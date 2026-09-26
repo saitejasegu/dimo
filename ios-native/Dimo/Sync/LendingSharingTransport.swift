@@ -15,7 +15,7 @@ struct LendUser: Decodable, Sendable, Equatable {
 }
 
 /// An invite waiting for this account to accept or decline.
-struct IncomingLendInvite: Decodable, Sendable, Identifiable, Equatable {
+struct IncomingLendInvite: Codable, Sendable, Identifiable, Equatable {
   var inviteId: String
   var inviterName: String
   var inviterEmail: String?
@@ -28,7 +28,7 @@ struct IncomingLendInvite: Decodable, Sendable, Identifiable, Equatable {
 }
 
 /// An invite this account sent that hasn't been accepted yet.
-struct OutgoingLendInvite: Decodable, Sendable, Identifiable, Equatable {
+struct OutgoingLendInvite: Codable, Sendable, Identifiable, Equatable {
   var inviteId: String
   var contactName: String
   var contactId: String?
@@ -39,7 +39,7 @@ struct OutgoingLendInvite: Decodable, Sendable, Identifiable, Equatable {
   var id: String { inviteId }
 }
 
-struct LendConnectionSummary: Decodable, Sendable, Identifiable, Equatable {
+struct LendConnectionSummary: Codable, Sendable, Identifiable, Equatable {
   var connectionId: String
   /// `dimo:<connectionId>`, the contactId every shared entry carries.
   var contactId: String
@@ -74,8 +74,22 @@ enum LendHistoryChoice: String, CaseIterable, Identifiable, Sendable {
   var id: String { rawValue }
 }
 
+protocol LendingSharingAPI: Sendable {
+  func searchUsers(query: String) async throws -> [LendUser]
+  func reshare(connectionId: String) async throws
+  func setProfilePhoto(_ photoUrl: String?) async throws
+  func sendInvite(userId: String, contactId: String, contactName: String) async throws
+  func accept(inviteId: String, contactId: String?, contactName: String?, history: LendHistoryChoice) async throws -> AcceptedLendInvite
+  func decline(inviteId: String) async throws
+  func cancel(inviteId: String) async throws
+  func revoke(connectionId: String) async throws
+  func incomingInvites() async throws -> [IncomingLendInvite]
+  func outgoingInvites() async throws -> [OutgoingLendInvite]
+  func connections() async throws -> [LendConnectionSummary]
+}
+
 /// Authenticated calls for collaborative lending (`convex/lending.ts`).
-final class LendingSharingTransport: @unchecked Sendable {
+final class LendingSharingTransport: LendingSharingAPI, @unchecked Sendable {
   private let client: ConvexClientWithAuth<WorkOSSession>
 
   init(client: ConvexClientWithAuth<WorkOSSession>) {
