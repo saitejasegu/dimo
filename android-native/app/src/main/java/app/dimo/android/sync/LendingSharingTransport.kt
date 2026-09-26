@@ -15,16 +15,17 @@ import kotlinx.serialization.json.JsonNull
  * Collaborative lending calls (`convex/lending.ts`). Port of
  * `ios-native/Dimo/Sync/LendingSharingTransport.swift`.
  */
-/** A Dimo account found by its verified email. */
+/** A Dimo account found by name or email. */
 @Serializable
 data class LendUser(
   val userId: String,
   val name: String,
-  val email: String,
-  /** `none`, `self`, `connected`, `invited` or `invitedYou`. */
+  val email: String? = null,
+  val photoUrl: String? = null,
+  /** `none`, `connected`, `invited` or `invitedYou`. */
   val relation: String,
   /**
-   * Your contactId for them: the shared ledger when connected, or the contact
+   * Your contactId for them: the shared contact when connected, or the contact
    * a pending invite is for.
    */
   val contactId: String? = null,
@@ -36,6 +37,9 @@ data class IncomingLendInvite(
   val inviteId: String,
   val inviterName: String,
   val inviterEmail: String? = null,
+  val inviterPhotoUrl: String? = null,
+  /** Turns a stopped share back on. */
+  val reconnect: Boolean = false,
   val createdAt: Double,
 )
 
@@ -46,6 +50,7 @@ data class OutgoingLendInvite(
   val contactName: String,
   val contactId: String? = null,
   val inviteeEmail: String? = null,
+  val inviteePhotoUrl: String? = null,
   val createdAt: Double,
 )
 
@@ -59,6 +64,8 @@ data class LendConnectionSummary(
   val status: String,
   val createdAt: Double,
   val revokedAt: Double? = null,
+  /** The other member's profile photo. */
+  val photoUrl: String? = null,
 ) {
   val isActive: Boolean get() = status == "active"
 }
@@ -66,16 +73,9 @@ data class LendConnectionSummary(
 @Serializable
 data class AcceptedLendInvite(val connectionId: String, val contactId: String)
 
-@Serializable
-data class VerifiedEmailResult(
-  /** False when the deployment has no WorkOS API key configured. */
-  val available: Boolean,
-  val email: String? = null,
-)
-
 /**
- * Whose past entries make up the shared ledger when both sides already tracked
- * each other; the other side's duplicates are deleted.
+ * Whose past entries are kept when both sides already tracked each other; the
+ * other side's duplicates are deleted. Clients always keep both.
  */
 enum class LendHistoryChoice(val wire: String) {
   BOTH("both"),
@@ -88,10 +88,15 @@ class LendingSharingTransport(
 ) {
   private val json = Json { ignoreUnknownKeys = true }
 
-  suspend fun findUser(email: String): LendUser? {
-    val element = query("lending:findLendUser", mapOf("email" to email))
-    if (element == null || element is JsonNull) return null
-    return decode(LendUser.serializer(), element)
+  suspend fun searchUsers(query: String): List<LendUser> =
+    decodeList(LendUser.serializer(), query("lending:searchLendUsers", mapOf("query" to query)))
+
+  suspend fun reshare(connectionId: String) {
+    mutation("lending:reshareLendConnection", mapOf("connectionId" to connectionId))
+  }
+
+  suspend fun setProfilePhoto(photoUrl: String?) {
+    mutation("lending:setProfilePhoto", mapOf("photoUrl" to photoUrl))
   }
 
   suspend fun sendInvite(userId: String, contactId: String, contactName: String) {
@@ -136,13 +141,6 @@ class LendingSharingTransport(
 
   suspend fun connections(): List<LendConnectionSummary> =
     decodeList(LendConnectionSummary.serializer(), query("lending:listLendConnections", emptyMap()))
-
-  suspend fun refreshVerifiedEmail(): VerifiedEmailResult {
-    val element = withTimeout(TIMEOUT_MS) {
-      client.action<JsonElement>("lendingEmail:refreshVerifiedEmail", emptyMap())
-    }
-    return decode(VerifiedEmailResult.serializer(), element)
-  }
 
   private suspend fun mutation(name: String, args: Map<String, Any?>): JsonElement =
     withTimeout(TIMEOUT_MS) { client.mutation<JsonElement>(name, args) }

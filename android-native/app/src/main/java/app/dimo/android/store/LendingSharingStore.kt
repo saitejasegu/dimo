@@ -12,14 +12,8 @@ import app.dimo.android.sync.OutgoingLendInvite
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
-/** Which sharing sheet is open. */
-sealed interface LedgerSharingSheet {
-  /** Accept or decline an invite someone sent. */
-  data class Accept(val invite: IncomingLendInvite) : LedgerSharingSheet
-}
-
 /**
- * Server-side state for ledgers shared with other Dimo accounts. Port of
+ * Server-side state for lending shared with other Dimo accounts. Port of
  * `ios-native/Dimo/Store/LendingSharingStore.swift`. Entries arrive through
  * normal sync because the server mirrors them into this account's `lends`.
  */
@@ -30,22 +24,16 @@ class LendingSharingStore {
     private set
   var outgoingInvites by mutableStateOf<List<OutgoingLendInvite>>(emptyList())
     private set
-  var verifiedEmail by mutableStateOf<String?>(null)
-    private set
-
-  /**
-   * False when the server cannot look up verified emails (no WorkOS API key),
-   * in which case nobody can be found to share with.
-   */
-  var sharingAvailable by mutableStateOf(true)
-    private set
-  var sheet by mutableStateOf<LedgerSharingSheet?>(null)
 
   private var transport: LendingSharingTransport? = null
-  private var didRefreshEmail = false
+  private var photoPublished = false
+  private var lastPublishedPhoto: String? = null
 
-  /** Pulls fresh lends after the ledger changed on the server. */
+  /** Pulls fresh lends after sharing changed on the server. */
   var onLedgerChanged: (() -> Unit)? = null
+
+  /** This account's sign-in photo, published so people it shares with see it. */
+  var profilePhotoUrl: (() -> String?)? = null
 
   val isOnline: Boolean get() = transport != null
 
@@ -55,30 +43,36 @@ class LendingSharingStore {
       connections = emptyList()
       incomingInvites = emptyList()
       outgoingInvites = emptyList()
-      didRefreshEmail = false
+      photoPublished = false
     }
   }
 
+  /** Active connection whose shared contactId is [contactId]. */
   fun activeConnection(contactId: String): LendConnectionSummary? =
     connections.firstOrNull { it.contactId == contactId && it.isActive }
 
+  /** Was shared with this contact, and one side stopped. */
+  fun stoppedConnection(contactId: String): LendConnectionSummary? =
+    connections.firstOrNull { it.contactId == contactId && !it.isActive }
+
+  /** A pending invite already sent for this local contact. */
   fun pendingInvite(contactId: String): OutgoingLendInvite? =
     outgoingInvites.firstOrNull { it.contactId == contactId }
 
-  /**
-   * Reloads invites and connections, and records the verified email once per
-   * session so other people can find this account.
-   */
+  /** Profile photo for a shared or invited contact, if they have one. */
+  fun photoUrl(contactId: String): String? =
+    connections.firstOrNull { it.contactId == contactId }?.photoUrl
+      ?: outgoingInvites.firstOrNull { it.contactId == contactId }?.inviteePhotoUrl
+
+  /** Reloads invites and connections, and publishes this account's photo. */
   suspend fun refresh() {
     val transport = transport ?: return
-    if (!didRefreshEmail) {
-      didRefreshEmail = true
-      runCatching { transport.refreshVerifiedEmail() }
-        .onSuccess {
-          sharingAvailable = it.available
-          verifiedEmail = it.email
-        }
-        .onFailure { didRefreshEmail = false }
+    val photo = profilePhotoUrl?.invoke()
+    if (!photoPublished || lastPublishedPhoto != photo) {
+      runCatching { transport.setProfilePhoto(photo) }.onSuccess {
+        photoPublished = true
+        lastPublishedPhoto = photo
+      }
     }
     coroutineScope {
       val nextConnections = async { runCatching { transport.connections() }.getOrNull() }
@@ -90,7 +84,8 @@ class LendingSharingStore {
     }
   }
 
-  suspend fun findUser(email: String): LendUser? = requireTransport().findUser(email.trim())
+  /** Dimo accounts (never this one) matching a name or email. */
+  suspend fun searchUsers(query: String): List<LendUser> = requireTransport().searchUsers(query.trim())
 
   /** Invites [user]; entries with [contactId] are shared once they accept. */
   suspend fun sendInvite(user: LendUser, contactId: String, contactName: String) {
@@ -102,17 +97,16 @@ class LendingSharingStore {
     refresh()
   }
 
-  suspend fun accept(
-    invite: IncomingLendInvite,
-    contactId: String?,
-    contactName: String?,
-    history: LendHistoryChoice,
-  ) {
+  /**
+   * Accepts, keeping both sides' history; [mergeWith] joins a contact you
+   * already track into the shared one.
+   */
+  suspend fun accept(invite: IncomingLendInvite, mergeWith: String?) {
     requireTransport().accept(
       inviteId = invite.inviteId,
-      contactId = contactId,
-      contactName = contactName,
-      history = history,
+      contactId = mergeWith,
+      contactName = invite.inviterName,
+      history = LendHistoryChoice.BOTH,
     )
     refresh()
     onLedgerChanged?.invoke()
@@ -134,6 +128,13 @@ class LendingSharingStore {
     refresh()
   }
 
+  /** Invites the other person to share a stopped connection again. */
+  suspend fun shareAgain(contactId: String) {
+    val connection = stoppedConnection(contactId) ?: return
+    requireTransport().reshare(connection.connectionId)
+    refresh()
+  }
+
   private fun requireTransport(): LendingSharingTransport =
-    transport ?: throw IllegalStateException("Shared ledgers need an online Dimo sync session.")
+    transport ?: throw IllegalStateException("Sharing needs an online Dimo sync session.")
 }

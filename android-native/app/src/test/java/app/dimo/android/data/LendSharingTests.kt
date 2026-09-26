@@ -12,9 +12,12 @@ import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.LogicalVersion
 import app.dimo.android.data.model.OutboxStatus
 import app.dimo.android.data.model.SyncOperation
+import app.dimo.android.domain.LendFlow
+import app.dimo.android.domain.LendPeople
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.sync.ConvexAPI
 import app.dimo.android.sync.LendUser
+import app.dimo.android.sync.OutgoingLendInvite
 import app.dimo.android.sync.isPermanentSyncError
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -173,5 +176,51 @@ class LendSharingTests {
     assertEquals("USD", shared.currency)
     assertTrue(shared.isShared)
     assertFalse(summaries.first { it.contactId == "cn-bob" }.isShared)
+  }
+
+  @Test
+  fun kindFollowsFlowAndBalance() {
+    // Gave: pays down what you owe, else lends.
+    assertEquals(LendKind.RETURNED, LendSelectors.kindFor(LendFlow.GAVE, 50.0, -100.0))
+    assertEquals(LendKind.RETURNED, LendSelectors.kindFor(LendFlow.GAVE, 100.0, -100.0))
+    assertEquals(LendKind.LENT, LendSelectors.kindFor(LendFlow.GAVE, 150.0, -100.0))
+    assertEquals(LendKind.LENT, LendSelectors.kindFor(LendFlow.GAVE, 50.0, 0.0))
+    // Got: collects what they owe, else borrows.
+    assertEquals(LendKind.REPAID, LendSelectors.kindFor(LendFlow.GOT, 100.0, 100.0))
+    assertEquals(LendKind.BORROWED, LendSelectors.kindFor(LendFlow.GOT, 150.0, 100.0))
+    assertEquals(LendKind.BORROWED, LendSelectors.kindFor(LendFlow.GOT, 10.0, -5.0))
+    assertEquals(LendFlow.GOT, LendFlow.of(LendKind.REPAID))
+    assertEquals(LendFlow.GAVE, LendFlow.of(LendKind.RETURNED))
+  }
+
+  @Test
+  fun peopleSplitIncludesSettledAndInvitedOnly() {
+    fun lend(id: String, contactId: String, kind: LendKind, amount: Double, occurredAt: Long) = Lend(
+      id = id,
+      contactName = contactId,
+      contactId = contactId,
+      amount = amount,
+      comment = "",
+      time = "",
+      day = "",
+      amountMinor = (amount * 100).toLong(),
+      occurredAt = occurredAt,
+      kind = kind,
+    )
+    val lends = listOf(
+      lend("a1", "small", LendKind.LENT, 10.0, 1),
+      lend("b1", "big", LendKind.BORROWED, 90.0, 2),
+      lend("c1", "done", LendKind.LENT, 20.0, 3),
+      lend("c2", "done", LendKind.REPAID, 20.0, 4),
+    )
+    val invites = listOf(
+      OutgoingLendInvite(inviteId = "i1", contactName = "New", contactId = "fresh", createdAt = 5.0),
+      OutgoingLendInvite(inviteId = "i2", contactName = "Small", contactId = "small", createdAt = 6.0),
+    )
+    val people = LendPeople.split(LendSelectors.allContactSummaries(lends), invites)
+    assertEquals(listOf("big", "small"), people.active.map { it.contactId })
+    assertEquals(-90.0, people.active.first().balance, 0.0001)
+    assertEquals(listOf("fresh", "done"), people.settled.map { it.contactId })
+    assertEquals(0, people.settled.first().entryCount)
   }
 }

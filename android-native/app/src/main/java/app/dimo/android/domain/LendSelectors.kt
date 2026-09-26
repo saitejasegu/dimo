@@ -22,6 +22,19 @@ enum class LendDirection {
     }
 }
 
+/** Which way money moved, from the user's side. */
+enum class LendFlow {
+  GAVE,
+  GOT;
+
+  companion object {
+    fun of(kind: LendKind): LendFlow = when (kind) {
+      LendKind.REPAID, LendKind.BORROWED -> GOT
+      LendKind.LENT, LendKind.RETURNED -> GAVE
+    }
+  }
+}
+
 data class LendContactSummary(
   val contactName: String,
   /** Address-book identifier of the contact this group belongs to. */
@@ -158,12 +171,19 @@ object LendSelectors {
     return contactLends.drop(unsettledStartIndex)
   }
 
+  /** People with a non-zero balance, largest balance first. */
+  fun contactSummaries(lends: List<Lend>): List<LendContactSummary> =
+    allContactSummaries(lends)
+      .filter { it.magnitude > 0.0001 }
+      .sortedWith(
+        compareByDescending<LendContactSummary> { it.magnitude }.thenBy { it.contactName },
+      )
+
   /**
-   * Groups lends per person by address-book identifier, keeping the name casing
-   * of the most recent entry, sorted by largest balance in either direction;
-   * contacts whose balance nets to zero are omitted.
+   * Everyone ever recorded, settled people included, most recent first. The
+   * name is the newest entry's.
    */
-  fun contactSummaries(lends: List<Lend>): List<LendContactSummary> {
+  fun allContactSummaries(lends: List<Lend>): List<LendContactSummary> {
     val byContact = linkedMapOf<String, LendContactSummary>()
     for (lend in lends.sortedByDescending { it.occurredAt }) {
       val existing = byContact[lend.contactId]
@@ -184,11 +204,20 @@ object LendSelectors {
         )
       }
     }
-    return byContact.values
-      .filter { it.magnitude > 0.0001 }
-      .sortedWith(
-        compareByDescending<LendContactSummary> { it.magnitude }.thenBy { it.contactName },
-      )
+    return byContact.values.sortedByDescending { it.lastOccurredAt }
+  }
+
+  /**
+   * The stored kind for money moving [flow] with a contact whose balance
+   * (excluding the entry itself) is [balance]. Money that reduces what's owed
+   * without overshooting is a repayment; anything else opens or grows a
+   * balance. The balance maths is the same either way.
+   */
+  fun kindFor(flow: LendFlow, amount: Double, balance: Double): LendKind = when (flow) {
+    LendFlow.GAVE ->
+      if (balance < -0.0001 && amount <= -balance + 0.000_001) LendKind.RETURNED else LendKind.LENT
+    LendFlow.GOT ->
+      if (balance > 0.0001 && amount <= balance + 0.000_001) LendKind.REPAID else LendKind.BORROWED
   }
 
   /**

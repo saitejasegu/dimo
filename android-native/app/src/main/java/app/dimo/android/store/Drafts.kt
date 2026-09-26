@@ -4,6 +4,7 @@ import app.dimo.android.data.model.CategoryTint
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.RecurringFrequency
 import app.dimo.android.domain.DateHelpers
+import app.dimo.android.domain.LendFlow
 import app.dimo.android.sync.LendUser
 import java.time.Instant
 import java.time.LocalDate
@@ -46,7 +47,13 @@ data class CategoryDraft(
 
 data class LendDraft(
   val editingId: String? = null,
-  val kind: LendKind = LendKind.LENT,
+  /**
+   * "I gave" or "I got"; whether that's a loan or a repayment follows from the
+   * balance when saving.
+   */
+  val flow: LendFlow = LendFlow.GAVE,
+  /** Opened from a person's page, so the person can't be changed. */
+  val contactLocked: Boolean = false,
   val contactName: String = "",
   val contactId: String? = null,
   val amount: String = "",
