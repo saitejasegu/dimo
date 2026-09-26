@@ -8,46 +8,49 @@ import {
   lendEditorTitle,
   type LendEditorTarget,
 } from "@/components/forms/LendEntryForm";
-import { AcceptInviteForm } from "@/components/forms/LedgerSharingForms";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DeleteIconButton } from "@/components/ui/DeleteIconButton";
 import { Modal } from "@/components/ui/Modal";
 import { Sheet } from "@/components/ui/Sheet";
 
-type Variant = "modal" | "sheet";
+export type Variant = "modal" | "sheet";
 
-function Frame({
+/** Bottom sheet on mobile, centered modal on desktop. */
+export function Frame({
   variant,
   title,
   onClose,
   headerRight,
+  layout = "scroll",
   children,
 }: {
   variant: Variant;
   title: string;
   onClose: () => void;
   headerRight?: ReactNode;
+  /**
+   * "scroll": tall content scrolls as one page. "fill": the frame caps its
+   * height and lays children out as a column, so a child can own the scroll.
+   */
+  layout?: "scroll" | "fill";
   children: ReactNode;
 }) {
+  const scroll =
+    layout === "fill"
+      ? "flex max-h-[90dvh] flex-col"
+      : "max-h-[90dvh] overflow-y-auto overscroll-contain";
   return variant === "modal" ? (
-    <Modal onClose={onClose} width={440} title={title} headerRight={headerRight}>
+    <Modal onClose={onClose} width={440} title={title} headerRight={headerRight} className={scroll}>
       {children}
     </Modal>
   ) : (
-    <Sheet onClose={onClose} title={title} headerRight={headerRight}>
+    <Sheet onClose={onClose} title={title} headerRight={headerRight} className={scroll}>
       {children}
     </Sheet>
   );
 }
 
-const DELETE_TITLES = {
-  lent: "Delete this lend?",
-  repaid: "Delete this repayment?",
-  borrowed: "Delete this borrowing?",
-  returned: "Delete this payment?",
-} as const;
-
-/** Add / settle / edit a lending entry, with delete when editing. */
+/** Add or edit a lending entry, with delete when editing. */
 export function LendEditorDialog({
   variant,
   target,
@@ -58,6 +61,7 @@ export function LendEditorDialog({
   onClose: () => void;
 }) {
   const { deleteLend } = useAppActions();
+  const sharing = useLendingSharing();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const editing = target.mode === "edit" ? target.lend : null;
 
@@ -77,10 +81,10 @@ export function LendEditorDialog({
       </Frame>
       <ConfirmDialog
         open={confirmDelete && Boolean(editing)}
-        title={editing ? DELETE_TITLES[editing.kind] : "Delete?"}
+        title="Delete this entry?"
         message={
-          editing?.contactId.startsWith("dimo:")
-            ? `This also removes it from ${editing.contactName}’s shared ledger.`
+          editing && sharing.activeConnection(editing.contactId)
+            ? `This also removes it for ${editing.contactName}.`
             : "This can’t be undone."
         }
         confirmLabel="Delete"
@@ -92,17 +96,5 @@ export function LendEditorDialog({
         }}
       />
     </>
-  );
-}
-
-/** The accept dialog for an incoming invite, when open. */
-export function LedgerSharingDialogs({ variant }: { variant: Variant }) {
-  const { dialog, setDialog } = useLendingSharing();
-  if (!dialog) return null;
-  const close = () => setDialog(null);
-  return (
-    <Frame variant={variant} title="Shared ledger invite" onClose={close}>
-      <AcceptInviteForm invite={dialog.invite} onDone={close} />
-    </Frame>
   );
 }

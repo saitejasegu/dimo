@@ -168,12 +168,13 @@ from derived UI models.
 
 ## Lending
 
-- iOS, Android and web (including Electron) all write lending entries. Web
-  has no address book, so a newly typed person gets an opaque
-  `contact_<uuid>` id; picking a recent chip reuses that person's id.
-- Group people by address-book `contactId`, never display name. Legacy missing
-  IDs fall back to the name. Contact names/IDs may sync; photos are read
-  on-device and must never be persisted or synced.
+- iOS, Android and web (including Electron) all write lending entries. No
+  client reads the phone address book: a newly typed person gets an opaque
+  `contact_<uuid>` id, and picking a recent chip (or, on native, typing a
+  name that exactly matches someone already tracked) reuses that person's id.
+- Group people by `contactId`, never display name. Legacy missing IDs fall
+  back to the name. Older native entries may carry address-book identifiers;
+  they are just opaque ids now.
 - A settlement cannot overshoot the balance it closes: `repaid` is capped by
   what the contact owes, `returned` by what the user owes them. `lent` and
   `borrowed` open a balance and are uncapped. Use
@@ -201,7 +202,9 @@ from derived UI models.
   `connectionId`, `createdBy`/`lastEditedBy` (`me`/`contact`, relative to the
   row owner) and the shared contact name are server-assigned and ignored on
   push. Accounts connect by in-app invite only, from the add-lend contact
-  field: typing an email runs `findLendUser` (exact verified email), picking
+  field: typing a name or email runs `searchLendUsers` (prefix-aware
+  full-text over `workspaces.name`; a full email matches `workspaces.email`
+  exactly; the caller is excluded), picking
   the result gives the entry a new contactId, and saving the entry calls
   `sendLendInvite` for that contact. There is no separate share screen. The invitee
   accepts (`acceptLendInvite`) or declines. There are no codes or links, and
@@ -210,16 +213,22 @@ from derived UI models.
   in scheduled batches and, for `history: "inviter" | "accepter"`, tombstones
   the other side's duplicate private entries. A revoked connection stops
   mirroring and each member keeps their copies as detached history.
+  `reshareLendConnection` invites the other member to turn the same
+  connection back on (`lendInvites.reconnectId`); accepting reactivates it and
+  `relinkLendHistory` re-merges both members' `dimo:<connectionId>` entries,
+  newest version per entity (deletes included).
 - `clearWorkspace` keeps shared lends by default so a full cloud replacement
   cannot drop the ledger the other member relies on. Only account deletion may
   pass `includeSharedLends: true`, which also revokes the caller's
   connections; every client's account-deletion path does so.
-- `findLendUser` matches only against `accountEmails`, which the
-  `lendingEmail:refreshVerifiedEmail` action fills from WorkOS's verified
-  email — never from client-settable workspace or preference emails. Clients
-  call the action once per session; without `WORKOS_API_KEY` it reports
-  `available: false` and clients say sharing is unavailable. Client state for
-  invites and connections lives in `LendingSharingStore` (native) and
+- Any signed-in user can find any account by profile name. The email shown
+  is `workspaces.email`, filled from sign-in; clients show it read-only, but
+  the server still accepts `profileEmail` on preference pushes. Clients
+  publish the sign-in profile photo with `lending:setProfilePhoto`; only
+  `https` URLs on `workoscdn.com` / `googleusercontent.com` are kept, so a
+  photo can't be used to track viewers. Search results, invites and
+  connections return it; Apple sign-ins have no photo. Client state
+  for invites and connections lives in `LendingSharingStore` (native) and
   `app/store/lending-sharing.tsx` (web).
 - Shared-ledger push errors (`Not a member of this lending connection`,
   `Unknown lending connection`, `Lend id collides`) are permanent and block
@@ -290,8 +299,7 @@ from derived UI models.
 - Web build-time variables: `NEXT_PUBLIC_CONVEX_URL`,
   `NEXT_PUBLIC_WORKOS_CLIENT_ID`, `NEXT_PUBLIC_WORKOS_REDIRECT_URI`.
 - Convex deployment variables: `WORKOS_CLIENT_ID`, and `WORKOS_API_KEY`, which
-  provisioning uses and `lendingEmail:refreshVerifiedEmail` reads at runtime to
-  look up verified emails so people can find each other for shared lending. Do not commit `.env*` or secret xcconfig files.
+  provisioning uses. Do not commit `.env*` or secret xcconfig files.
 - `NEXT_PUBLIC_*` values are embedded at build time and frozen into Electron
   packages. Deploy/configure Convex before building clients against it.
 - Although some docs describe cloud sync as optional, the current web

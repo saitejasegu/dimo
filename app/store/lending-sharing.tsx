@@ -6,11 +6,11 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from "react";
-import { useAction, useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useConvex, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
+import { useAppState } from "@/store/app-store";
 
 /**
  * Ledgers shared with other Dimo accounts (`convex/lending.ts`). Entries arrive
@@ -21,11 +21,19 @@ import { makeFunctionReference } from "convex/server";
 
 export type LendHistoryChoice = "both" | "inviter" | "accepter";
 
+/** The readable sentence from a Convex error (it prefixes request metadata). */
+export function sharingErrorText(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const tail = message.split("Uncaught Error:").pop() ?? message;
+  return tail.trim().split("\n")[0];
+}
+
 export interface LendUser {
   userId: string;
   name: string;
-  email: string;
-  relation: "none" | "self" | "connected" | "invited" | "invitedYou";
+  email?: string;
+  photoUrl?: string;
+  relation: "none" | "connected" | "invited" | "invitedYou";
   /** Your contactId for them: the shared ledger when connected, or the
    * contact a pending invite is for. */
   contactId?: string;
@@ -35,6 +43,9 @@ export interface IncomingLendInvite {
   inviteId: string;
   inviterName: string;
   inviterEmail?: string;
+  inviterPhotoUrl?: string;
+  /** Turns a stopped share back on. */
+  reconnect: boolean;
   createdAt: number;
 }
 
@@ -43,6 +54,7 @@ export interface OutgoingLendInvite {
   contactName: string;
   contactId?: string;
   inviteeEmail?: string;
+  inviteePhotoUrl?: string;
   createdAt: number;
 }
 
@@ -53,6 +65,8 @@ export interface LendConnectionSummary {
   status: "active" | "revoked";
   createdAt: number;
   revokedAt?: number;
+  /** The other member's profile photo. */
+  photoUrl?: string;
 }
 
 type NoArgs = Record<string, never>;
@@ -61,8 +75,8 @@ type NoArgs = Record<string, never>;
 const EMPTY: never[] = [];
 
 const refs = {
-  findUser: makeFunctionReference<"query", { email: string }, LendUser | null>(
-    "lending:findLendUser",
+  searchUsers: makeFunctionReference<"query", { query: string }, LendUser[]>(
+    "lending:searchLendUsers",
   ),
   sendInvite: makeFunctionReference<
     "mutation",
@@ -80,6 +94,12 @@ const refs = {
     { inviteId: string; contactId?: string; contactName?: string; history: LendHistoryChoice },
     { connectionId: string; contactId: string }
   >("lending:acceptLendInvite"),
+  setProfilePhoto: makeFunctionReference<"mutation", { photoUrl: string | null }, null>(
+    "lending:setProfilePhoto",
+  ),
+  reshare: makeFunctionReference<"mutation", { connectionId: string }, { inviteId: string }>(
+    "lending:reshareLendConnection",
+  ),
   revokeConnection: makeFunctionReference<"mutation", { connectionId: string }, null>(
     "lending:revokeLendConnection",
   ),
@@ -92,27 +112,19 @@ const refs = {
   outgoing: makeFunctionReference<"query", NoArgs, OutgoingLendInvite[]>(
     "lending:listOutgoingLendInvites",
   ),
-  refreshVerifiedEmail: makeFunctionReference<
-    "action",
-    NoArgs,
-    { available: boolean; email: string | null }
-  >("lendingEmail:refreshVerifiedEmail"),
 };
 
-/** Which sharing dialog is open. */
-export type LedgerSharingDialog = { kind: "accept"; invite: IncomingLendInvite };
 
 interface LendingSharingValue {
   connections: LendConnectionSummary[];
   incomingInvites: IncomingLendInvite[];
   outgoingInvites: OutgoingLendInvite[];
-  /** False when the deployment cannot verify emails, so nobody can be found. */
-  sharingAvailable: boolean;
-  dialog: LedgerSharingDialog | null;
-  setDialog: (dialog: LedgerSharingDialog | null) => void;
   activeConnection: (contactId: string) => LendConnectionSummary | undefined;
   pendingInvite: (contactId: string) => OutgoingLendInvite | undefined;
-  findUser: (email: string) => Promise<LendUser | null>;
+  /** Profile photo for a shared or invited contact, if they have one. */
+  photoFor: (contactId: string) => string | undefined;
+  /** Dimo accounts (never this one) matching a name or email. */
+  searchUsers: (query: string) => Promise<LendUser[]>;
   sendInvite: (input: { userId: string; contactId: string; contactName: string }) => Promise<void>;
   accept: (input: {
     inviteId: string;
@@ -123,6 +135,8 @@ interface LendingSharingValue {
   decline: (inviteId: string) => Promise<void>;
   cancel: (inviteId: string) => Promise<void>;
   stopSharing: (contactId: string) => Promise<void>;
+  /** Invites the other person to share a stopped connection again. */
+  shareAgain: (contactId: string) => Promise<void>;
 }
 
 const LendingSharingContext = createContext<LendingSharingValue | null>(null);
@@ -140,24 +154,16 @@ export function LendingSharingProvider({ children }: { children: ReactNode }) {
   const declineMutation = useMutation(refs.declineInvite);
   const acceptMutation = useMutation(refs.acceptInvite);
   const revokeMutation = useMutation(refs.revokeConnection);
-  const refreshVerifiedEmail = useAction(refs.refreshVerifiedEmail);
-  const [sharingAvailable, setSharingAvailable] = useState(true);
-  const [dialog, setDialog] = useState<LedgerSharingDialog | null>(null);
+  const reshareMutation = useMutation(refs.reshare);
+  const setProfilePhoto = useMutation(refs.setProfilePhoto);
+  const { profile } = useAppState("profile");
 
-  // Record the verified sign-in email once per session so other people can
-  // find this account.
+  // Publish this account's sign-in photo so people it shares lending with see it.
+  const photoUrl = profile.photoUrl ?? null;
   useEffect(() => {
     if (!isAuthenticated) return;
-    let cancelled = false;
-    refreshVerifiedEmail({})
-      .then((result) => {
-        if (!cancelled) setSharingAvailable(result.available);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, refreshVerifiedEmail]);
+    void setProfilePhoto({ photoUrl }).catch(() => undefined);
+  }, [isAuthenticated, photoUrl, setProfilePhoto]);
 
   const activeConnection = useCallback(
     (contactId: string) =>
@@ -171,17 +177,22 @@ export function LendingSharingProvider({ children }: { children: ReactNode }) {
     [outgoingInvites],
   );
 
+  const photoFor = useCallback(
+    (contactId: string) =>
+      connections.find((connection) => connection.contactId === contactId)?.photoUrl ??
+      outgoingInvites.find((invite) => invite.contactId === contactId)?.inviteePhotoUrl,
+    [connections, outgoingInvites],
+  );
+
   const value = useMemo<LendingSharingValue>(
     () => ({
       connections,
       incomingInvites,
       outgoingInvites,
-      sharingAvailable,
-      dialog,
-      setDialog,
       activeConnection,
       pendingInvite,
-      findUser: (email) => convex.query(refs.findUser, { email: email.trim() }),
+      photoFor,
+      searchUsers: (query) => convex.query(refs.searchUsers, { query: query.trim() }),
       sendInvite: async ({ userId, contactId, contactName }) => {
         await sendMutation({ userId, contactId, contactName: contactName.trim() });
       },
@@ -199,6 +210,10 @@ export function LendingSharingProvider({ children }: { children: ReactNode }) {
       cancel: async (inviteId) => {
         await cancelMutation({ inviteId });
       },
+      shareAgain: async (contactId) => {
+        const connection = connections.find((item) => item.contactId === contactId);
+        if (connection) await reshareMutation({ connectionId: connection.connectionId });
+      },
       stopSharing: async (contactId) => {
         const connection = activeConnection(contactId);
         if (connection) await revokeMutation({ connectionId: connection.connectionId });
@@ -209,15 +224,15 @@ export function LendingSharingProvider({ children }: { children: ReactNode }) {
       connections,
       incomingInvites,
       outgoingInvites,
-      sharingAvailable,
-      dialog,
       activeConnection,
       pendingInvite,
+      photoFor,
       sendMutation,
       acceptMutation,
       declineMutation,
       cancelMutation,
       revokeMutation,
+      reshareMutation,
     ],
   );
 

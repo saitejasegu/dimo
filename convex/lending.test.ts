@@ -8,7 +8,9 @@ const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const pushLends = makeFunctionReference<"mutation">("syncTyped:pushLends");
 const pullLends = makeFunctionReference<"query">("syncTyped:pullLends");
 const clearWorkspace = makeFunctionReference<"mutation">("syncTyped:clearWorkspace");
-const findLendUser = makeFunctionReference<"query">("lending:findLendUser");
+const searchLendUsers = makeFunctionReference<"query">("lending:searchLendUsers");
+const setProfilePhoto = makeFunctionReference<"mutation">("lending:setProfilePhoto");
+const reshareLendConnection = makeFunctionReference<"mutation">("lending:reshareLendConnection");
 const sendLendInvite = makeFunctionReference<"mutation">("lending:sendLendInvite");
 const cancelLendInvite = makeFunctionReference<"mutation">("lending:cancelLendInvite");
 const acceptLendInvite = makeFunctionReference<"mutation">("lending:acceptLendInvite");
@@ -17,7 +19,6 @@ const revokeLendConnection = makeFunctionReference<"mutation">("lending:revokeLe
 const listIncoming = makeFunctionReference<"query">("lending:listIncomingLendInvites");
 const listOutgoing = makeFunctionReference<"query">("lending:listOutgoingLendInvites");
 const declineLendInvite = makeFunctionReference<"mutation">("lending:declineLendInvite");
-const refreshVerifiedEmail = makeFunctionReference<"action">("lendingEmail:refreshVerifiedEmail");
 
 const ALICE = { tokenIdentifier: "https://api.workos.com/|alice", subject: "user_alice", name: "Alice" };
 const BOB = { tokenIdentifier: "https://api.workos.com/|bob", subject: "user_bob", name: "Bob" };
@@ -80,25 +81,48 @@ function setup() {
 type Env = ReturnType<typeof setup>;
 type Client = Env["alice"];
 
-/** Stands in for `refreshVerifiedEmail`, which reads the address from WorkOS. */
-async function verify(env: Env, identity: { tokenIdentifier: string }, email: string) {
+/** Gives an account the profile other people search for. */
+async function verify(
+  env: Env,
+  identity: { tokenIdentifier: string; name: string },
+  email: string,
+  name = identity.name,
+) {
   await env.t.run(async (ctx) => {
-    await ctx.db.insert("accountEmails", {
-      ownerId: identity.tokenIdentifier,
-      email,
-      verifiedAt: Date.now(),
-    });
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_owner_and_workspace", (q) =>
+        q.eq("ownerId", identity.tokenIdentifier).eq("workspaceId", "global"),
+      )
+      .unique();
+    if (workspace) await ctx.db.patch(workspace._id, { name, email });
+    else {
+      await ctx.db.insert("workspaces", {
+        ownerId: identity.tokenIdentifier,
+        workspaceId: "global",
+        revision: 0,
+        name,
+        email,
+      });
+    }
   });
 }
 
+type FoundUser = {
+  userId: string;
+  name: string;
+  email?: string;
+  photoUrl?: string;
+  relation: "none" | "connected" | "invited" | "invitedYou";
+  contactId?: string;
+};
+
+async function search(client: Client, query: string) {
+  return (await client.query(searchLendUsers, { query })) as FoundUser[];
+}
+
 async function findUser(client: Client, email: string) {
-  return (await client.query(findLendUser, { email })) as {
-    userId: string;
-    name: string;
-    email: string;
-    relation: "none" | "self" | "connected" | "invited" | "invitedYou";
-    contactId?: string;
-  } | null;
+  return (await search(client, email))[0] ?? null;
 }
 
 /** `from` finds `toEmail` and invites them; returns the invite id. */
@@ -174,7 +198,7 @@ describe("collaborative lending", () => {
     const theirs = await byId(env.bob, "lend-1");
     expect(mine).toMatchObject({
       kind: "lent",
-      contactName: "Bobby",
+      contactName: "Bob",
       contactId,
       connectionId,
       createdBy: "me",
@@ -402,18 +426,66 @@ describe("collaborative lending", () => {
     expect(bob.every((lend) => lend.contactId === contactId && lend.kind === "borrowed")).toBe(true);
   });
 
-  it("finds accounts only by their exact verified email", async () => {
+  it("finds accounts by exact email", async () => {
     const env = setup();
     await verify(env, ALICE, "alice@example.com");
     await verify(env, BOB, "bob@example.com");
     expect(await findUser(env.alice, "  BOB@example.com ")).toMatchObject({
       email: "bob@example.com",
-      name: "bob",
+      name: "Bob",
       relation: "none",
     });
-    expect(await findUser(env.alice, "bob@example")).toBeNull();
     expect(await findUser(env.alice, "nobody@example.com")).toBeNull();
-    expect((await findUser(env.alice, "alice@example.com"))?.relation).toBe("self");
+    expect(await findUser(env.alice, "alice@example.com")).toBeNull();
+  });
+
+  it("finds accounts by name as it is typed, never the caller", async () => {
+    const env = setup();
+    await verify(env, ALICE, "alice@example.com");
+    await verify(env, BOB, "bob@example.com", "Bobby Tables");
+
+    expect(await search(env.alice, "bob")).toMatchObject([
+      { name: "Bobby Tables", email: "bob@example.com", relation: "none" },
+    ]);
+    expect(await search(env.alice, "tab")).toMatchObject([{ email: "bob@example.com" }]);
+    expect(await search(env.alice, "b")).toEqual([]);
+    expect(await search(env.alice, "alice")).toEqual([]);
+  });
+
+  it("shows provider-hosted profile photos and ignores other hosts", async () => {
+    const env = setup();
+    await verify(env, ALICE, "alice@example.com");
+    await verify(env, BOB, "bob@example.com");
+    const photo = "https://workoscdn.com/images/v1/abc";
+    await env.bob.mutation(setProfilePhoto, { photoUrl: photo });
+    expect((await findUser(env.alice, "bob@example.com"))?.photoUrl).toBe(photo);
+
+    await env.bob.mutation(setProfilePhoto, { photoUrl: "https://tracker.example/pixel.png" });
+    expect((await findUser(env.alice, "bob@example.com"))?.photoUrl).toBeUndefined();
+
+    await env.bob.mutation(setProfilePhoto, { photoUrl: photo });
+    const inviteId = await invite(env.alice, "bob@example.com");
+    await env.bob.mutation(acceptLendInvite, { inviteId, history: "both" });
+    expect(await env.alice.query(listLendConnections, {})).toMatchObject([{ photoUrl: photo }]);
+  });
+
+  it("names each side by their account once linked", async () => {
+    const env = setup();
+    await env.alice.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [lendOp("old", { contactId: "cn-bob", contactName: "Bobby from work", timestamp: 10 })],
+    });
+    await verify(env, ALICE, "alice@example.com", "Alice Liddell");
+    await verify(env, BOB, "bob@example.com", "Robert Paulson");
+    const inviteId = await invite(env.alice, "bob@example.com", {
+      contactId: "cn-bob",
+      contactName: "Bobby from work",
+    });
+    await env.bob.mutation(acceptLendInvite, { inviteId, history: "both", contactName: "Al" });
+    await env.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await byId(env.alice, "old"))?.contactName).toBe("Robert Paulson");
+    expect((await byId(env.bob, "old"))?.contactName).toBe("Alice Liddell");
   });
 
   it("keeps entries private until the invite is accepted", async () => {
@@ -463,14 +535,25 @@ describe("collaborative lending", () => {
       relation: "connected",
       contactId,
     });
-    await expect(invite(env.bob, "alice@example.com")).rejects.toThrow("already share a ledger");
+    await expect(invite(env.bob, "alice@example.com")).rejects.toThrow("already share with this person");
   });
 
   it("rejects inviting yourself or someone who already invited you", async () => {
     const env = setup();
     await verify(env, ALICE, "alice@example.com");
     await verify(env, BOB, "bob@example.com");
-    await expect(invite(env.alice, "alice@example.com")).rejects.toThrow("invite yourself");
+    const ownId = await env.t.run(async (ctx) => {
+      const own = await ctx.db
+        .query("workspaces")
+        .withIndex("by_owner_and_workspace", (q) =>
+          q.eq("ownerId", ALICE.tokenIdentifier).eq("workspaceId", "global"),
+        )
+        .unique();
+      return own!._id;
+    });
+    await expect(
+      env.alice.mutation(sendLendInvite, { userId: ownId, contactName: "Me" }),
+    ).rejects.toThrow("invite yourself");
 
     await invite(env.alice, "bob@example.com");
     expect((await findUser(env.bob, "alice@example.com"))?.relation).toBe("invitedYou");
@@ -515,7 +598,7 @@ describe("collaborative lending", () => {
     const env = setup();
     const { connectionId } = await connect(env);
     expect(await env.alice.query(listLendConnections, {})).toMatchObject([
-      { connectionId, contactName: "Bobby", status: "active" },
+      { connectionId, contactName: "Bob", status: "active" },
     ]);
     expect(await env.bob.query(listLendConnections, {})).toMatchObject([
       { connectionId, contactName: "Alice", status: "active" },
@@ -548,6 +631,65 @@ describe("collaborative lending", () => {
     expect((await byId(env.bob, "lend-1"))?.amountMinor).toBe(50_000);
     expect(await byId(env.bob, "lend-2")).toBeUndefined();
     expect((await env.alice.query(listLendConnections, {}))[0].status).toBe("revoked");
+  });
+
+  it("shares again after stopping, merging what changed in between", async () => {
+    const env = setup();
+    const { contactId, connectionId } = await connect(env);
+    await env.alice.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [
+        lendOp("kept", { contactId, timestamp: 100 }),
+        lendOp("gone", { contactId, timestamp: 101 }),
+      ],
+    });
+    await env.bob.mutation(revokeLendConnection, { connectionId });
+    await env.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    // While stopped: Alice edits one, deletes one and adds one; Bob adds one.
+    await env.alice.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [
+        lendOp("kept", { contactId, amountMinor: 7_000, timestamp: 200 }),
+        lendOp("gone", { contactId, timestamp: 201, deleted: true }),
+        lendOp("alice-new", { contactId, amountMinor: 1_000, timestamp: 202 }),
+      ],
+    });
+    await env.bob.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [lendOp("bob-new", { contactId, kind: "borrowed", amountMinor: 2_000, timestamp: 203 })],
+    });
+    expect((await byId(env.bob, "kept"))?.amountMinor).toBe(50_000);
+
+    const { inviteId } = await env.bob.mutation(reshareLendConnection, { connectionId });
+    expect(await env.alice.query(listIncoming, {})).toMatchObject([{ inviteId, reconnect: true }]);
+    await env.alice.mutation(acceptLendInvite, { inviteId, history: "both" });
+    await env.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    expect((await env.alice.query(listLendConnections, {}))[0].status).toBe("active");
+    expect(await byId(env.bob, "kept")).toMatchObject({ amountMinor: 7_000, kind: "borrowed" });
+    expect((await byId(env.bob, "gone"))?.deleted).toBe(true);
+    expect(await byId(env.bob, "alice-new")).toMatchObject({ amountMinor: 1_000, contactId });
+    expect(await byId(env.alice, "bob-new")).toMatchObject({ kind: "lent", amountMinor: 2_000 });
+
+    // New edits mirror again.
+    await env.bob.mutation(pushLends, {
+      workspaceId: "global",
+      operations: [lendOp("bob-new", { contactId, kind: "borrowed", amountMinor: 3_000, timestamp: 300 })],
+    });
+    expect((await byId(env.alice, "bob-new"))?.amountMinor).toBe(3_000);
+  });
+
+  it("only lets a member of a stopped connection share it again", async () => {
+    const env = setup();
+    const { connectionId } = await connect(env);
+    await expect(env.alice.mutation(reshareLendConnection, { connectionId })).rejects.toThrow(
+      "already share",
+    );
+    await env.alice.mutation(revokeLendConnection, { connectionId });
+    await expect(env.carol.mutation(reshareLendConnection, { connectionId })).rejects.toThrow(
+      "not found",
+    );
   });
 
   it("keeps shared entries through a full cloud replacement", async () => {
@@ -598,52 +740,5 @@ describe("collaborative lending", () => {
     expect(await pull(env.alice)).toEqual([]);
     expect(await byId(env.bob, "shared")).toMatchObject({ deleted: false, kind: "borrowed" });
     expect((await env.bob.query(listLendConnections, {}))[0].status).toBe("revoked");
-  });
-
-  describe("verified email", () => {
-    const emails: Record<string, { email: string; email_verified: boolean }> = {
-      user_alice: { email: "Alice@Example.com", email_verified: true },
-      user_carol: { email: "carol@example.com", email_verified: false },
-    };
-
-    beforeEach(() => {
-      process.env.WORKOS_API_KEY = "sk_test";
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (url: string, init?: { headers?: Record<string, string> }) => {
-          expect(init?.headers?.Authorization).toBe("Bearer sk_test");
-          const id = decodeURIComponent(url.split("/").pop() ?? "");
-          const user = emails[id];
-          return new Response(JSON.stringify(user ?? {}), { status: user ? 200 : 404 });
-        }),
-      );
-    });
-    afterEach(() => {
-      delete process.env.WORKOS_API_KEY;
-      vi.unstubAllGlobals();
-    });
-
-    it("reports unavailable without a WorkOS API key", async () => {
-      delete process.env.WORKOS_API_KEY;
-      const env = setup();
-      expect(await env.alice.action(refreshVerifiedEmail, {})).toEqual({
-        available: false,
-        email: null,
-      });
-    });
-
-    it("only makes verified addresses findable", async () => {
-      const env = setup();
-      expect(await env.alice.action(refreshVerifiedEmail, {})).toEqual({
-        available: true,
-        email: "alice@example.com",
-      });
-      expect(await env.carol.action(refreshVerifiedEmail, {})).toEqual({
-        available: true,
-        email: null,
-      });
-      expect(await findUser(env.bob, "alice@example.com")).toMatchObject({ name: "alice" });
-      expect(await findUser(env.bob, "carol@example.com")).toBeNull();
-    });
   });
 });

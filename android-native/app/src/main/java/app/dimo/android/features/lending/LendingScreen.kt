@@ -60,7 +60,6 @@ import app.dimo.android.features.common.HeroCaption
 import app.dimo.android.features.common.HeroCard
 import app.dimo.android.features.common.HeroLabel
 import app.dimo.android.features.common.LoadingRow
-import app.dimo.android.features.common.rememberContactPhotoUris
 import app.dimo.android.features.common.ScreenHeader
 import app.dimo.android.features.common.SectionLabel
 import app.dimo.android.features.common.SegmentedControl
@@ -96,7 +95,6 @@ fun LendingScreen(
   var visibleLimit by remember { mutableStateOf(LendSelectors.historyPageSize) }
   val summaries = LendSelectors.contactSummaries(store.lends)
   val totals = LendSelectors.totals(summaries)
-  val contactPhotos = rememberContactPhotoUris()
   val sharing = store.lendingSharing
   val scope = rememberCoroutineScope()
   fun cancelInvite(invite: OutgoingLendInvite) {
@@ -235,7 +233,6 @@ fun LendingScreen(
               ContactSummaryRow(
                 store = store,
                 summary = summary,
-                photoUri = contactPhotos[summary.contactId],
                 onStopSharing = { stopSharingTarget = summary },
                 onCancelInvite = ::cancelInvite,
               )
@@ -276,7 +273,6 @@ fun LendingScreen(
               LendRow(
                 store = store,
                 lend = lend,
-                photoUri = contactPhotos[lend.contactId],
               )
             }
           }
@@ -372,7 +368,7 @@ private fun InvitedRow(invite: OutgoingLendInvite, onCancel: () -> Unit) {
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    ContactAvatar(name = invite.contactName, photoUri = null, size = 38.dp, radius = 11.dp, fontSize = 15f)
+    ContactAvatar(name = invite.contactName, size = 38.dp, radius = 11.dp, fontSize = 15f)
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
         text = invite.contactName,
@@ -425,7 +421,6 @@ private fun attribution(lend: Lend): String? {
 private fun ContactSummaryRow(
   store: AppStore,
   summary: LendContactSummary,
-  photoUri: String?,
   onStopSharing: () -> Unit,
   onCancelInvite: (OutgoingLendInvite) -> Unit,
   modifier: Modifier = Modifier,
@@ -469,7 +464,6 @@ private fun ContactSummaryRow(
     ) {
       ContactAvatar(
         name = summary.contactName,
-        photoUri = photoUri,
         size = 38.dp,
         radius = 11.dp,
         fontSize = 15f,
@@ -544,7 +538,6 @@ private fun ContactSummaryRow(
 private fun LendRow(
   store: AppStore,
   lend: Lend,
-  photoUri: String?,
   modifier: Modifier = Modifier,
 ) {
   val detailBase = lend.comment.ifEmpty { fallbackDetail(lend.kind).orEmpty() }
@@ -563,7 +556,7 @@ private fun LendRow(
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    ContactAvatar(name = lend.contactName, photoUri = photoUri, size = 38.dp, radius = 11.dp)
+    ContactAvatar(name = lend.contactName, size = 38.dp, radius = 11.dp)
     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
       Text(
         text = lend.contactName,

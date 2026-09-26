@@ -16,6 +16,19 @@ enum LendDirection: Hashable, Sendable {
   }
 }
 
+/// Which way money moved, from the user's side.
+enum LendFlow: String, Hashable, Sendable, CaseIterable {
+  case gave
+  case got
+
+  init(kind: LendKind) {
+    switch kind {
+    case .repaid, .borrowed: self = .got
+    case .lent, .returned: self = .gave
+    }
+  }
+}
+
 struct LendContactSummary: Hashable, Sendable, Identifiable {
   var contactName: String
   /// Address-book identifier of the contact this group belongs to.
@@ -152,10 +165,19 @@ enum LendSelectors {
     return Array(contactLends.dropFirst(unsettledStartIndex))
   }
 
-  /// Groups lends per person by address-book identifier, keeping the name
-  /// casing of the most recent entry, sorted by largest balance in either
-  /// direction; contacts whose balance nets to zero are omitted.
+  /// People with a non-zero balance, largest balance first.
   static func contactSummaries(_ lends: [Lend]) -> [LendContactSummary] {
+    allContactSummaries(lends)
+      .filter { $0.magnitude > 0.0001 }
+      .sorted {
+        if $0.magnitude != $1.magnitude { return $0.magnitude > $1.magnitude }
+        return $0.contactName < $1.contactName
+      }
+  }
+
+  /// Everyone ever recorded, settled people included, most recent first. The
+  /// name is the newest entry's.
+  static func allContactSummaries(_ lends: [Lend]) -> [LendContactSummary] {
     var byContact: [String: LendContactSummary] = [:]
     for lend in lends.sorted(by: { $0.occurredAt > $1.occurredAt }) {
       if var existing = byContact[lend.contactId] {
@@ -174,12 +196,20 @@ enum LendSelectors {
         )
       }
     }
-    return byContact.values
-      .filter { $0.magnitude > 0.0001 }
-      .sorted {
-        if $0.magnitude != $1.magnitude { return $0.magnitude > $1.magnitude }
-        return $0.contactName < $1.contactName
-      }
+    return byContact.values.sorted { $0.lastOccurredAt > $1.lastOccurredAt }
+  }
+
+  /// The stored kind for money moving `flow` with a contact whose balance
+  /// (excluding the entry itself) is `balance`. Money that reduces what's owed
+  /// without overshooting is a repayment; anything else opens or grows a
+  /// balance. The balance maths is the same either way.
+  static func kind(for flow: LendFlow, amount: Double, balance: Double) -> LendKind {
+    switch flow {
+    case .gave:
+      return balance < -0.0001 && amount <= -balance + 0.000_001 ? .returned : .lent
+    case .got:
+      return balance > 0.0001 && amount <= balance + 0.000_001 ? .repaid : .borrowed
+    }
   }
 
   /// Most recently used contacts across lend history, deduped per person,

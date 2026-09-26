@@ -184,7 +184,7 @@ export function toLendKind(value: unknown): LendKind {
 
 /** A lending entry as entered in the web form. */
 export interface LendSaveInput {
-  /** Present when editing; the saved row's kind then wins over `kind`. */
+  /** Present when editing. */
   id?: ID;
   contactId: string;
   contactName: string;

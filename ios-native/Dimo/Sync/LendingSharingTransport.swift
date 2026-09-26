@@ -1,14 +1,15 @@
 import ConvexMobile
 import Foundation
 
-/// A Dimo account found by its verified email.
+/// A Dimo account found by name or email.
 struct LendUser: Decodable, Sendable, Equatable {
   var userId: String
   var name: String
-  var email: String
-  /// `none`, `self`, `connected`, `invited` or `invitedYou`.
+  var email: String?
+  var photoUrl: String?
+  /// `none`, `connected`, `invited` or `invitedYou`.
   var relation: String
-  /// Your contactId for them: the shared ledger when connected, or the
+  /// Your contactId for them: the shared contact when connected, or the
   /// contact a pending invite is for.
   var contactId: String?
 }
@@ -18,6 +19,9 @@ struct IncomingLendInvite: Decodable, Sendable, Identifiable, Equatable {
   var inviteId: String
   var inviterName: String
   var inviterEmail: String?
+  var inviterPhotoUrl: String?
+  /// Turns a stopped share back on.
+  var reconnect: Bool
   var createdAt: Double
 
   var id: String { inviteId }
@@ -29,6 +33,7 @@ struct OutgoingLendInvite: Decodable, Sendable, Identifiable, Equatable {
   var contactName: String
   var contactId: String?
   var inviteeEmail: String?
+  var inviteePhotoUrl: String?
   var createdAt: Double
 
   var id: String { inviteId }
@@ -43,6 +48,8 @@ struct LendConnectionSummary: Decodable, Sendable, Identifiable, Equatable {
   var status: String
   var createdAt: Double
   var revokedAt: Double?
+  /// The other member's profile photo.
+  var photoUrl: String?
 
   var id: String { connectionId }
   var isActive: Bool { status == "active" }
@@ -57,14 +64,8 @@ struct AcceptedLendInvite: Decodable, Sendable {
   var contactId: String
 }
 
-struct VerifiedEmailResult: Decodable, Sendable {
-  /// False when the deployment has no WorkOS API key configured.
-  var available: Bool
-  var email: String?
-}
-
-/// Whose past entries make up the shared ledger when both sides already
-/// tracked each other; the other side's duplicates are deleted.
+/// Whose past entries are kept when both sides already tracked each other;
+/// the other side's duplicates are deleted. Clients always keep both.
 enum LendHistoryChoice: String, CaseIterable, Identifiable, Sendable {
   case both
   case inviter
@@ -81,10 +82,26 @@ final class LendingSharingTransport: @unchecked Sendable {
     self.client = client
   }
 
-  func findUser(email: String) async throws -> LendUser? {
+  func searchUsers(query: String) async throws -> [LendUser] {
     try await firstValue(
-      client.subscribe(to: "lending:findLendUser", with: ["email": email])
+      client.subscribe(to: "lending:searchLendUsers", with: ["query": query])
     )
+  }
+
+  func reshare(connectionId: String) async throws {
+    let _: SentLendInvite = try await withTimeout(seconds: 45) {
+      try await self.client.mutation(
+        "lending:reshareLendConnection",
+        with: ["connectionId": connectionId]
+      )
+    }
+  }
+
+  func setProfilePhoto(_ photoUrl: String?) async throws {
+    let args: [String: ConvexEncodable?] = ["photoUrl": photoUrl]
+    try await withTimeout(seconds: 45) {
+      try await self.client.mutation("lending:setProfilePhoto", with: args)
+    }
   }
 
   func sendInvite(userId: String, contactId: String, contactName: String) async throws {
@@ -148,11 +165,5 @@ final class LendingSharingTransport: @unchecked Sendable {
     try await firstValue(
       client.subscribe(to: "lending:listLendConnections", with: [:] as [String: ConvexEncodable?])
     )
-  }
-
-  func refreshVerifiedEmail() async throws -> VerifiedEmailResult {
-    try await withTimeout(seconds: 45) {
-      try await self.client.action("lendingEmail:refreshVerifiedEmail", with: [:])
-    }
   }
 }

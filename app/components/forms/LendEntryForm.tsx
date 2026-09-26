@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/cn";
 import { localDateKey, localDateTimeTimestamp } from "@/lib/dates";
 import { symbolFor } from "@/lib/format";
-import { isSharedLendContact, type Lend, type LendKind } from "@/lib/types";
+import type { Lend } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
-import { useLendingSharing, type LendUser } from "@/store/lending-sharing";
-import { errorText } from "@/components/forms/LedgerSharingForms";
+import { sharingErrorText, useLendingSharing, type LendUser } from "@/store/lending-sharing";
 import {
+  lendFlow,
+  lendKindFor,
+  netLendBalance,
   recentLendContacts,
-  settlementKind,
-  settlementLimit,
-  type LendDirection,
+  type LendFlow,
 } from "@/features/lending/selectors";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -23,77 +22,39 @@ import { TextField } from "@/components/ui/TextField";
 
 /** What the lend editor was opened for. */
 export type LendEditorTarget =
-  | { mode: "new" }
-  /** Settle a contact's balance from its summary row. */
-  | { mode: "settle"; contactId: string; contactName: string; direction: LendDirection }
+  /** A new entry, optionally for a known person and with a preset direction. */
+  | { mode: "new"; contactId?: string; contactName?: string; flow?: LendFlow }
   | { mode: "edit"; lend: Lend };
 
-const DIRECTIONS = [
-  { value: "lent", label: "I lent" },
-  { value: "borrowed", label: "I borrowed" },
-] satisfies Array<{ value: LendKind; label: string }>;
-
-const TITLES: Record<LendKind, { add: string; edit: string; save: string; editSave: string }> = {
-  lent: { add: "Add lend", edit: "Edit lend", save: "Save lend", editSave: "Save lend" },
-  borrowed: {
-    add: "Add borrowing",
-    edit: "Edit borrowing",
-    save: "Save borrowing",
-    editSave: "Save borrowing",
-  },
-  repaid: { add: "Got back", edit: "Edit repayment", save: "Save got back", editSave: "Save repayment" },
-  returned: { add: "Paid back", edit: "Edit payment", save: "Save paid back", editSave: "Save payment" },
-};
-
-const CONTACT_LABELS: Record<LendKind, string> = {
-  lent: "Lent to",
-  borrowed: "Borrowed from",
-  repaid: "From",
-  returned: "To",
-};
-
-const AMOUNT_LABELS: Record<LendKind, string> = {
-  lent: "Amount",
-  borrowed: "Amount",
-  repaid: "Amount got back",
-  returned: "Amount paid back",
-};
-
-const COMMENT_PLACEHOLDERS: Record<LendKind, string> = {
-  lent: "e.g. Dinner split, emergency",
-  borrowed: "e.g. Rent top-up, cab fare",
-  repaid: "e.g. Partial repayment",
-  returned: "e.g. Partial payment",
-};
+const FLOWS = [
+  { value: "gave", label: "I gave" },
+  { value: "got", label: "I got" },
+] satisfies Array<{ value: LendFlow; label: string }>;
 
 export function lendEditorTitle(target: LendEditorTarget) {
-  if (target.mode === "edit") return TITLES[target.lend.kind].edit;
-  if (target.mode === "settle") return TITLES[settlementKind(target.direction)].add;
-  return "Add lending entry";
-}
-
-function initialKind(target: LendEditorTarget): LendKind {
-  if (target.mode === "edit") return target.lend.kind;
-  if (target.mode === "settle") return settlementKind(target.direction);
-  return "lent";
+  return target.mode === "edit" ? "Edit entry" : "Add entry";
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Dimo accounts are searched once this many characters are typed. */
+const MIN_SEARCH_LENGTH = 2;
 
-/** A typed email looked up against Dimo accounts; `user` is null when none matched. */
-interface DimoLookup {
-  email: string;
-  user: LendUser | null;
+/** Dimo accounts matching a typed query. */
+interface DimoSearch {
+  query: string;
+  users: LendUser[];
 }
 
-function dimoUserNote(user: LendUser) {
+function relationLabel(user: LendUser) {
   switch (user.relation) {
-    case "self":
-      return "That’s your own account.";
+    case "connected":
+      return "Shared";
+    case "invited":
+      return "Invited";
     case "invitedYou":
-      return `${user.name} already invited you. Accept their invite in Lending first.`;
+      return "Invited you";
     default:
-      return null;
+      return "On Dimo";
   }
 }
 
@@ -102,9 +63,9 @@ function amountText(amount: number) {
 }
 
 /**
- * Add, settle or edit a lending entry. Web counterpart of the native lend
- * sheets: settlements are capped at the balance they close, editing never
- * flips direction, and a shared ledger's contact is chosen from its chip.
+ * Add or edit a lending entry as "I gave" / "I got". Whether it's a new loan
+ * or a repayment follows from the balance with that person, so users never
+ * pick between lent, borrowed, got back and paid back.
  */
 export function LendEntryForm({
   target,
@@ -119,48 +80,53 @@ export function LendEntryForm({
   const { connections, outgoingInvites } = sharing;
   const editing = target.mode === "edit" ? target.lend : null;
 
-  const [kind, setKind] = useState<LendKind>(() => initialKind(target));
+  const [flow, setFlow] = useState<LendFlow>(() =>
+    target.mode === "edit" ? lendFlow(target.lend.kind) : (target.flow ?? "gave"),
+  );
   const [contactName, setContactName] = useState(() =>
-    target.mode === "new" ? "" : target.mode === "edit" ? target.lend.contactName : target.contactName,
+    target.mode === "edit" ? target.lend.contactName : (target.contactName ?? ""),
   );
   const [contactId, setContactId] = useState<string | null>(() =>
-    target.mode === "new" ? null : target.mode === "edit" ? target.lend.contactId : target.contactId,
+    target.mode === "edit" ? target.lend.contactId : (target.contactId ?? null),
   );
   const [date, setDate] = useState(() =>
     localDateKey(editing ? new Date(editing.occurredAt) : new Date()),
   );
   const [amount, setAmount] = useState(() => (editing ? amountText(editing.amount) : ""));
   const [comment, setComment] = useState(() => editing?.comment ?? "");
-  // The Dimo account picked from an email lookup; saving invites them.
+  // The Dimo account picked from the search; saving invites them.
   const [dimoUser, setDimoUser] = useState<LendUser | null>(null);
-  const [lookup, setLookup] = useState<DimoLookup | null>(null);
+  const [search, setSearch] = useState<DimoSearch | null>(null);
 
-  const settling = kind === "repaid" || kind === "returned";
-  const contactLocked = target.mode !== "new";
-  const typedEmail = contactName.trim().toLowerCase();
-  const searchable =
-    !contactLocked && !dimoUser && sharing.sharingAvailable && EMAIL_PATTERN.test(typedEmail);
-  const currentLookup = searchable && lookup?.email === typedEmail ? lookup : null;
+  const contactLocked = target.mode === "edit" || Boolean(target.contactId);
+  const query = contactName.trim();
+  // Typing (rather than picking someone) searches your people and Dimo.
+  const typing = !contactLocked && !contactId && !dimoUser && query.length > 0;
+  const searchable = typing && query.length >= MIN_SEARCH_LENGTH;
+  const dimoResults = searchable && search?.query === query ? search.users : null;
 
-  // Typing an email looks for the Dimo account that uses it.
   useEffect(() => {
     if (!searchable) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       sharing
-        .findUser(typedEmail)
-        .then((user) => {
-          if (!cancelled) setLookup({ email: typedEmail, user });
+        .searchUsers(query)
+        .then((users) => {
+          if (!cancelled) setSearch({ query, users });
         })
         .catch(() => undefined);
-    }, 350);
+    }, 250);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [searchable, typedEmail, sharing]);
+  }, [searchable, query, sharing]);
 
   function pickDimoUser(user: LendUser) {
+    if (user.relation === "invitedYou") {
+      showToast(`${user.name} already invited you. Accept their invite in Lending first.`);
+      return;
+    }
     setDimoUser(user);
     setContactName(user.name);
     // Reuse the shared ledger or the contact a pending invite is for.
@@ -185,16 +151,37 @@ export function LendEntryForm({
     return recent;
   }, [lends, connections, outgoingInvites]);
 
-  const limit = contactId
-    ? settlementLimit(kind, contactId, lends, editing?.id)
-    : settling
-      ? 0
-      : null;
+  // Everyone you've recorded, for matching what's typed.
+  const knownContacts = useMemo(() => {
+    const all = recentLendContacts(lends, Number.MAX_SAFE_INTEGER);
+    for (const suggestion of suggestions) {
+      if (!all.some((contact) => contact.contactId === suggestion.contactId)) all.push(suggestion);
+    }
+    return all;
+  }, [lends, suggestions]);
+  const matchingContacts = useMemo(() => {
+    if (!typing) return [];
+    const needle = query.toLowerCase();
+    // A Dimo result already stands for the contact it's shared or invited as.
+    const linked = new Set((dimoResults ?? []).map((user) => user.contactId));
+    return knownContacts
+      .filter((contact) => contact.contactName.toLowerCase().includes(needle))
+      .filter((contact) => !linked.has(contact.contactId))
+      .slice(0, 5);
+  }, [typing, query, knownContacts, dimoResults]);
+
   const parsed = Number(amount);
-  const tooMuch = limit !== null && parsed > limit + 0.000_001;
-  const canSave = contactName.trim().length > 0 && parsed > 0 && !tooMuch;
+  const canSave = contactName.trim().length > 0 && parsed > 0;
   const symbol = symbolFor(editing?.currency ?? currency);
-  const shared = contactId ? isSharedLendContact(contactId) : false;
+  const shared = contactId ? Boolean(sharing.activeConnection(contactId)) : false;
+  // Balance with this person before this entry: positive when they owe you.
+  const balance = contactId ? netLendBalance(contactId, lends, editing?.id) : 0;
+  const balanceText =
+    Math.abs(balance) < 0.0001
+      ? null
+      : balance > 0
+        ? `${contactName.trim() || "They"} owes you ${symbol}${amountText(balance)}`
+        : `You owe ${contactName.trim() || "them"} ${symbol}${amountText(-balance)}`;
 
   function save() {
     if (!canSave) return;
@@ -213,7 +200,7 @@ export function LendEntryForm({
       ...(editing ? { id: editing.id } : {}),
       contactId: savedContactId,
       contactName,
-      kind,
+      kind: lendKindFor(flow, parsed, balance),
       amount: parsed,
       occurredAt,
       comment,
@@ -225,19 +212,17 @@ export function LendEntryForm({
       sharing
         .sendInvite({ userId: dimoUser.userId, contactId: savedContactId, contactName: name })
         .then(() => showToast(`Invite sent to ${name}`))
-        .catch((cause) => showToast(`Saved, but the invite failed: ${errorText(cause)}`));
+        .catch((cause) => showToast(`Saved, but the invite failed: ${sharingErrorText(cause)}`));
     }
     onDone();
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {target.mode === "new" ? (
-        <SegmentedControl options={DIRECTIONS} value={kind} onChange={setKind} />
-      ) : null}
+      <SegmentedControl options={FLOWS} value={flow} onChange={setFlow} />
 
       <div>
-        <span className="mb-1.5 block text-xs text-muted">{CONTACT_LABELS[kind]}</span>
+        <span className="mb-1.5 block text-xs text-muted">{flow === "gave" ? "To" : "From"}</span>
         {contactLocked ? (
           <div className="rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink">
             {contactName}
@@ -255,42 +240,70 @@ export function LendEntryForm({
               placeholder="Their name or Dimo email"
               className="w-full rounded-xl border border-line bg-canvas px-3.5 py-[11px] text-base text-ink outline-none placeholder:text-faint"
             />
-            {currentLookup?.user && !dimoUserNote(currentLookup.user) ? (
-              <button
-                type="button"
-                onClick={() => currentLookup.user && pickDimoUser(currentLookup.user)}
-                className="mt-2 flex w-full items-center gap-3 rounded-xl border border-green/50 bg-surface px-3 py-2.5 text-left"
-              >
-                <Avatar
-                  initial={currentLookup.user.name.charAt(0).toUpperCase()}
-                  size={32}
-                  radius={10}
-                  textClassName="text-xs"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink">
-                    {currentLookup.user.name}
-                  </span>
-                  <span className="block truncate text-xs text-muted">
-                    {currentLookup.user.email}
-                  </span>
-                </span>
-                <span className="shrink-0 text-xs font-medium text-green">
-                  {currentLookup.user.relation === "connected"
-                    ? "Shared"
-                    : currentLookup.user.relation === "invited"
-                      ? "Invited"
-                      : "On Dimo"}
-                </span>
-              </button>
+            {typing && (matchingContacts.length > 0 || dimoResults !== null) ? (
+              <div className="mt-2 overflow-hidden rounded-xl border border-line bg-surface">
+                {matchingContacts.map((contact) => (
+                  <button
+                    type="button"
+                    key={contact.contactId}
+                    onClick={() => {
+                      setContactName(contact.contactName);
+                      setContactId(contact.contactId);
+                    }}
+                    className="flex w-full items-center gap-3 border-b border-line-soft px-3 py-2.5 text-left last:border-b-0 hover:bg-canvas"
+                  >
+                    <Avatar
+                      initial={contact.contactName.charAt(0).toUpperCase()}
+                      src={sharing.photoFor(contact.contactId)}
+                      size={32}
+                      radius={10}
+                      textClassName="text-xs"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+                      {contact.contactName}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted">
+                      {sharing.activeConnection(contact.contactId) ? "Shared" : "Your contact"}
+                    </span>
+                  </button>
+                ))}
+                {(dimoResults ?? []).map((user) => (
+                  <button
+                    type="button"
+                    key={user.userId}
+                    onClick={() => pickDimoUser(user)}
+                    className="flex w-full items-center gap-3 border-b border-line-soft px-3 py-2.5 text-left last:border-b-0 hover:bg-canvas"
+                  >
+                    <Avatar
+                      initial={user.name.charAt(0).toUpperCase()}
+                      src={user.photoUrl}
+                      size={32}
+                      radius={10}
+                      textClassName="text-xs"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">
+                        {user.name}
+                      </span>
+                      {user.email ? (
+                        <span className="block truncate text-xs text-muted">{user.email}</span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-xs font-medium text-green">
+                      {relationLabel(user)}
+                    </span>
+                  </button>
+                ))}
+                {dimoResults !== null && dimoResults.length === 0 && matchingContacts.length === 0 ? (
+                  <p className="px-3 py-2.5 text-xs text-muted">
+                    {EMAIL_PATTERN.test(query)
+                      ? "No Dimo account uses this email."
+                      : `No one named “${query}” yet. Saving adds them as a new person.`}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
-            {currentLookup?.user && dimoUserNote(currentLookup.user) ? (
-              <p className="mt-1.5 text-xs text-muted">{dimoUserNote(currentLookup.user)}</p>
-            ) : null}
-            {currentLookup && !currentLookup.user ? (
-              <p className="mt-1.5 text-xs text-muted">No Dimo account uses this email.</p>
-            ) : null}
-            {suggestions.length > 0 && !searchable && !dimoUser ? (
+            {suggestions.length > 0 && query.length === 0 ? (
               <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                 {suggestions.map((suggestion) => (
                   <Chip
@@ -310,13 +323,13 @@ export function LendEntryForm({
         )}
         {shared ? (
           <p className="mt-1.5 text-xs text-green">
-            Shared ledger — {contactName} sees this entry too.
+            Shared with {contactName} — they see this entry too.
           </p>
         ) : dimoUser ? (
           <p className="mt-1.5 text-xs text-muted">
             {dimoUser.relation === "invited"
-              ? `Invited ${dimoUser.email}. This entry is shared once they accept.`
-              : `Saving invites ${dimoUser.email}. This entry stays private until they accept.`}
+              ? `Invited ${dimoUser.email ?? dimoUser.name}. This entry is shared once they accept.`
+              : `Saving invites ${dimoUser.email ?? dimoUser.name}. This entry stays private until they accept.`}
           </p>
         ) : null}
       </div>
@@ -330,7 +343,7 @@ export function LendEntryForm({
       />
 
       <label className="block">
-        <span className="mb-1.5 block text-xs text-muted">{AMOUNT_LABELS[kind]}</span>
+        <span className="mb-1.5 block text-xs text-muted">Amount</span>
         <div className="flex items-center gap-2 rounded-xl border border-line bg-canvas px-3.5 py-[11px]">
           <span className="text-muted">{symbol}</span>
           <input
@@ -342,22 +355,20 @@ export function LendEntryForm({
             className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-faint"
           />
         </div>
-        {limit !== null ? (
-          <span className={cn("mt-1.5 block text-xs", tooMuch ? "text-danger" : "text-faint")}>
-            {limit > 0 ? `Up to ${symbol}${amountText(limit)} outstanding` : "Nothing outstanding"}
-          </span>
+        {balanceText ? (
+          <span className="mt-1.5 block text-xs text-faint">{balanceText}</span>
         ) : null}
       </label>
 
       <TextField
-        label="Comments (optional)"
+        label="Note (optional)"
         value={comment}
         onChange={setComment}
-        placeholder={COMMENT_PLACEHOLDERS[kind]}
+        placeholder="e.g. Dinner, cab fare"
       />
 
       <Button enabled={canSave} fullWidth onClick={save}>
-        {editing ? TITLES[kind].editSave : TITLES[kind].save}
+        Save
       </Button>
     </div>
   );

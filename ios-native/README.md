@@ -8,7 +8,7 @@ Requires **iOS 26** (native Liquid Glass `TabView`).
 
 - Five primary tabs: Home, Stats, Recurring, Budgets, Lending
 - Local-first GRDB store with Convex sync and WorkOS PKCE sign-in
-- Lending writer: address-book contacts, repayments capped to outstanding, shareable unsettled-cycle summaries
+- Lending writer: typed names or a Dimo email (no address book), repayments capped to outstanding, shareable unsettled-cycle summaries
 - CSV import / export compatible with the web client
 - Optional Email suggestions: read-only Gmail on-device, then OpenRouter analysis (user-supplied API key). Analyzed suggestions sync as `emailMessage` (including body); Gmail/OpenRouter credentials stay device-only
 

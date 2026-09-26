@@ -36,4 +36,4 @@ Last updated after the visual parity pass on this branch.
 | Tab bar | 5 tabs + Liquid Glass (incl. Email) | 4 tabs + Material3 `NavigationBar` | **Platform** |
 | FAB chrome | System borderedProminent | Custom 58×58 `FabButton` | **Platform** |
 | Date / time pickers | Compact `DatePicker` | Material DatePicker / TimePicker dialogs | **Platform** |
-| Contact picker | Searchable inline dropdown | System contacts + search list | **Close** / **Platform** |
+| Contact field | Typed name or Dimo email, recent chips | Typed name or Dimo email, recent chips | **Match** |

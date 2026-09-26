@@ -14,7 +14,7 @@ Requires **minSdk 26**, **targetSdk 37**, **JDK 17+** (Temurin 21 recommended).
 - Five primary tabs: Home, Stats, Budgets, Lending, Email (Recurring is reached
   from Home / the expense editor; Settings and Account are stack destinations)
 - Local-first Room/SQLite store with Convex sync and WorkOS PKCE sign-in
-- Lending writer: address-book contacts, repayments capped to outstanding,
+- Lending writer: typed names or a Dimo email (no address book), repayments capped to outstanding,
   shareable unsettled-cycle summaries
 - CSV import / export compatible with web and iOS
 - Multi-currency expenses using Convex `exchangeRates:latest` (ECB snapshot)
@@ -70,8 +70,8 @@ Bundle / application id: `app.dimo.android` (`app.dimo.android.dev` for the
 1. **Keep the email clear/upload pair symmetric.** `emailMessage` is included in
    `clearWorkspace`, `enqueueFullUpload` and pull. Full replacement clears *and*
    re-uploads, so narrowing only one side would destroy the user's suggestions.
-2. **Android is a lending writer** (like iOS): group by address-book `contactId`,
-   never persist/sync contact photos, cap repayments at outstanding (excluding
+2. **Android is a lending writer** (like iOS): group by `contactId`
+   (no address-book access), cap repayments at outstanding (excluding
    the edited row), reuse `LendSelectors.unsettledTransactions`.
 3. Category deletion tombstones linked **transactions** only (native parity with
    iOS; web also tombstones linked recurring).

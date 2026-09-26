@@ -163,19 +163,12 @@ export default defineSchema({
       v.literal("revoked"),
     ),
     connectionId: v.optional(v.id("lendConnections")),
+    /** Set when the invite turns a stopped connection back on instead of
+     * creating a new one. */
+    reconnectId: v.optional(v.id("lendConnections")),
   })
     .index("by_inviterId_and_status", ["inviterId", "status"])
     .index("by_inviteeId_and_status", ["inviteeId", "status"]),
-
-  /** Verified sign-in email per account, read from WorkOS by the server so
-   * clients cannot claim someone else's address. Used to find people to invite. */
-  accountEmails: defineTable({
-    ownerId: v.string(),
-    email: v.string(),
-    verifiedAt: v.number(),
-  })
-    .index("by_ownerId", ["ownerId"])
-    .index("by_email", ["email"]),
 
   /** Authoritative copy of a shared entry. `kindForA` is the direction from
    * memberA's point of view; memberB's copy carries the mirrored kind. */
@@ -290,7 +283,14 @@ export default defineSchema({
     name: v.optional(v.string()),
     /** Email for the account owner. Optional so existing rows keep validating. */
     email: v.optional(v.string()),
-  }).index("by_owner_and_workspace", ["ownerId", "workspaceId"]),
+    /** Sign-in provider's profile photo (WorkOS-hosted), shown to people
+     * the owner shares lending with. */
+    photoUrl: v.optional(v.string()),
+  })
+    .index("by_owner_and_workspace", ["ownerId", "workspaceId"])
+    // Finding people to share a lending ledger with.
+    .index("by_email", ["email"])
+    .searchIndex("search_name", { searchField: "name", filterFields: ["workspaceId"] }),
 
   // Typed per-(date, currency) rates. Base is stored as rate 1.
   exchangeRateEntries: defineTable({

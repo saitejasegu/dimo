@@ -55,6 +55,9 @@ const linkLendHistoryRef = makeFunctionReference<"mutation">(
 const purgeSharedLendsRef = makeFunctionReference<"mutation">(
   "lending:purgeSharedLends",
 );
+const relinkLendHistoryRef = makeFunctionReference<"mutation">(
+  "lending:relinkLendHistory",
+);
 
 export function sharedContactId(connectionId: Id<"lendConnections">) {
   return `${SHARED_CONTACT_PREFIX}${connectionId}`;
@@ -469,13 +472,46 @@ export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-async function verifiedEmailOf(ctx: QueryCtx, ownerId: string) {
-  const row = await ctx.db
-    .query("accountEmails")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  return row?.email;
+/** Email and photo another account shows the caller, when set. */
+async function publicProfileOf(ctx: QueryCtx, ownerId: string) {
+  const workspace = await loadWorkspace(ctx, ownerId, WORKSPACE_ID);
+  const email = workspace?.email?.trim() || undefined;
+  const photoUrl = workspace?.photoUrl || undefined;
+  return { ...(email ? { email } : {}), ...(photoUrl ? { photoUrl } : {}) };
 }
+
+/** Hosts profile photos may come from; anything else could track viewers. */
+const PHOTO_HOSTS = ["workoscdn.com", "googleusercontent.com"];
+
+export function isAllowedPhotoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      value.length <= 2048 &&
+      PHOTO_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records the caller's sign-in profile photo so people they share lending with
+ * see it. Only provider-hosted images are kept; null clears it.
+ */
+export const setProfilePhoto = mutation({
+  args: { photoUrl: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await requireIdentity(ctx);
+    const photoUrl = args.photoUrl && isAllowedPhotoUrl(args.photoUrl) ? args.photoUrl : undefined;
+    const workspace = await loadWorkspace(ctx, identity.tokenIdentifier, WORKSPACE_ID);
+    if (!workspace || workspace.photoUrl === photoUrl) return null;
+    await ctx.db.patch(workspace._id, { photoUrl });
+    return null;
+  },
+});
 
 async function pendingInvitesFrom(ctx: QueryCtx, inviterId: string) {
   return await ctx.db
@@ -494,24 +530,54 @@ async function pendingInviteBetween(ctx: QueryCtx, inviterId: string, inviteeId:
 
 const userRelationValidator = v.union(
   v.literal("none"),
-  v.literal("self"),
   v.literal("connected"),
   v.literal("invited"),
   v.literal("invitedYou"),
 );
 
+const SEARCH_LIMIT = 8;
+const MIN_SEARCH_LENGTH = 2;
+
+async function describeUser(ctx: QueryCtx, ownerId: string, account: Doc<"workspaces">) {
+  const email = account.email?.trim() || undefined;
+  const base = {
+    userId: account._id,
+    name: account.name?.trim() || email?.split("@")[0] || "Dimo user",
+    ...(email ? { email } : {}),
+    ...(account.photoUrl ? { photoUrl: account.photoUrl } : {}),
+  };
+  const otherId = account.ownerId!;
+  const connection = await findConnectionBetween(ctx, ownerId, otherId);
+  if (connection) {
+    return { ...base, relation: "connected" as const, contactId: sharedContactId(connection._id) };
+  }
+  if (await pendingInviteBetween(ctx, otherId, ownerId)) {
+    return { ...base, relation: "invitedYou" as const };
+  }
+  const sent = await pendingInviteBetween(ctx, ownerId, otherId);
+  if (sent) {
+    return {
+      ...base,
+      relation: "invited" as const,
+      ...(sent.contactId !== undefined ? { contactId: sent.contactId } : {}),
+    };
+  }
+  return { ...base, relation: "none" as const };
+}
+
 /**
- * Finds the Dimo account that verified `email`, so it can be invited. Only an
- * exact address matches; there is no browsing of other accounts.
+ * Dimo accounts matching `query`, so they can be invited to share a ledger.
+ * A full email matches that account exactly; anything else is a
+ * prefix-aware search over profile names. The caller is never included.
  */
-export const findLendUser = query({
-  args: { email: v.string() },
-  returns: v.union(
-    v.null(),
+export const searchLendUsers = query({
+  args: { query: v.string() },
+  returns: v.array(
     v.object({
-      userId: v.id("accountEmails"),
+      userId: v.id("workspaces"),
       name: v.string(),
-      email: v.string(),
+      email: v.optional(v.string()),
+      photoUrl: v.optional(v.string()),
       relation: userRelationValidator,
       /** The caller's contactId for them: the shared ledger when connected,
        * or the contact a pending invite is for. */
@@ -521,50 +587,35 @@ export const findLendUser = query({
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
-    const email = normalizeEmail(args.email);
-    if (!email || email.length > 254) return null;
-    const account = await ctx.db
-      .query("accountEmails")
-      .withIndex("by_email", (q) => q.eq("email", email))
-      .first();
-    if (!account) return null;
-    const workspace = await loadWorkspace(ctx, account.ownerId, WORKSPACE_ID);
-    const base = {
-      userId: account._id,
-      name: workspace?.name?.trim() || email.split("@")[0],
-      email: account.email,
-    };
-    if (account.ownerId === ownerId) return { ...base, relation: "self" as const };
-    const connection = await findConnectionBetween(ctx, ownerId, account.ownerId);
-    if (connection) {
-      return {
-        ...base,
-        relation: "connected" as const,
-        contactId: sharedContactId(connection._id),
-      };
-    }
-    if (await pendingInviteBetween(ctx, account.ownerId, ownerId)) {
-      return { ...base, relation: "invitedYou" as const };
-    }
-    const sent = await pendingInviteBetween(ctx, ownerId, account.ownerId);
-    if (sent) {
-      return {
-        ...base,
-        relation: "invited" as const,
-        ...(sent.contactId !== undefined ? { contactId: sent.contactId } : {}),
-      };
-    }
-    return { ...base, relation: "none" as const };
+    const text = args.query.trim().slice(0, 254);
+    if (text.length < MIN_SEARCH_LENGTH) return [];
+    const email = normalizeEmail(text);
+    const accounts = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      ? await ctx.db
+          .query("workspaces")
+          .withIndex("by_email", (q) => q.eq("email", email))
+          .take(SEARCH_LIMIT)
+      : await ctx.db
+          .query("workspaces")
+          .withSearchIndex("search_name", (q) =>
+            q.search("name", text).eq("workspaceId", WORKSPACE_ID),
+          )
+          .take(SEARCH_LIMIT + 1);
+    const others = accounts
+      .filter((account) => account.workspaceId === WORKSPACE_ID)
+      .filter((account) => account.ownerId && account.ownerId !== ownerId)
+      .slice(0, SEARCH_LIMIT);
+    return await Promise.all(others.map((account) => describeUser(ctx, ownerId, account)));
   },
 });
 
 /**
- * Invites the account found by `findLendUser`. Until they accept, the
+ * Invites an account found by `searchLendUsers`. Until they accept, the
  * inviter's entries with `contactId` stay private.
  */
 export const sendLendInvite = mutation({
   args: {
-    userId: v.id("accountEmails"),
+    userId: v.id("workspaces"),
     /** The inviter's local contact whose history is shared once accepted. */
     contactId: v.optional(v.string()),
     /** What the inviter calls the person being invited. */
@@ -581,11 +632,11 @@ export const sendLendInvite = mutation({
       throw new Error("This contact is already shared");
     }
     const account = await ctx.db.get(args.userId);
-    if (!account) throw new Error("User not found");
+    if (!account?.ownerId || account.workspaceId !== WORKSPACE_ID) throw new Error("User not found");
     const inviteeId = account.ownerId;
     if (inviteeId === ownerId) throw new Error("You cannot invite yourself");
     if (await findConnectionBetween(ctx, ownerId, inviteeId)) {
-      throw new Error("You already share a ledger with this person");
+      throw new Error("You already share with this person");
     }
     if (await pendingInviteBetween(ctx, inviteeId, ownerId)) {
       throw new Error("They already invited you. Accept their invite in Lending");
@@ -636,6 +687,9 @@ export const listIncomingLendInvites = query({
       inviteId: v.id("lendInvites"),
       inviterName: v.string(),
       inviterEmail: v.optional(v.string()),
+      inviterPhotoUrl: v.optional(v.string()),
+      /** Turns a stopped share back on; accepting needs no merge choice. */
+      reconnect: v.boolean(),
       createdAt: v.number(),
     }),
   ),
@@ -649,11 +703,13 @@ export const listIncomingLendInvites = query({
       .take(LIST_LIMIT);
     return await Promise.all(
       invites.map(async (invite) => {
-        const inviterEmail = await verifiedEmailOf(ctx, invite.inviterId);
+        const inviter = await publicProfileOf(ctx, invite.inviterId);
         return {
           inviteId: invite._id,
           inviterName: invite.inviterName,
-          ...(inviterEmail !== undefined ? { inviterEmail } : {}),
+          ...(inviter.email ? { inviterEmail: inviter.email } : {}),
+          ...(inviter.photoUrl ? { inviterPhotoUrl: inviter.photoUrl } : {}),
+          reconnect: invite.reconnectId !== undefined,
           createdAt: invite._creationTime,
         };
       }),
@@ -670,6 +726,7 @@ export const listOutgoingLendInvites = query({
       contactName: v.string(),
       contactId: v.optional(v.string()),
       inviteeEmail: v.optional(v.string()),
+      inviteePhotoUrl: v.optional(v.string()),
       createdAt: v.number(),
     }),
   ),
@@ -678,12 +735,13 @@ export const listOutgoingLendInvites = query({
     const invites = await pendingInvitesFrom(ctx, identity.tokenIdentifier);
     return await Promise.all(
       invites.map(async (invite) => {
-        const inviteeEmail = await verifiedEmailOf(ctx, invite.inviteeId);
+        const invitee = await publicProfileOf(ctx, invite.inviteeId);
         return {
           inviteId: invite._id,
           contactName: invite.contactName,
           ...(invite.contactId !== undefined ? { contactId: invite.contactId } : {}),
-          ...(inviteeEmail !== undefined ? { inviteeEmail } : {}),
+          ...(invitee.email ? { inviteeEmail: invitee.email } : {}),
+          ...(invitee.photoUrl ? { inviteePhotoUrl: invitee.photoUrl } : {}),
           createdAt: invite._creationTime,
         };
       }),
@@ -701,28 +759,6 @@ export const declineLendInvite = mutation({
       throw new Error("Invite not found");
     }
     if (invite.status === "pending") await ctx.db.patch(invite._id, { status: "declined" });
-    return null;
-  },
-});
-
-/** Records the caller's verified email. Only `refreshVerifiedEmail` calls this,
- * with an owner and address it read from WorkOS itself. */
-export const storeVerifiedEmail = internalMutation({
-  args: { ownerId: v.string(), email: v.string() },
-  returns: v.null(),
-  handler: async (ctx, { ownerId, email }) => {
-    const normalized = normalizeEmail(email);
-    const existing = await ctx.db
-      .query("accountEmails")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    if (existing) {
-      if (existing.email !== normalized) {
-        await ctx.db.patch(existing._id, { email: normalized, verifiedAt: Date.now() });
-      }
-    } else {
-      await ctx.db.insert("accountEmails", { ownerId, email: normalized, verifiedAt: Date.now() });
-    }
     return null;
   },
 });
@@ -752,18 +788,23 @@ export const acceptLendInvite = mutation({
     if (!invite || invite.inviteeId !== ownerId) throw new Error("Invite not found");
     if (invite.status !== "pending") throw new Error("Invite is no longer valid");
     if (await findConnectionBetween(ctx, invite.inviterId, ownerId)) {
-      throw new Error("You already share a ledger with this person");
+      throw new Error("You already share with this person");
     }
+    if (invite.reconnectId) return await reconnect(ctx, invite, ownerId);
     const contactId = args.contactId?.trim() || undefined;
     if (contactId?.startsWith(SHARED_CONTACT_PREFIX)) {
       throw new Error("This contact is already shared");
     }
 
+    // Each side sees the other under their Dimo account name, replacing
+    // whatever the inviter had typed for them.
+    const accepterName = (await loadWorkspace(ctx, ownerId, WORKSPACE_ID))?.name?.trim();
+    const inviterName = (await loadWorkspace(ctx, invite.inviterId, WORKSPACE_ID))?.name?.trim();
     const connectionId = await ctx.db.insert("lendConnections", {
       memberA: invite.inviterId,
       memberB: ownerId,
-      contactNameForA: invite.contactName,
-      contactNameForB: cleanName(args.contactName) || invite.inviterName,
+      contactNameForA: accepterName || identity.name?.trim() || invite.contactName,
+      contactNameForB: inviterName || invite.inviterName || cleanName(args.contactName),
       status: "active",
       createdAt: Date.now(),
     });
@@ -871,6 +912,8 @@ export const purgeSharedLends = internalMutation({
   args: { connectionId: v.id("lendConnections") },
   returns: v.null(),
   handler: async (ctx, { connectionId }) => {
+    // Shared again before the purge finished: the copies are live again.
+    if ((await ctx.db.get(connectionId))?.status === "active") return null;
     const rows = await ctx.db
       .query("sharedLends")
       .withIndex("by_connectionId_and_entityId", (q) => q.eq("connectionId", connectionId))
@@ -890,6 +933,8 @@ const connectionSummaryValidator = v.object({
   status: v.union(v.literal("active"), v.literal("revoked")),
   createdAt: v.number(),
   revokedAt: v.optional(v.number()),
+  /** The other member's profile photo. */
+  photoUrl: v.optional(v.string()),
 });
 
 export const listLendConnections = query({
@@ -906,16 +951,21 @@ export const listLendConnections = query({
       .query("lendConnections")
       .withIndex("by_memberB_and_memberA", (q) => q.eq("memberB", ownerId))
       .take(LIST_LIMIT);
-    return [...asA, ...asB]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map((connection) => ({
-        connectionId: connection._id,
-        contactId: sharedContactId(connection._id),
-        contactName: contactNameFor(connection, ownerId),
-        status: connection.status,
-        createdAt: connection.createdAt,
-        ...(connection.revokedAt !== undefined ? { revokedAt: connection.revokedAt } : {}),
-      }));
+    const connections = [...asA, ...asB].sort((a, b) => b.createdAt - a.createdAt);
+    return await Promise.all(
+      connections.map(async (connection) => {
+        const other = await publicProfileOf(ctx, otherMember(connection, ownerId));
+        return {
+          connectionId: connection._id,
+          contactId: sharedContactId(connection._id),
+          contactName: contactNameFor(connection, ownerId),
+          status: connection.status,
+          createdAt: connection.createdAt,
+          ...(connection.revokedAt !== undefined ? { revokedAt: connection.revokedAt } : {}),
+          ...(other.photoUrl ? { photoUrl: other.photoUrl } : {}),
+        };
+      }),
+    );
   },
 });
 
@@ -930,6 +980,165 @@ export const revokeLendConnection = mutation({
       throw new Error("Connection not found");
     }
     await revokeConnection(ctx, connection);
+    return null;
+  },
+});
+
+/**
+ * Invites the other member of a stopped connection to share again. Accepting
+ * turns the same connection back on, so both sides' history lines up again.
+ */
+export const reshareLendConnection = mutation({
+  args: { connectionId: v.id("lendConnections") },
+  returns: v.object({ inviteId: v.id("lendInvites") }),
+  handler: async (ctx, { connectionId }) => {
+    const identity = await requireIdentity(ctx);
+    const ownerId = identity.tokenIdentifier;
+    const connection = await ctx.db.get(connectionId);
+    if (!connection || !isMember(connection, ownerId)) throw new Error("Connection not found");
+    const other = otherMember(connection, ownerId);
+    if (connection.status === "active" || (await findConnectionBetween(ctx, ownerId, other))) {
+      throw new Error("You already share with this person");
+    }
+    if (await pendingInviteBetween(ctx, other, ownerId)) {
+      throw new Error("They already invited you. Accept their invite in Lending");
+    }
+    const pending = await pendingInvitesFrom(ctx, ownerId);
+    const replaced = pending.filter((invite) => invite.inviteeId === other);
+    if (pending.length - replaced.length >= MAX_PENDING_INVITES) {
+      throw new Error("Too many pending invites");
+    }
+    for (const invite of replaced) await ctx.db.patch(invite._id, { status: "revoked" });
+
+    const workspace = await loadWorkspace(ctx, ownerId, WORKSPACE_ID);
+    const inviteId = await ctx.db.insert("lendInvites", {
+      inviterId: ownerId,
+      inviterName: displayName(identity, workspace),
+      inviteeId: other,
+      contactId: sharedContactId(connection._id),
+      contactName: contactNameFor(connection, ownerId),
+      status: "pending",
+      reconnectId: connection._id,
+    });
+    return { inviteId };
+  },
+});
+
+async function accountName(ctx: QueryCtx, ownerId: string) {
+  return (await loadWorkspace(ctx, ownerId, WORKSPACE_ID))?.name?.trim() || undefined;
+}
+
+/** Accepts an invite to share a stopped connection again. */
+async function reconnect(ctx: MutationCtx, invite: Doc<"lendInvites">, ownerId: string) {
+  const connection = invite.reconnectId ? await ctx.db.get(invite.reconnectId) : null;
+  if (
+    !connection ||
+    connection.status === "active" ||
+    !isMember(connection, ownerId) ||
+    !isMember(connection, invite.inviterId)
+  ) {
+    throw new Error("Invite is no longer valid");
+  }
+  const nameA = await accountName(ctx, connection.memberA);
+  const nameB = await accountName(ctx, connection.memberB);
+  await ctx.db.patch(connection._id, {
+    status: "active",
+    revokedAt: undefined,
+    // Each side sees the other under their current account name.
+    ...(nameB ? { contactNameForA: nameB } : {}),
+    ...(nameA ? { contactNameForB: nameA } : {}),
+  });
+  await ctx.db.patch(invite._id, { status: "accepted", connectionId: connection._id });
+  const reverse = await pendingInviteBetween(ctx, ownerId, invite.inviterId);
+  if (reverse) await ctx.db.patch(reverse._id, { status: "revoked" });
+  await ctx.scheduler.runAfter(0, relinkLendHistoryRef, {
+    connectionId: connection._id,
+    member: "a",
+    cursor: null,
+  });
+  return { connectionId: connection._id, contactId: sharedContactId(connection._id) };
+}
+
+/**
+ * Re-merges both members' copies after a connection is turned back on. While
+ * it was stopped either side may have added, edited or deleted entries, so
+ * each entry keeps its newest version (deletes included) and is mirrored to
+ * the other member. Pages through member A's entries, then member B's.
+ */
+export const relinkLendHistory = internalMutation({
+  args: {
+    connectionId: v.id("lendConnections"),
+    member: v.union(v.literal("a"), v.literal("b")),
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const connection = await ctx.db.get(args.connectionId);
+    if (!connection || connection.status !== "active") return null;
+    const ownerId = args.member === "a" ? connection.memberA : connection.memberB;
+    const other = otherMember(connection, ownerId);
+    const contactId = sharedContactId(connection._id);
+    const page = await ctx.db
+      .query("lends")
+      .withIndex("by_owner_workspace_contactId_deleted", (q) =>
+        q.eq("ownerId", ownerId).eq("workspaceId", WORKSPACE_ID).eq("contactId", contactId),
+      )
+      .paginate({ numItems: LINK_BATCH_SIZE, cursor: args.cursor });
+
+    const revisions = new RevisionBook(ctx);
+    for (const row of page.page) {
+      const shared = await findSharedLend(ctx, connection._id, row.entityId);
+      if (shared && compareVersions(row.version, shared.version) <= 0) {
+        // The other side's copy is newer; bring this one up to date.
+        if (compareVersions(shared.version, row.version) > 0) {
+          await writeProjection(ctx, revisions, connection, shared, ownerId, {
+            allowConvertingPrivateRow: true,
+          });
+        }
+        continue;
+      }
+      const next = {
+        connectionId: connection._id,
+        entityId: row.entityId,
+        version: row.version,
+        deleted: row.deleted,
+        amountMinor: row.amountMinor,
+        ...((row.currency ?? shared?.currency) !== undefined
+          ? { currency: row.currency ?? shared?.currency }
+          : {}),
+        occurredAt: row.occurredAt,
+        comment: row.comment,
+        kindForA: kindBetween(connection, ownerId, row.kind ?? "lent"),
+        authorId: shared?.authorId ?? (row.createdBy === "contact" ? other : ownerId),
+        lastEditorId: row.lastEditedBy === "contact" ? other : ownerId,
+      };
+      await upsertShared(ctx, shared, next);
+      await writeProjection(ctx, revisions, connection, next, ownerId, {
+        allowConvertingPrivateRow: true,
+      });
+      // Never overwrite an unrelated entry of theirs that happens to share the id.
+      const theirs = await findLendRow(ctx, other, row.entityId);
+      if (!theirs || theirs.contactId === contactId) {
+        await writeProjection(ctx, revisions, connection, next, other, {
+          allowConvertingPrivateRow: true,
+        });
+      }
+    }
+    await revisions.flush();
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, relinkLendHistoryRef, {
+        connectionId: args.connectionId,
+        member: args.member,
+        cursor: page.continueCursor,
+      });
+    } else if (args.member === "a") {
+      await ctx.scheduler.runAfter(0, relinkLendHistoryRef, {
+        connectionId: args.connectionId,
+        member: "b",
+        cursor: null,
+      });
+    }
     return null;
   },
 });

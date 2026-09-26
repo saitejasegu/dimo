@@ -8,9 +8,32 @@ final class LendSharingTests: XCTestCase {
     XCTAssertTrue(isPermanentSyncError("Lend id collides with an unshared entry"))
   }
 
-  func testSheetIdsDistinguishInvites() {
-    let invite = IncomingLendInvite(inviteId: "i1", inviterName: "A", inviterEmail: nil, createdAt: 0)
-    XCTAssertEqual(LedgerSharingSheet.accept(invite).id, "accept-i1")
+  func testKindFollowsFlowAndBalance() {
+    XCTAssertEqual(LendSelectors.kind(for: .got, amount: 50, balance: 100), .repaid)
+    XCTAssertEqual(LendSelectors.kind(for: .got, amount: 100, balance: 100), .repaid)
+    XCTAssertEqual(LendSelectors.kind(for: .got, amount: 150, balance: 100), .borrowed)
+    XCTAssertEqual(LendSelectors.kind(for: .got, amount: 50, balance: 0), .borrowed)
+    XCTAssertEqual(LendSelectors.kind(for: .gave, amount: 50, balance: -100), .returned)
+    XCTAssertEqual(LendSelectors.kind(for: .gave, amount: 150, balance: -100), .lent)
+    XCTAssertEqual(LendSelectors.kind(for: .gave, amount: 50, balance: 20), .lent)
+    XCTAssertEqual(LendFlow(kind: .repaid), .got)
+    XCTAssertEqual(LendFlow(kind: .returned), .gave)
+  }
+
+  func testPeopleSplitIntoActiveAndSettledWithInvitedPeople() {
+    func summary(_ id: String, total: Double, at: Int) -> LendContactSummary {
+      LendContactSummary(contactName: id, contactId: id, total: total, count: 2, lastOccurredAt: at)
+    }
+    let invite = OutgoingLendInvite(
+      inviteId: "i1", contactName: "Newbie", contactId: "c-new", inviteeEmail: nil,
+      inviteePhotoUrl: nil, createdAt: 50
+    )
+    let people = LendPeople.split(
+      summaries: [summary("small", total: -5, at: 1), summary("big", total: 90, at: 2), summary("done", total: 0, at: 3)],
+      outgoingInvites: [invite]
+    )
+    XCTAssertEqual(people.active.map(\.contactId), ["big", "small"])
+    XCTAssertEqual(people.settled.map(\.contactId), ["c-new", "done"])
   }
 
   func testWireDecodesSharingMetadataAndEncodesOnlyCurrency() throws {

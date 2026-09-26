@@ -1,19 +1,7 @@
 import Foundation
 import Observation
 
-/// Which sharing sheet is open. Presented from the tab shell.
-enum LedgerSharingSheet: Identifiable, Equatable {
-  /// Accept or decline an invite someone sent.
-  case accept(IncomingLendInvite)
-
-  var id: String {
-    switch self {
-    case .accept(let invite): return "accept-\(invite.inviteId)"
-    }
-  }
-}
-
-/// Server-side state for ledgers shared with other Dimo accounts: invites in
+/// Server-side state for lending shared with other Dimo accounts: invites in
 /// both directions and connections. Entries themselves arrive through normal
 /// sync because the server mirrors them into this account's `lends`.
 @Observable
@@ -22,17 +10,13 @@ final class LendingSharingStore {
   private(set) var connections: [LendConnectionSummary] = []
   private(set) var incomingInvites: [IncomingLendInvite] = []
   private(set) var outgoingInvites: [OutgoingLendInvite] = []
-  /// Verified sign-in email the server knows for this account, if any.
-  private(set) var verifiedEmail: String?
-  /// False when the server cannot look up verified emails (no WorkOS API key),
-  /// in which case nobody can be found to share with.
-  private(set) var sharingAvailable = true
-  var sheet: LedgerSharingSheet?
 
   private var transport: LendingSharingTransport?
-  private var didRefreshEmail = false
-  /// Pulls fresh lends after the ledger changed on the server.
+  private var publishedPhoto: String??
+  /// Pulls fresh lends after sharing changed on the server.
   var onLedgerChanged: (() -> Void)?
+  /// This account's sign-in photo, published so people it shares with see it.
+  var profilePhotoUrl: (() -> String?)?
 
   var isOnline: Bool { transport != nil }
 
@@ -42,7 +26,7 @@ final class LendingSharingStore {
       connections = []
       incomingInvites = []
       outgoingInvites = []
-      didRefreshEmail = false
+      publishedPhoto = nil
     }
   }
 
@@ -51,23 +35,28 @@ final class LendingSharingStore {
     connections.first { $0.contactId == contactId && $0.isActive }
   }
 
+  /// Was shared with this contact, and one side stopped.
+  func stoppedConnection(contactId: String) -> LendConnectionSummary? {
+    connections.first { $0.contactId == contactId && !$0.isActive }
+  }
+
   /// A pending invite already sent for this local contact.
   func pendingInvite(contactId: String) -> OutgoingLendInvite? {
     outgoingInvites.first { $0.contactId == contactId }
   }
 
-  /// Reloads invites and connections, and records the verified email once per
-  /// session so other people can find this account.
+  /// Profile photo for a shared or invited contact, if they have one.
+  func photoUrl(contactId: String) -> String? {
+    connections.first { $0.contactId == contactId }?.photoUrl
+      ?? outgoingInvites.first { $0.contactId == contactId }?.inviteePhotoUrl
+  }
+
+  /// Reloads invites and connections, and publishes this account's photo.
   func refresh() async {
     guard let transport else { return }
-    if !didRefreshEmail {
-      didRefreshEmail = true
-      if let result = try? await transport.refreshVerifiedEmail() {
-        sharingAvailable = result.available
-        verifiedEmail = result.email
-      } else {
-        didRefreshEmail = false
-      }
+    let photo = profilePhotoUrl?()
+    if publishedPhoto != .some(photo) {
+      if (try? await transport.setProfilePhoto(photo)) != nil { publishedPhoto = .some(photo) }
     }
     async let connections = transport.connections()
     async let incoming = transport.incomingInvites()
@@ -77,9 +66,10 @@ final class LendingSharingStore {
     if let value = try? await outgoing { self.outgoingInvites = value }
   }
 
-  func findUser(email: String) async throws -> LendUser? {
-    try await requireTransport().findUser(
-      email: email.trimmingCharacters(in: .whitespacesAndNewlines)
+  /// Dimo accounts (never this one) matching a name or email.
+  func searchUsers(_ query: String) async throws -> [LendUser] {
+    try await requireTransport().searchUsers(
+      query: query.trimmingCharacters(in: .whitespacesAndNewlines)
     )
   }
 
@@ -94,17 +84,14 @@ final class LendingSharingStore {
     await refresh()
   }
 
-  func accept(
-    _ invite: IncomingLendInvite,
-    contactId: String?,
-    contactName: String?,
-    history: LendHistoryChoice
-  ) async throws {
+  /// Accepts, keeping both sides' history; `mergeWith` joins a contact you
+  /// already track into the shared one.
+  func accept(_ invite: IncomingLendInvite, mergeWith contactId: String?) async throws {
     _ = try await requireTransport().accept(
       inviteId: invite.inviteId,
       contactId: contactId,
-      contactName: contactName,
-      history: history
+      contactName: invite.inviterName,
+      history: .both
     )
     await refresh()
     onLedgerChanged?()
@@ -126,6 +113,13 @@ final class LendingSharingStore {
     await refresh()
   }
 
+  /// Invites the other person to share a stopped connection again.
+  func shareAgain(contactId: String) async throws {
+    guard let connection = stoppedConnection(contactId: contactId) else { return }
+    try await requireTransport().reshare(connectionId: connection.connectionId)
+    await refresh()
+  }
+
   private func requireTransport() throws -> LendingSharingTransport {
     guard let transport else { throw LendingSharingError.offline }
     return transport
@@ -137,7 +131,7 @@ enum LendingSharingError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
-    case .offline: return "Shared ledgers need an online Dimo sync session."
+    case .offline: return "Sharing needs an online Dimo sync session."
     }
   }
 }

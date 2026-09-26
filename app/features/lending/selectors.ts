@@ -88,6 +88,17 @@ export function lendingTotals(summaries: LendContactSummary[]): LendTotals {
  * owes them and must still be listed.
  */
 export function lendContactSummaries(lends: Lend[]): LendContactSummary[] {
+  return allLendContactSummaries(lends)
+    .filter((summary) => summary.magnitude > 0.0001)
+    .sort(
+      (a, b) =>
+        b.magnitude - a.magnitude ||
+        a.contactName.localeCompare(b.contactName),
+    );
+}
+
+/** Everyone ever recorded, settled contacts included, most recent first. */
+export function allLendContactSummaries(lends: Lend[]): LendContactSummary[] {
   const summaries = new Map<string, LendContactSummary>();
   const newestFirst = [...lends].sort((a, b) => b.occurredAt - a.occurredAt);
 
@@ -118,12 +129,27 @@ export function lendContactSummaries(lends: Lend[]): LendContactSummary[] {
       magnitude: Math.abs(summary.balance),
       direction: (summary.balance > 0 ? "owedToMe" : "iOwe") as LendDirection,
     }))
-    .filter((summary) => summary.magnitude > 0.0001)
-    .sort(
-      (a, b) =>
-        b.magnitude - a.magnitude ||
-        a.contactName.localeCompare(b.contactName),
-    );
+    .sort((a, b) => b.lastOccurredAt - a.lastOccurredAt);
+}
+
+/** Which way money moved, from the user's side: out ("gave") or in ("got"). */
+export type LendFlow = "gave" | "got";
+
+export function lendFlow(kind: LendKind): LendFlow {
+  return isIncomingLend(kind) ? "got" : "gave";
+}
+
+/**
+ * The stored kind for money moving `flow` with a contact whose balance
+ * (excluding the entry itself) is `balance`. Money that reduces what's owed
+ * without overshooting is a repayment; anything else opens or grows a balance.
+ * Either way the balance maths is the same.
+ */
+export function lendKindFor(flow: LendFlow, amount: number, balance: number): LendKind {
+  if (flow === "gave") {
+    return balance < -0.0001 && amount <= -balance + 0.000_001 ? "returned" : "lent";
+  }
+  return balance > 0.0001 && amount <= balance + 0.000_001 ? "repaid" : "borrowed";
 }
 
 /** Newest-first history grouped by the display day label. */

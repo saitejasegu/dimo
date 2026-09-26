@@ -661,7 +661,8 @@ class AppStore(
     val contact = lendDraft.contactName.trim()
     if (contact.isEmpty()) return
     val existing = lendDraft.editingId?.let { id -> lends.firstOrNull { it.id == id } }
-    val contactId = lendDraft.contactId ?: existing?.contactId ?: return
+    // A newly typed name starts a new person; ids are opaque.
+    val contactId = lendDraft.contactId ?: existing?.contactId ?: "contact_${UUID.randomUUID()}"
     // Editing never flips direction; the saved row's kind wins.
     val kind = existing?.kind ?: lendDraft.kind
     val limit = LendSelectors.settlementLimit(

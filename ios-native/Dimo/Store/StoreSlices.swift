@@ -486,6 +486,8 @@ final class NavStore {
   var accountReturnView: ViewKey?
   var overlay: OverlayKey?
   var detailId: String?
+  /// The person whose Lending page is open; the entry sheet then opens on top of it.
+  var lendPersonId: String?
   var toast: String?
   var filter = TransactionFilter()
   var statsRange: StatsRange = .oneYear

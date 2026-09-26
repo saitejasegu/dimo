@@ -125,7 +125,11 @@ struct MainTabShell: View {
           .transition(.scale(scale: 0.9).combined(with: .opacity))
       }
     }
-    .sheet(item: $nav.overlay) { overlay in
+    // While a person's page is open it presents the entry sheet itself.
+    .sheet(item: Binding(
+      get: { nav.lendPersonId != nil && nav.overlay == .lend ? nil : nav.overlay },
+      set: { nav.overlay = $0 }
+    )) { overlay in
       switch overlay {
       case .add:
         ExpenseEditorSheet(store: store, mode: .create) {
@@ -146,13 +150,10 @@ struct MainTabShell: View {
       }
     }
     .sheet(item: Binding(
-      get: { store.lendingSharing.sheet },
-      set: { store.lendingSharing.sheet = $0 }
-    )) { sheet in
-      switch sheet {
-      case .accept(let invite):
-        AcceptInviteSheet(store: store, invite: invite)
-      }
+      get: { nav.lendPersonId.map(LendPersonSheetItem.init) },
+      set: { nav.lendPersonId = $0?.id }
+    )) { item in
+      LendPersonSheet(store: store, contactId: item.id)
     }
     .sheet(item: Binding(
       get: { nav.detailId.map(DetailSheetItem.init) },
@@ -276,6 +277,10 @@ private enum SettingsRoute: Hashable {
 }
 
 private struct DetailSheetItem: Identifiable {
+  let id: String
+}
+
+private struct LendPersonSheetItem: Identifiable {
   let id: String
 }
 

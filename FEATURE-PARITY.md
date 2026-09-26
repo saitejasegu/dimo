@@ -26,7 +26,7 @@ The gap is almost entirely in **product surface**, and it is asymmetric:
 | --- | --- | --- |
 | Whole subsystems | Email / Gmail / AI suggestions (9,442 LOC, 31 files) | — |
 | Screens | — | Recurring bills list |
-| Notable features | Stats period navigation, stats drill-down, filter chips, FX estimate labels, contact photos in lists, legal links | Notification preference toggles, category tint editor, in-context sync error banners, category delete from list |
+| Notable features | Stats period navigation, stats drill-down, filter chips, FX estimate labels, legal links | Notification preference toggles, category tint editor, in-context sync error banners, category delete from list |
 
 **Headline:** Android is at ~90% parity on the core spending tracker and is
 missing one entire pillar (Email suggestions). iOS is missing several smaller
@@ -128,7 +128,7 @@ period-offset family. This is the single largest functional gap outside Email.
 | All four kinds (lent/repaid/borrowed/returned) | ✅ | ✅ — **`LendKind.fromWire` no longer coerces to `lent`**; `LendSheet.kt:208` offers "I lent" / "I borrowed" |
 | Settlement cap via `settlementLimit` | ✅ | ✅ |
 | Share unsettled cycle as plain text | ✅ `UIActivityViewController` | ✅ `ACTION_SEND`, byte-compatible format |
-| **Contact photos in list rows** | ✅ `ContactsLoader.thumbnailImage(contactId:)` | ❌ initials only — photos appear only in the contact picker (`LendSheet.kt:316`) |
+| **Contact avatars in list rows** | ✅ initials (no address book) | ✅ initials (no address book) |
 | History pagination | ✅ `LendSelectors.paginateByDay` | ❌ renders every lend |
 | Shared ledgers (Dimo email in add-lend contact search invites, accept/decline, stop sharing) | ✅ `LendingSharingStore`, `LedgerSharingSheets.swift` | ✅ `LendingSharingStore.kt`, `LedgerSharingSheets.kt` |
 | "Added by / Edited by" on shared entries, per-entry currency | ✅ | ✅ |
@@ -226,7 +226,6 @@ failures, no new compiler warnings.
 | Trend bars scroll to latest | `TrendBars` scrolls to `maxValue` on bar-set change |
 | Recurring FX estimate | `Recurring.convertedEstimateLabel`, computed in `AppStore.hydrate`, rendered in `RecurringScreen` and the Home upcoming card; `refreshExchangeRates` re-hydrates on a rate-date change |
 | Help & legal links | `LegalLink` card in `AccountScreen.kt` (Support / Privacy / Terms via `LocalUriHandler`) |
-| Contact photos in lending rows | `ContactsLoader.photoUris` cache + `rememberContactPhotoUris`, passed to `ContactAvatar` in summary and history rows |
 | Filter draft semantics | `FilterSheet` edits a local draft, commits via `onApply`; Clear commits an empty filter; match count debounced 180 ms |
 | Removable filter chips | `FilterTag` / `filterTags` / `removeFilterTag` + `RemovableFilterChip` under the Activity header |
 | Lending history pagination | `LendSelectors.paginateByDay` + paged Transactions tab |

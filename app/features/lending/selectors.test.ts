@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Lend } from "@/lib/types";
 import {
+  allLendContactSummaries,
   groupLendsByDay,
   lendAttribution,
   lendContactSummaries,
+  lendFlow,
+  lendKindFor,
   lendingTotals,
   netLendBalance,
   recentLendContacts,
@@ -203,5 +206,29 @@ describe("lending selectors", () => {
     expect(lendAttribution(rows[1])).toBe("Added by Alice");
     expect(lendAttribution({ ...rows[0], lastEditedBy: "contact" })).toBe("Edited by Ari");
     expect(lendAttribution(rows[2])).toBeNull();
+  });
+
+  it("picks a repayment kind only when it settles without overshooting", () => {
+    expect(lendKindFor("got", 50, 100)).toBe("repaid");
+    expect(lendKindFor("got", 100, 100)).toBe("repaid");
+    expect(lendKindFor("got", 150, 100)).toBe("borrowed");
+    expect(lendKindFor("got", 50, 0)).toBe("borrowed");
+    expect(lendKindFor("gave", 50, -100)).toBe("returned");
+    expect(lendKindFor("gave", 150, -100)).toBe("lent");
+    expect(lendKindFor("gave", 50, 20)).toBe("lent");
+    expect(lendFlow("repaid")).toBe("got");
+    expect(lendFlow("returned")).toBe("gave");
+  });
+
+  it("lists settled people too, most recent first", () => {
+    const rows = [
+      lend({ id: "a", contactId: "a", contactName: "A", amount: 10, occurredAt: 1 }),
+      lend({ id: "a2", contactId: "a", contactName: "A", amount: 10, kind: "repaid", occurredAt: 3 }),
+      lend({ id: "b", contactId: "b", contactName: "B", amount: 5, occurredAt: 2 }),
+    ];
+    expect(allLendContactSummaries(rows).map((summary) => [summary.contactId, summary.balance])).toEqual([
+      ["a", 0],
+      ["b", 5],
+    ]);
   });
 });

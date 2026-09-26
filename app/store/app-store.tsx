@@ -91,13 +91,6 @@ import type { EnterableCurrency } from "@/lib/types";
 
 const TOAST_DURATION_MS = 1800;
 
-const LEND_NOUNS: Record<LendKind, string> = {
-  lent: "Lend",
-  repaid: "Repayment",
-  borrowed: "Borrowing",
-  returned: "Payment",
-};
-
 const latestRatesRef = makeFunctionReference<"query", Record<string, never>, RateTable | null>(
   "exchangeRates:latest",
 );
@@ -163,6 +156,8 @@ export interface AppActions {
   /** Returns false when the entry was rejected (e.g. a settlement over the balance). */
   saveLend: (input: LendSaveInput) => boolean;
   deleteLend: (id: ID) => void;
+  /** Renames every private entry with this person, e.g. to their Dimo account name. */
+  renameLendContact: (contactId: string, contactName: string) => void;
 }
 
 export interface SyncState extends SyncMetaRecord {
@@ -733,8 +728,8 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
       const contactName = input.contactName.trim();
       const contactId = input.contactId.trim() || existing?.contactId || "";
       if (!contactName || !contactId || !(input.amount > 0)) return false;
-      // Editing never flips direction; the saved row's kind wins.
-      const kind: LendKind = existing?.kind ?? input.kind;
+      // The form derives the kind from "I gave / I got" and the balance.
+      const kind: LendKind = input.kind;
       const limit = settlementLimit(kind, contactId, state.lends, existing?.id);
       if (limit !== null && input.amount > limit + 0.000_001) {
         dispatch({ type: "SHOW_TOAST", message: "That is more than the outstanding balance" });
@@ -764,16 +759,34 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
               ...(existing?.lastEditedBy ? { lastEditedBy: existing.lastEditedBy } : {}),
             }),
       };
-      const noun = LEND_NOUNS[kind];
       persist(saveEntity("lend", entity), () =>
-        dispatch({ type: "SHOW_TOAST", message: existing ? `${noun} updated` : `${noun} saved` }),
+        dispatch({ type: "SHOW_TOAST", message: existing ? "Entry updated" : "Entry saved" }),
       );
       return true;
     },
+    renameLendContact: (contactId, contactName) => {
+      const name = contactName.trim();
+      if (!name || contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)) return;
+      for (const lend of getState().lends) {
+        if (lend.contactId !== contactId || lend.contactName === name) continue;
+        const entity: LendEntity = {
+          id: lend.id,
+          contactName: name,
+          contactId,
+          amountMinor: lend.amountMinor,
+          occurredAt: lend.occurredAt,
+          comment: lend.comment,
+          kind: lend.kind,
+          ...(lend.currency ? { currency: lend.currency } : {}),
+          ...(lend.createdBy ? { createdBy: lend.createdBy } : {}),
+          ...(lend.lastEditedBy ? { lastEditedBy: lend.lastEditedBy } : {}),
+        };
+        persist(saveEntity("lend", entity));
+      }
+    },
     deleteLend: (id) => {
-      const kind = getState().lends.find((lend) => lend.id === id)?.kind ?? "lent";
       persist(removeEntity("lend", id), () =>
-        dispatch({ type: "SHOW_TOAST", message: `${LEND_NOUNS[kind]} deleted` }),
+        dispatch({ type: "SHOW_TOAST", message: "Entry deleted" }),
       );
     },
   };

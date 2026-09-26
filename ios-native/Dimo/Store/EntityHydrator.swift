@@ -520,7 +520,8 @@ enum EntityHydrator {
     }
 
     if dirty.lends || previous == nil {
-      let summaries = LendSelectors.contactSummaries(lends)
+      // Everyone, settled people included; Lending splits them into sections.
+      let summaries = LendSelectors.allContactSummaries(lends)
       result.lendSummaries = summaries
       result.lendTotals = LendSelectors.totals(from: summaries)
     }
