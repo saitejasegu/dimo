@@ -702,7 +702,10 @@ enum EntityHydrator {
             day: formatters.day(lend.occurredAt),
             amountMinor: lend.amountMinor,
             occurredAt: lend.occurredAt,
-            kind: lend.kind ?? .lent
+            kind: lend.kind ?? .lent,
+            currency: lend.currency,
+            createdBy: lend.createdBy,
+            lastEditedBy: lend.lastEditedBy
           )
         }
     } else {

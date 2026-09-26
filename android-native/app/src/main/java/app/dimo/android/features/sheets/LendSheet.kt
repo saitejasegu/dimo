@@ -43,6 +43,9 @@ import app.dimo.android.data.model.LendKind
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
 import app.dimo.android.domain.Formatting
+import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
+import app.dimo.android.domain.CurrencyMeta
+import app.dimo.android.domain.LendContactSuggestion
 import app.dimo.android.domain.LendSelectors
 import app.dimo.android.features.common.ConfirmDialog
 import app.dimo.android.features.common.ContactAvatar
@@ -129,7 +132,18 @@ fun LendSheet(
     (draft.contactId != null || existing != null) &&
     !exceedsLimit
 
-  val recentContacts = LendSelectors.recentContacts(store.lends)
+  // Shared ledgers are offered even before either side recorded anything.
+  val recentContacts = LendSelectors.recentContacts(store.lends) +
+    store.lendingSharing.connections
+      .filter { connection ->
+        connection.isActive &&
+          store.lends.none { it.contactId == connection.contactId }
+      }
+      .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) }
+  val isSharedContact = draft.contactId?.startsWith(SHARED_LEND_CONTACT_PREFIX) == true
+  // An edited entry keeps the currency it was recorded in.
+  val currencySymbol = existing?.currency?.let(CurrencyMeta::symbol)
+    ?: Formatting.currencySymbol(store.currency)
   val filteredContacts = remember(contacts, contactQuery) {
     val query = contactQuery.trim().lowercase()
     if (query.isEmpty()) contacts.take(40) else {
@@ -321,6 +335,14 @@ fun LendSheet(
           }
         }
 
+        if (isSharedContact && !pickingContact) {
+          Text(
+            text = "Shared ledger \u2014 ${draft.contactName} sees this entry too",
+            style = DimoFont.body(12f),
+            color = DimoColors.green,
+          )
+        }
+
         if (permissionDenied) {
           Text(
             text = "Contacts permission is needed to keep same-named people apart.",
@@ -451,7 +473,7 @@ fun LendSheet(
             keyboardType = KeyboardType.Decimal,
             leading = {
               Text(
-                text = Formatting.currencySymbol(store.currency),
+                text = currencySymbol,
                 style = DimoFont.body(15f),
                 color = DimoColors.muted,
               )

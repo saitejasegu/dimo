@@ -40,10 +40,15 @@ interface SyncTransport {
 
   suspend fun ensureWorkspaceProfile(workspaceId: String, name: String?, email: String?)
 
+  /**
+   * [includeSharedLends] also deletes lends shared with other accounts and
+   * revokes those connections; only account deletion passes it.
+   */
   suspend fun clearWorkspace(
     workspaceId: String,
     entityTypes: List<EntityType>,
     limit: Int,
+    includeSharedLends: Boolean = false,
   ): ClearResult
 
   suspend fun latestExchangeRates(): RateTable?
@@ -116,11 +121,12 @@ class ConvexSyncTransport(
     workspaceId: String,
     entityTypes: List<EntityType>,
     limit: Int,
+    includeSharedLends: Boolean,
   ): ClearResult {
     val json = withTimeout(TIMEOUT_MS) {
       client.mutation<JsonObject>(
         "syncTyped:clearWorkspace",
-        ConvexAPI.clearArgs(workspaceId, entityTypes, limit),
+        ConvexAPI.clearArgs(workspaceId, entityTypes, limit, includeSharedLends),
       )
     }
     return ClearResult(hasMore = (json["hasMore"] as? JsonPrimitive)?.booleanOrNull ?: false)

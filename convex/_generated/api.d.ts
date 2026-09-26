@@ -11,6 +11,8 @@
 import type * as compat from "../compat.js";
 import type * as crons from "../crons.js";
 import type * as exchangeRates from "../exchangeRates.js";
+import type * as lending from "../lending.js";
+import type * as lendingEmail from "../lendingEmail.js";
 import type * as migrations from "../migrations.js";
 import type * as openRouter from "../openRouter.js";
 import type * as openRouterLib from "../openRouterLib.js";
@@ -18,6 +20,7 @@ import type * as recurringJobs from "../recurringJobs.js";
 import type * as syncTyped from "../syncTyped.js";
 import type * as tombstonePurge from "../tombstonePurge.js";
 import type * as values from "../values.js";
+import type * as workspace from "../workspace.js";
 
 import type {
   ApiFromModules,
@@ -29,6 +32,8 @@ declare const fullApi: ApiFromModules<{
   compat: typeof compat;
   crons: typeof crons;
   exchangeRates: typeof exchangeRates;
+  lending: typeof lending;
+  lendingEmail: typeof lendingEmail;
   migrations: typeof migrations;
   openRouter: typeof openRouter;
   openRouterLib: typeof openRouterLib;
@@ -36,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   syncTyped: typeof syncTyped;
   tombstonePurge: typeof tombstonePurge;
   values: typeof values;
+  workspace: typeof workspace;
 }>;
 
 /**

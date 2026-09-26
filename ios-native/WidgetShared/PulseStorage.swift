@@ -2,7 +2,12 @@ import Foundation
 import WidgetKit
 
 enum PulseStorage {
+  #if DIMO_DEV
+  /// The dev app has its own group so it never touches production widget data.
+  static let groupID = "group.app.dimo.ios.dev"
+  #else
   static let groupID = "group.app.dimo.ios"
+  #endif
   static let kind = "DimoSpendingPulse"
   static var defaults: UserDefaults? { UserDefaults(suiteName: groupID) }
   private static var fileURL: URL? {

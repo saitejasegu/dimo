@@ -9,6 +9,16 @@ import {
   type Version,
 } from "./compat";
 import type { EntityTypeName } from "./values";
+import type { MutationCtx } from "./_generated/server";
+import { clearLendRows, pushLendOperations } from "./lending";
+import {
+  loadWorkspace,
+  persistWorkspace,
+  profileFromIdentity,
+  profileFromPreferences,
+  requireIdentity,
+  type AuthIdentity,
+} from "./workspace";
 import {
   categoryOperationValidator,
   emailMessageOperationValidator,
@@ -21,88 +31,6 @@ import {
 } from "./values";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-type AuthIdentity = {
-  tokenIdentifier: string;
-  name?: string;
-  email?: string;
-};
-
-async function requireIdentity(ctx: {
-  auth: { getUserIdentity(): Promise<AuthIdentity | null> };
-}) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new Error("Not authenticated");
-  return identity;
-}
-
-function profileFromPreferences(fields: Record<string, unknown>) {
-  const name = typeof fields.profileName === "string" ? fields.profileName.trim() : "";
-  const email = typeof fields.profileEmail === "string" ? fields.profileEmail.trim() : "";
-  return {
-    ...(name ? { name } : {}),
-    ...(email ? { email } : {}),
-  };
-}
-
-function profileFromIdentity(identity: AuthIdentity) {
-  const name = identity.name?.trim() ?? "";
-  const email = identity.email?.trim() ?? "";
-  return {
-    ...(name ? { name } : {}),
-    ...(email ? { email } : {}),
-  };
-}
-
-async function loadWorkspace(ctx: { db: any }, ownerId: string, workspaceId: string) {
-  return await ctx.db
-    .query("workspaces")
-    .withIndex("by_owner_and_workspace", (q: any) =>
-      q.eq("ownerId", ownerId).eq("workspaceId", workspaceId),
-    )
-    .unique();
-}
-
-async function persistWorkspace(
-  ctx: { db: any },
-  workspace: any,
-  ownerId: string,
-  workspaceId: string,
-  revision: number,
-  identity: AuthIdentity,
-  profileUpdate: { name?: string; email?: string },
-) {
-  const identityProfile = profileFromIdentity(identity);
-  const workspaceProfile = {
-    ...identityProfile,
-    ...profileUpdate,
-  };
-
-  if (!workspace) {
-    const id = await ctx.db.insert("workspaces", {
-      ownerId,
-      workspaceId,
-      revision,
-      ...workspaceProfile,
-    });
-    return await ctx.db.get(id);
-  }
-
-  const patch: { revision?: number; name?: string; email?: string } = {};
-  if (workspace.revision !== revision) patch.revision = revision;
-  if (workspaceProfile.name && workspaceProfile.name !== workspace.name) {
-    patch.name = workspaceProfile.name;
-  }
-  if (workspaceProfile.email && workspaceProfile.email !== workspace.email) {
-    patch.email = workspaceProfile.email;
-  }
-  if (!workspace.name && identityProfile.name) patch.name = identityProfile.name;
-  if (!workspace.email && identityProfile.email) patch.email = identityProfile.email;
-  if (Object.keys(patch).length > 0) {
-    await ctx.db.patch(workspace._id, patch);
-  }
-  return workspace;
-}
 
 type TypedOpBase = {
   operationId: string;
@@ -467,22 +395,10 @@ export const pushLends = mutationGeneric({
     workspaceId: v.string(),
     operations: v.array(lendOperationValidator),
   },
+  // Lends may be shared with another account, so they go through the
+  // collaboration-aware writer instead of the generic typed batch.
   handler: async (ctx, { workspaceId, operations }) =>
-    pushTypedBatch(
-      ctx,
-      workspaceId,
-      operations,
-      "lend",
-      (op) => ({
-        contactName: op.contactName,
-        ...(op.contactId !== undefined ? { contactId: op.contactId } : {}),
-        amountMinor: op.amountMinor,
-        occurredAt: op.occurredAt,
-        comment: op.comment,
-        ...(op.kind !== undefined ? { kind: op.kind } : {}),
-      }),
-      { validate: (op) => assertAmountMinor(op.amountMinor) },
-    ),
+    pushLendOperations(ctx as unknown as MutationCtx, workspaceId, operations),
 });
 
 export const pullLends = queryGeneric({
@@ -506,6 +422,10 @@ export const pullLends = queryGeneric({
         occurredAt: row.occurredAt,
         comment: row.comment,
         kind: row.kind,
+        currency: row.currency,
+        connectionId: row.connectionId,
+        createdBy: row.createdBy,
+        lastEditedBy: row.lastEditedBy,
       }),
     ),
 });
@@ -754,8 +674,12 @@ export const clearWorkspace = mutationGeneric({
     workspaceId: v.string(),
     entityTypes: v.array(entityTypeValidator),
     limit: v.optional(v.number()),
+    /** Also delete lends shared with other accounts and revoke those
+     * connections. Only account deletion should pass this; a full cloud
+     * replacement must leave the shared ledger intact. */
+    includeSharedLends: v.optional(v.boolean()),
   },
-  handler: async (ctx, { workspaceId, entityTypes, limit }) => {
+  handler: async (ctx, { workspaceId, entityTypes, limit, includeSharedLends }) => {
     const identity = await requireIdentity(ctx);
     const ownerId = identity.tokenIdentifier;
     if (workspaceId !== "global") throw new Error("Unsupported workspace");
@@ -771,13 +695,15 @@ export const clearWorkspace = mutationGeneric({
         hasMore = true;
         break;
       }
-      const result = await clearEntityType(
-        ctx,
-        ownerId,
-        workspaceId,
-        entityType,
-        remaining,
-      );
+      const result =
+        entityType === "lend"
+          ? await clearLendRows(
+              ctx as unknown as MutationCtx,
+              ownerId,
+              remaining,
+              includeSharedLends === true,
+            )
+          : await clearEntityType(ctx, ownerId, workspaceId, entityType, remaining);
       deleted += result.deleted;
       if (!result.exhausted) {
         hasMore = true;

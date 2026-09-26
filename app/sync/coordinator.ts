@@ -90,11 +90,12 @@ const clearRef = makeFunctionReference<"mutation", {
   workspaceId: string;
   entityTypes: CloudEntityType[];
   limit?: number;
+  includeSharedLends?: boolean;
 }, ClearResult>("syncTyped:clearWorkspace");
 
 /** Only treat known client/server validation failures as permanent. */
 export function isPermanentSyncError(message: string) {
-  return /ArgumentValidationError|Payload does not match|Entity ID mismatch|Workspace mismatch|Unsupported workspace|Invalid logical version|Invalid minor-unit amount|Invalid recurring anchor date|A push may contain at most 50/i.test(
+  return /ArgumentValidationError|Payload does not match|Entity ID mismatch|Workspace mismatch|Unsupported workspace|Invalid logical version|Invalid minor-unit amount|Invalid recurring anchor date|A push may contain at most 50|Not a member of this lending connection|Unknown lending connection|Lend id collides/i.test(
     message,
   );
 }
@@ -492,13 +493,16 @@ export function requestFullSync() {
   return sharedCoordinator?.requestFullSync() ?? Promise.resolve();
 }
 
-/** Delete every cloud entity for the signed-in owner (paged), including other apps' types. */
+/** Delete every cloud entity for the signed-in owner (paged), including other
+ * apps' types. Account deletion only: also removes lends shared with other
+ * accounts and revokes those connections. */
 export async function clearCloudWorkspace(client: ConvexReactClient) {
   while (true) {
     const result = await client.mutation(clearRef, {
       workspaceId: WORKSPACE_ID,
       entityTypes: [...ALL_CLOUD_ENTITY_TYPES],
       limit: 100,
+      includeSharedLends: true,
     });
     if (!result.hasMore) return;
   }

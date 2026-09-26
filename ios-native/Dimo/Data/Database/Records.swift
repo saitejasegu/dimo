@@ -361,6 +361,10 @@ struct LendRecord: TypedEntityRecord {
   var occurredAt: Int
   var comment: String
   var kind: String?
+  var currency: String?
+  var connectionId: String?
+  var createdBy: String?
+  var lastEditedBy: String?
 
   func toStoredEntity() throws -> StoredEntity {
     let resolvedContactId: String = {
@@ -380,7 +384,11 @@ struct LendRecord: TypedEntityRecord {
         amountMinor: amountMinor,
         occurredAt: occurredAt,
         comment: comment,
-        kind: kind.flatMap(LendKind.init(rawValue:))
+        kind: kind.flatMap(LendKind.init(rawValue:)),
+        currency: currency,
+        connectionId: connectionId,
+        createdBy: createdBy.flatMap(LendActor.init(rawValue:)),
+        lastEditedBy: lastEditedBy.flatMap(LendActor.init(rawValue:))
       )),
       deleted: deleted,
       serverRevision: serverRevision
@@ -405,7 +413,11 @@ struct LendRecord: TypedEntityRecord {
       amountMinor: e.amountMinor,
       occurredAt: e.occurredAt,
       comment: e.comment,
-      kind: e.kind?.rawValue
+      kind: e.kind?.rawValue,
+      currency: e.currency,
+      connectionId: e.connectionId,
+      createdBy: e.createdBy?.rawValue,
+      lastEditedBy: e.lastEditedBy?.rawValue
     )
   }
 }

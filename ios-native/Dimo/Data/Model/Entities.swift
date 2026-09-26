@@ -197,20 +197,39 @@ enum LendKind: String, Codable, Sendable {
   }
 }
 
+/// Who created or last edited a shared lending entry, relative to the owner
+/// of this copy.
+enum LendActor: String, Codable, Sendable {
+  case me
+  case contact
+}
+
+/// Prefix of the contactId the server assigns to a ledger shared with another
+/// Dimo account.
+let sharedLendContactPrefix = "dimo:"
+
 struct LendEntity: Codable, Hashable, Sendable, Identifiable {
   var id: String
   var contactName: String
   /// Address-book identifier of the picked contact, so same-named contacts
   /// stay distinct. Legacy rows may omit this; decoding falls back to name.
+  /// Shared ledgers use `dimo:<connectionId>` on every device.
   var contactId: String
   var amountMinor: Int
   var occurredAt: Int
   var comment: String
   /// Optional so rows saved before repayments existed still decode; nil means lent.
   var kind: LendKind?
+  /// Currency the amount was recorded in. Absent on rows saved before sharing.
+  var currency: String?
+  /// Server-assigned sharing metadata; set on copies of a shared entry.
+  var connectionId: String?
+  var createdBy: LendActor?
+  var lastEditedBy: LendActor?
 
   enum CodingKeys: String, CodingKey {
     case id, contactName, contactId, amountMinor, occurredAt, comment, kind
+    case currency, connectionId, createdBy, lastEditedBy
   }
 
   init(
@@ -220,7 +239,11 @@ struct LendEntity: Codable, Hashable, Sendable, Identifiable {
     amountMinor: Int,
     occurredAt: Int,
     comment: String,
-    kind: LendKind?
+    kind: LendKind?,
+    currency: String? = nil,
+    connectionId: String? = nil,
+    createdBy: LendActor? = nil,
+    lastEditedBy: LendActor? = nil
   ) {
     self.id = id
     self.contactName = contactName
@@ -229,6 +252,10 @@ struct LendEntity: Codable, Hashable, Sendable, Identifiable {
     self.occurredAt = occurredAt
     self.comment = comment
     self.kind = kind
+    self.currency = currency
+    self.connectionId = connectionId
+    self.createdBy = createdBy
+    self.lastEditedBy = lastEditedBy
   }
 
   init(from decoder: Decoder) throws {
@@ -242,6 +269,10 @@ struct LendEntity: Codable, Hashable, Sendable, Identifiable {
     occurredAt = try container.decode(Int.self, forKey: .occurredAt)
     comment = try container.decode(String.self, forKey: .comment)
     kind = try container.decodeIfPresent(LendKind.self, forKey: .kind)
+    currency = try container.decodeIfPresent(String.self, forKey: .currency)
+    connectionId = try container.decodeIfPresent(String.self, forKey: .connectionId)
+    createdBy = try? container.decodeIfPresent(LendActor.self, forKey: .createdBy)
+    lastEditedBy = try? container.decodeIfPresent(LendActor.self, forKey: .lastEditedBy)
   }
 }
 
@@ -486,6 +517,13 @@ struct Lend: Hashable, Sendable, Identifiable {
   var amountMinor: Int
   var occurredAt: Int
   var kind: LendKind
+  /// Currency the amount was recorded in; nil means the display currency.
+  var currency: String? = nil
+  var createdBy: LendActor? = nil
+  var lastEditedBy: LendActor? = nil
+
+  /// Recorded in a ledger shared with another Dimo account.
+  var isShared: Bool { contactId.hasPrefix(sharedLendContactPrefix) }
 
   /// Positive for money that left the user's pocket (lent out, or paid back to
   /// someone they borrowed from), negative for money that came in.

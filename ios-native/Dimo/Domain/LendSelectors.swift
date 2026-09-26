@@ -26,8 +26,13 @@ struct LendContactSummary: Hashable, Sendable, Identifiable {
   var total: Double
   var count: Int
   var lastOccurredAt: Int
+  /// Currency of the newest entry; nil means the display currency.
+  var currency: String? = nil
 
   var id: String { contactId }
+
+  /// Ledger shared with another Dimo account.
+  var isShared: Bool { contactId.hasPrefix(sharedLendContactPrefix) }
 
   var direction: LendDirection { total > 0 ? .owedToMe : .iOwe }
 
@@ -164,7 +169,8 @@ enum LendSelectors {
           contactId: lend.contactId,
           total: lend.signedAmount,
           count: 1,
-          lastOccurredAt: lend.occurredAt
+          lastOccurredAt: lend.occurredAt,
+          currency: lend.currency
         )
       }
     }

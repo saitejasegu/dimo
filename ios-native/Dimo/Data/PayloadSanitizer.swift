@@ -88,7 +88,11 @@ enum PayloadSanitizer {
         amountMinor: max(1, Int(Double(value.amountMinor).rounded())),
         occurredAt: occurredAt,
         comment: value.comment,
-        kind: value.kind ?? .lent
+        kind: value.kind ?? .lent,
+        currency: (value.currency?.isEmpty == false) ? value.currency : nil,
+        connectionId: value.connectionId,
+        createdBy: value.createdBy,
+        lastEditedBy: value.lastEditedBy
       ))
 
     case .emailMessage:

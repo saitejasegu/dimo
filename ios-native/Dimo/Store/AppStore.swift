@@ -13,6 +13,7 @@ final class AppStore {
   let syncStatus = SyncStatusStore()
   let nav = NavStore()
   let drafts = DraftsStore()
+  let lendingSharing = LendingSharingStore()
 
   /// Device-local daily expense reminder (not synced).
   var expenseReminder = ExpenseReminderSettings.default
@@ -332,7 +333,12 @@ final class AppStore {
       await coordinator.setProfile(name: profileName, email: profileEmail)
       try Task.checkCancellation()
       self.coordinator = coordinator
+      lendingSharing.attach(LendingSharingTransport(client: client))
+      lendingSharing.onLedgerChanged = { [weak self] in
+        Task { await self?.coordinator?.request() }
+      }
       await coordinator.start()
+      Task { await lendingSharing.refresh() }
       await refreshExchangeRates()
     } catch is CancellationError {
       return
@@ -355,6 +361,8 @@ final class AppStore {
       self.dayChangeObserver = nil
     }
     emailController?.attachOpenRouterConvexTransport(nil)
+    lendingSharing.attach(nil)
+    lendingSharing.onLedgerChanged = nil
     await emailController?.tearDown()
     emailController = nil
     entityObservation?.cancel()
@@ -670,6 +678,7 @@ final class AppStore {
     } else {
       occurredAt = lendTimestamp(for: lendDraft.date)
     }
+    let shared = contactId.hasPrefix(sharedLendContactPrefix)
     let entity = LendEntity(
       id: existing?.id ?? makeId(prefix: "lend_"),
       contactName: contact,
@@ -677,7 +686,14 @@ final class AppStore {
       amountMinor: Int((amount * 100).rounded()),
       occurredAt: occurredAt,
       comment: lendDraft.comment.trimmingCharacters(in: .whitespacesAndNewlines),
-      kind: kind
+      kind: kind,
+      // Shared ledgers can span accounts with different display currencies.
+      currency: existing?.currency ?? currency.rawValue,
+      // The server assigns these; mirror what it will send back so the row
+      // reads correctly before the next pull.
+      connectionId: shared ? String(contactId.dropFirst(sharedLendContactPrefix.count)) : nil,
+      createdBy: shared ? (existing?.createdBy ?? .me) : existing?.createdBy,
+      lastEditedBy: shared ? .me : existing?.lastEditedBy
     )
     write { try $0.saveEntity(entityType: .lend, payload: .lend(entity)) }
     closeOverlay()

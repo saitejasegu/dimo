@@ -406,6 +406,58 @@ describe("sanitizePayload foreign-currency fields", () => {
   });
 });
 
+describe("sanitizePayload lending fields", () => {
+  it("keeps currency and server-assigned sharing metadata on a shared lend", () => {
+    expect(
+      sanitizePayload("lend", {
+        id: "lend-1",
+        contactName: " Alice ",
+        contactId: "dimo:conn1",
+        amountMinor: 50_000,
+        occurredAt: 10,
+        comment: "",
+        kind: "borrowed",
+        currency: "USD",
+        connectionId: "conn1",
+        createdBy: "contact",
+        lastEditedBy: "me",
+      }),
+    ).toEqual({
+      id: "lend-1",
+      contactName: "Alice",
+      contactId: "dimo:conn1",
+      amountMinor: 50_000,
+      occurredAt: 10,
+      comment: "",
+      kind: "borrowed",
+      currency: "USD",
+      connectionId: "conn1",
+      createdBy: "contact",
+      lastEditedBy: "me",
+    });
+  });
+
+  it("drops unknown actors and leaves private legacy lends unchanged", () => {
+    const clean = sanitizePayload("lend", {
+      id: "lend-2",
+      contactName: "Sam",
+      amountMinor: 100,
+      occurredAt: 10,
+      comment: "",
+      createdBy: "someone" as never,
+    });
+    expect(clean).toEqual({
+      id: "lend-2",
+      contactName: "Sam",
+      contactId: "Sam",
+      amountMinor: 100,
+      occurredAt: 10,
+      comment: "",
+      kind: "lent",
+    });
+  });
+});
+
 describe("tombstone retention", () => {
   beforeEach(async () => {
     db.close();

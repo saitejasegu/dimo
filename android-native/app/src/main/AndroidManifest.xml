@@ -33,6 +33,13 @@
         <category android:name="android.intent.category.BROWSABLE" />
         <data android:scheme="dimo" android:host="callback" />
       </intent-filter>
+      <!-- Shared-ledger invites: dimo://invite/CODE. -->
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="dimo" android:host="invite" />
+      </intent-filter>
       <!--
         Gmail's installed-app OAuth redirect. The scheme is the reversed OAuth
         client id, injected per flavor from gmail.properties; unconfigured builds

@@ -3,6 +3,8 @@ import SwiftUI
 struct RootView: View {
   @Environment(AppEnvironment.self) private var environment
   @State private var pendingWidgetURL: URL?
+  /// Lending invite code from a link, held until the user is signed in.
+  @State private var pendingInviteCode: String?
 
   var body: some View {
     Group {
@@ -29,12 +31,29 @@ struct RootView: View {
     }
     .tint(Theme.green)
     .onOpenURL { url in
+      if let code = LendInviteLinks.code(from: url) {
+        pendingInviteCode = code
+        openPendingInvite()
+        return
+      }
       guard url.scheme == "dimo", url.host == "widget",
         ["/add-expense", "/stats"].contains(url.path) else { return }
       pendingWidgetURL = url
       openPendingWidgetURL()
     }
-    .onChange(of: environment.session.phase) { _, _ in openPendingWidgetURL() }
+    .onChange(of: environment.session.phase) { _, _ in
+      openPendingWidgetURL()
+      openPendingInvite()
+    }
+  }
+
+  private func openPendingInvite() {
+    guard environment.session.phase == .signedIn,
+      let store = environment.session.appStore, let code = pendingInviteCode else { return }
+    pendingInviteCode = nil
+    store.closeOverlay()
+    store.setView(.lending)
+    store.lendingSharing.sheet = .join(code: code)
   }
 
   private func openPendingWidgetURL() {

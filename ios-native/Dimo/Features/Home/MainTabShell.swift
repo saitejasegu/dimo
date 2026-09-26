@@ -146,6 +146,17 @@ struct MainTabShell: View {
       }
     }
     .sheet(item: Binding(
+      get: { store.lendingSharing.sheet },
+      set: { store.lendingSharing.sheet = $0 }
+    )) { sheet in
+      switch sheet {
+      case .invite(let contactId, let contactName):
+        LedgerInviteSheet(store: store, initialContactId: contactId, initialContactName: contactName)
+      case .join(let code):
+        JoinLedgerSheet(store: store, initialCode: code)
+      }
+    }
+    .sheet(item: Binding(
       get: { nav.detailId.map(DetailSheetItem.init) },
       set: { nav.detailId = $0?.id }
     )) { item in

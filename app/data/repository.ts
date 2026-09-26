@@ -5,7 +5,7 @@ import {
   type DeviceMetaRecord,
   type SyncMetaRecord,
 } from "@/data/db";
-import { toLendKind } from "@/lib/types";
+import { toLendActor, toLendKind } from "@/lib/types";
 import {
   CASH_PAYMENT_METHOD,
   DEFAULT_CATEGORY_EMOJI,
@@ -287,6 +287,14 @@ export function sanitizePayload<T extends EntityType>(
         occurredAt: Math.round(Number(value.occurredAt) || Date.now()),
         comment: String(value.comment ?? ""),
         kind: toLendKind(value.kind),
+        ...(String(value.currency ?? "").trim()
+          ? { currency: String(value.currency).trim() }
+          : {}),
+        ...(value.connectionId ? { connectionId: String(value.connectionId) } : {}),
+        ...(toLendActor(value.createdBy) ? { createdBy: toLendActor(value.createdBy) } : {}),
+        ...(toLendActor(value.lastEditedBy)
+          ? { lastEditedBy: toLendActor(value.lastEditedBy) }
+          : {}),
       } as EntityPayloadMap[T];
     }
     case "emailMessage": {

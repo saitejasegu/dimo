@@ -5,17 +5,24 @@ import { cn } from "@/lib/cn";
 import { formatTransactionDay } from "@/lib/dates";
 import { money } from "@/lib/format";
 import { useAppState } from "@/store/app-store";
+import { useLendingSharing } from "@/store/lending-sharing";
 import {
   groupLendsByDay,
   isIncomingLend,
+  lendAttribution,
   lendContactSummaries,
   lendKindLabel,
   lendingTotals,
   signedLendAmount,
+  type LendContactSummary,
 } from "@/features/lending/selectors";
+import type { LendEditorTarget } from "@/components/forms/LendEntryForm";
+import { LedgerSharingDialogs, LendEditorDialog } from "@/components/common/LendingDialogs";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Card, HeroCard } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { PlusIcon } from "@/components/ui/icons";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { MobileScreen, MobileTopBar } from "@/components/mobile/MobileScreen";
 
@@ -28,7 +35,10 @@ const SECTIONS = [
 
 export function LendingScreen() {
   const { lends, currency } = useAppState("lends", "currency");
+  const sharing = useLendingSharing();
   const [section, setSection] = useState<LendingSection>("summary");
+  const [editor, setEditor] = useState<LendEditorTarget | null>(null);
+  const [stopSharing, setStopSharing] = useState<LendContactSummary | null>(null);
   const summaries = useMemo(() => lendContactSummaries(lends), [lends]);
   const totals = useMemo(() => lendingTotals(summaries), [summaries]);
   const groups = useMemo(() => groupLendsByDay(lends), [lends]);
@@ -39,7 +49,16 @@ export function LendingScreen() {
         <>
           <MobileTopBar
             title="Lending"
-            trailing={<Badge label="Read only" tone="muted" />}
+            trailing={
+              <button
+                type="button"
+                onClick={() => setEditor({ mode: "new" })}
+                aria-label="Add lending entry"
+                className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-green text-on-green"
+              >
+                <PlusIcon size={18} />
+              </button>
+            }
           />
           <HeroCard className="mt-4 p-5">
             <div className="flex gap-6">
@@ -62,50 +81,128 @@ export function LendingScreen() {
                 : `${summaries.length} contact${summaries.length === 1 ? "" : "s"} · ${lends.length} ${lends.length === 1 ? "entry" : "entries"}`}
             </div>
           </HeroCard>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => sharing.setDialog({ kind: "invite", contactName: "" })}
+              className="flex-1 rounded-full border border-line bg-surface py-2 text-[13px] font-medium text-ink"
+            >
+              Share a ledger
+            </button>
+            <button
+              type="button"
+              onClick={() => sharing.setDialog({ kind: "join", code: "" })}
+              className="flex-1 rounded-full border border-line bg-surface py-2 text-[13px] font-medium text-ink"
+            >
+              Join with code
+            </button>
+          </div>
           <SegmentedControl
             options={SECTIONS}
             value={section}
             onChange={setSection}
-            className="mt-3.5"
+            className="mt-3"
           />
         </>
       }
     >
+      {sharing.incomingInvites.map((invite) => (
+        <button
+          type="button"
+          key={invite.code}
+          onClick={() => sharing.setDialog({ kind: "join", code: invite.code })}
+          className="mb-2 flex w-full items-center gap-3 rounded-2xl border border-green/50 bg-surface p-3 text-left"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-ink">
+              {invite.inviterName} wants to share a ledger
+            </div>
+            <div className="mt-0.5 text-xs text-muted">Tap to review</div>
+          </div>
+          <span className="text-faint">›</span>
+        </button>
+      ))}
       {section === "summary" ? (
         summaries.length > 0 ? (
           <div className="flex flex-col gap-2">
-            {summaries.map((summary) => (
-              <Card key={summary.contactId} className="flex items-center gap-3 p-3">
-                <Avatar
-                  initial={summary.contactName.charAt(0).toUpperCase()}
-                  size={40}
-                  radius={12}
-                  textClassName="text-sm"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-ink">
-                    {summary.contactName}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted">
-                    {summary.entryCount} {summary.entryCount === 1 ? "entry" : "entries"}
-                    {" · "}last {formatTransactionDay(summary.lastOccurredAt).toLowerCase()}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div
-                    className={cn(
-                      "font-display text-[15px] font-semibold",
-                      summary.direction === "owedToMe" ? "text-ink" : "text-danger",
-                    )}
+            {summaries.map((summary) => {
+              const pending = !summary.shared && sharing.pendingInvite(summary.contactId);
+              const connected = summary.shared && sharing.activeConnection(summary.contactId);
+              return (
+                <Card key={summary.contactId} className="flex items-center gap-2 p-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditor({
+                        mode: "settle",
+                        contactId: summary.contactId,
+                        contactName: summary.contactName,
+                        direction: summary.direction,
+                      })
+                    }
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
                   >
-                    {money(summary.magnitude, currency)}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-faint">
-                    {summary.direction === "owedToMe" ? "owes you" : "you owe"}
-                  </div>
-                </div>
-              </Card>
-            ))}
+                    <Avatar
+                      initial={summary.contactName.charAt(0).toUpperCase()}
+                      size={40}
+                      radius={12}
+                      textClassName="text-sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-ink">
+                          {summary.contactName}
+                        </span>
+                        {summary.shared ? <Badge label="Shared" tone="green" /> : null}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-muted">
+                        {summary.entryCount} {summary.entryCount === 1 ? "entry" : "entries"}
+                        {" · "}last {formatTransactionDay(summary.lastOccurredAt).toLowerCase()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div
+                        className={cn(
+                          "font-display text-[15px] font-semibold",
+                          summary.direction === "owedToMe" ? "text-ink" : "text-danger",
+                        )}
+                      >
+                        {money(summary.magnitude, summary.currency ?? currency)}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-faint">
+                        {summary.direction === "owedToMe" ? "owes you" : "you owe"}
+                      </div>
+                    </div>
+                  </button>
+                  {summary.shared ? (
+                    connected ? (
+                      <button
+                        type="button"
+                        onClick={() => setStopSharing(summary)}
+                        aria-label={`Stop sharing with ${summary.contactName}`}
+                        className="shrink-0 px-1.5 text-lg leading-none text-faint"
+                      >
+                        ⋯
+                      </button>
+                    ) : null
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        sharing.setDialog({
+                          kind: "invite",
+                          contactId: summary.contactId,
+                          contactName: summary.contactName,
+                        })
+                      }
+                      className="shrink-0 rounded-lg px-1.5 py-1 text-xs font-medium text-green"
+                    >
+                      {pending ? "Invited" : "Share"}
+                    </button>
+                  )}
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <div className="py-12 text-center">
@@ -114,7 +211,7 @@ export function LendingScreen() {
             </div>
             <div className="mx-auto mt-2 max-w-xs text-[13px] leading-5 text-muted">
               {lends.length === 0
-                ? "Lending records added in the native app will appear here after syncing."
+                ? "Tap + to record money you lend or borrow, or share a ledger with someone."
                 : "Nothing outstanding either way. Past entries are available in Activity."}
             </div>
           </div>
@@ -134,32 +231,43 @@ export function LendingScreen() {
               <div className="flex flex-col gap-2">
                 {group.items.map((lend) => {
                   const incoming = isIncomingLend(lend.kind);
-                  const detail = lend.comment.trim() || lendKindLabel(lend.kind);
+                  const detail = [
+                    lend.comment.trim() || lendKindLabel(lend.kind),
+                    lendAttribution(lend),
+                    lend.time,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
                   return (
-                    <Card key={lend.id} className="flex items-center gap-3 p-3">
-                      <Avatar
-                        initial={lend.contactName.charAt(0).toUpperCase()}
-                        size={38}
-                        radius={11}
-                        textClassName="text-sm"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-ink">
-                          {lend.contactName}
+                    <button
+                      type="button"
+                      key={lend.id}
+                      onClick={() => setEditor({ mode: "edit", lend })}
+                      className="text-left"
+                    >
+                      <Card className="flex items-center gap-3 p-3">
+                        <Avatar
+                          initial={lend.contactName.charAt(0).toUpperCase()}
+                          size={38}
+                          radius={11}
+                          textClassName="text-sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-ink">
+                            {lend.contactName}
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-muted">{detail}</div>
                         </div>
-                        <div className="mt-0.5 truncate text-xs text-muted">
-                          {detail} · {lend.time}
+                        <div
+                          className={cn(
+                            "font-display text-[15px] font-semibold",
+                            incoming ? "text-green" : "text-ink",
+                          )}
+                        >
+                          {money(signedLendAmount(lend), lend.currency ?? currency)}
                         </div>
-                      </div>
-                      <div
-                        className={cn(
-                          "font-display text-[15px] font-semibold",
-                          incoming ? "text-green" : "text-ink",
-                        )}
-                      >
-                        {money(signedLendAmount(lend), currency)}
-                      </div>
-                    </Card>
+                      </Card>
+                    </button>
                   );
                 })}
               </div>
@@ -171,6 +279,23 @@ export function LendingScreen() {
           No lending activity yet.
         </div>
       )}
+
+      {editor ? (
+        <LendEditorDialog variant="sheet" target={editor} onClose={() => setEditor(null)} />
+      ) : null}
+      <LedgerSharingDialogs variant="sheet" />
+      <ConfirmDialog
+        open={Boolean(stopSharing)}
+        title={`Stop sharing with ${stopSharing?.contactName ?? ""}?`}
+        message="You both keep the entries so far, but new changes won’t reach each other."
+        confirmLabel="Stop sharing"
+        onCancel={() => setStopSharing(null)}
+        onConfirm={() => {
+          const target = stopSharing;
+          setStopSharing(null);
+          if (target) void sharing.stopSharing(target.contactId);
+        }}
+      />
     </MobileScreen>
   );
 }

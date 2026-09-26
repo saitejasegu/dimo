@@ -21,7 +21,10 @@ struct LendingScreen: View {
   @State private var section: LendingSection = .summary
   @State private var messageToShare: String?
   @State private var visibleLimit = LendSelectors.historyPageSize
+  @State private var stopSharingTarget: LendContactSummary?
   private let contactPhotos = ContactsLoader.shared
+
+  private var sharing: LendingSharingStore { store.lendingSharing }
 
   var body: some View {
     let summaries = entities.lendSummaries
@@ -34,6 +37,7 @@ struct LendingScreen: View {
             .font(DimoFont.display(24, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Spacer()
+          sharingMenu
         }
         .frame(minHeight: 56)
 
@@ -49,6 +53,9 @@ struct LendingScreen: View {
 
       ScrollView {
         LazyVStack(spacing: 8) {
+          ForEach(sharing.liveIncomingInvites) { invite in
+            incomingInviteBanner(invite)
+          }
           if entities.lends.isEmpty {
             emptyState
           } else {
@@ -76,7 +83,36 @@ struct LendingScreen: View {
       }
     }
     .background(Theme.canvas.ignoresSafeArea())
-    .onAppear { contactPhotos.loadIfAuthorized() }
+    .onAppear {
+      contactPhotos.loadIfAuthorized()
+      Task { await sharing.refresh() }
+    }
+    .refreshable {
+      await sharing.refresh()
+      store.syncNow()
+    }
+    .alert(
+      "Stop sharing with \(stopSharingTarget?.contactName ?? "")?",
+      isPresented: Binding(
+        get: { stopSharingTarget != nil },
+        set: { if !$0 { stopSharingTarget = nil } }
+      )
+    ) {
+      Button("Stop sharing", role: .destructive) {
+        guard let target = stopSharingTarget else { return }
+        Task {
+          do {
+            try await sharing.stopSharing(contactId: target.contactId)
+            store.showToast("Stopped sharing with \(target.contactName)")
+          } catch {
+            store.showToast(error.localizedDescription)
+          }
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("You both keep the entries so far, but new changes won’t reach each other.")
+    }
     .onChange(of: section) { _, _ in
       visibleLimit = LendSelectors.historyPageSize
     }
@@ -176,6 +212,84 @@ struct LendingScreen: View {
     .padding(.vertical, 44)
   }
 
+  private var sharingMenu: some View {
+    Menu {
+      Button {
+        sharing.sheet = .invite(contactId: nil, contactName: "")
+      } label: {
+        Label("Share a ledger", systemImage: "person.2.badge.plus")
+      }
+      Button {
+        sharing.sheet = .join(code: "")
+      } label: {
+        Label("Join with a code", systemImage: "ticket")
+      }
+    } label: {
+      Image(systemName: "person.2.badge.plus")
+        .font(.system(size: 17, weight: .semibold))
+        .foregroundStyle(Theme.green)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+    .accessibilityLabel("Shared ledgers")
+  }
+
+  private func incomingInviteBanner(_ invite: IncomingLendInvite) -> some View {
+    Button {
+      sharing.sheet = .join(code: invite.code)
+    } label: {
+      HStack(spacing: 12) {
+        Image(systemName: "person.2.fill")
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(Theme.green)
+          .frame(width: 38, height: 38)
+          .background(Theme.greenSoft)
+          .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        VStack(alignment: .leading, spacing: 2) {
+          Text("\(invite.inviterName) wants to share a ledger")
+            .font(DimoFont.body(14, weight: .medium))
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+          Text("Tap to review")
+            .font(DimoFont.body(12))
+            .foregroundStyle(Theme.muted)
+        }
+        Spacer()
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Theme.faint)
+      }
+      .padding(12)
+      .background(Theme.surface)
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .stroke(Theme.green.opacity(0.5), lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func money(_ amount: Double, currencyCode: String?) -> String {
+    if let currencyCode, !currencyCode.isEmpty {
+      return Formatting.money(amount, currencyCode: currencyCode)
+    }
+    return Formatting.money(amount, currency: entities.currency)
+  }
+
+  private func summarySubtitle(_ summary: LendContactSummary) -> String {
+    let owedToMe = summary.direction == .owedToMe
+    var parts = [owedToMe ? "Owes you" : "You owe"]
+    if summary.isShared {
+      parts.append("Shared")
+    } else if sharing.pendingInvite(contactId: summary.contactId) != nil {
+      parts.append("Invite sent")
+    }
+    parts.append("\(summary.count) entr\(summary.count == 1 ? "y" : "ies")")
+    parts.append("last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
+    return parts.joined(separator: " · ")
+  }
+
   private func summaryRow(_ summary: LendContactSummary) -> some View {
     let owedToMe = summary.direction == .owedToMe
     return HStack(spacing: 0) {
@@ -199,13 +313,13 @@ struct LendingScreen: View {
               .font(DimoFont.body(14, weight: .medium))
               .foregroundStyle(Theme.ink)
               .lineLimit(1)
-            Text("\(owedToMe ? "Owes you" : "You owe") · \(summary.count) entr\(summary.count == 1 ? "y" : "ies") · last \(DateHelpers.formatTransactionDay(summary.lastOccurredAt).lowercased())")
+            Text(summarySubtitle(summary))
               .font(DimoFont.body(12))
               .foregroundStyle(Theme.muted)
               .lineLimit(1)
           }
           Spacer()
-          Text(Formatting.money(summary.magnitude, currency: entities.currency))
+          Text(money(summary.magnitude, currencyCode: summary.currency))
             .font(DimoFont.display(15, weight: .semibold))
             .foregroundStyle(owedToMe ? Theme.ink : Theme.danger)
         }
@@ -239,6 +353,28 @@ struct LendingScreen: View {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
         .stroke(Theme.line, lineWidth: 1)
     )
+    .contextMenu {
+      if summary.isShared {
+        if sharing.activeConnection(contactId: summary.contactId) != nil {
+          Button(role: .destructive) {
+            stopSharingTarget = summary
+          } label: {
+            Label("Stop sharing", systemImage: "person.2.slash")
+          }
+        }
+      } else {
+        Button {
+          sharing.sheet = .invite(contactId: summary.contactId, contactName: summary.contactName)
+        } label: {
+          Label(
+            sharing.pendingInvite(contactId: summary.contactId) == nil
+              ? "Share ledger with \(summary.contactName)"
+              : "View invite",
+            systemImage: "person.2.badge.plus"
+          )
+        }
+      }
+    }
   }
 
   /// Fixed-format and locale-independent, so it is built once rather than per share.
@@ -256,13 +392,13 @@ struct LendingScreen: View {
       .unsettledTransactions(for: summary.contactId, in: entities.lends)
       .map { lend -> String in
         let sign = lend.isIncoming ? "-" : "+"
-        let amount = Formatting.money(lend.amount, currency: entities.currency)
+        let amount = money(lend.amount, currencyCode: lend.currency)
         let occurredAt = Date(timeIntervalSince1970: TimeInterval(lend.occurredAt) / 1000)
         let date = dateFormatter.string(from: occurredAt)
         return "• \(date) · \(sign)\(amount)"
       }
     let transactions = transactionLines.joined(separator: "\n")
-    let balance = Formatting.money(summary.magnitude, currency: entities.currency)
+    let balance = money(summary.magnitude, currencyCode: summary.currency)
     let headline = summary.direction == .owedToMe
       ? "Outstanding: \(balance)"
       : "I owe you: \(balance)"
@@ -325,9 +461,19 @@ struct LendingScreen: View {
     }
   }
 
+  /// Who recorded or last changed a shared entry, when it was the other person.
+  private func attribution(for lend: Lend) -> String? {
+    guard lend.isShared else { return nil }
+    let firstName = lend.contactName.split(separator: " ").first.map(String.init) ?? lend.contactName
+    if lend.createdBy == .contact { return "Added by \(firstName)" }
+    if lend.lastEditedBy == .contact { return "Edited by \(firstName)" }
+    return nil
+  }
+
   private func lendRow(_ lend: Lend) -> some View {
     let base = lend.comment.isEmpty ? fallbackDetail(for: lend.kind) : lend.comment
-    let detail = base.map { "\($0) · \(lend.time)" } ?? lend.time
+    let parts = [base, attribution(for: lend), lend.time].compactMap { $0 }
+    let detail = parts.joined(separator: " · ")
 
     return Button {
       store.openEditLend(lend.id)
@@ -351,7 +497,7 @@ struct LendingScreen: View {
             .lineLimit(1)
         }
         Spacer()
-        Text(Formatting.money(lend.signedAmount, currency: entities.currency))
+        Text(money(lend.signedAmount, currencyCode: lend.currency))
           .font(DimoFont.display(15, weight: .semibold))
           .foregroundStyle(lend.isIncoming ? Theme.green : Theme.ink)
       }

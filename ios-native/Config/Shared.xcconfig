@@ -7,6 +7,13 @@
 
 PRODUCT_BUNDLE_IDENTIFIER = app.dimo.ios
 PRODUCT_NAME = Dimo
+
+// Identity of this build. Config/Dev.xcconfig overrides these so the dev app
+// installs beside the production app, looks different, and shares no data.
+DIMO_BUNDLE_ID = app.dimo.ios
+DIMO_APP_GROUP = group.app.dimo.ios
+DIMO_DISPLAY_NAME = Dimo
+DIMO_APP_ICON = AppIcon
 MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 3
 

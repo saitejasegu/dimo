@@ -134,15 +134,18 @@ class SyncCoordinator(
   suspend fun latestExchangeRates(): RateTable? = transport.latestExchangeRates()
 
   /**
-   * Deletes cloud rows for every type Android owns, `emailMessage` included.
-   *
-   * This is only safe because the paired [Repository.enqueueFullUpload] re-uploads
-   * the same types: full replacement clears and re-writes, so email suggestions
-   * survive the round trip. It is destructive and is not part of normal sync.
+   * Account deletion: deletes every cloud row, including lends shared with other
+   * accounts, and revokes those connections. A full cloud replacement uses
+   * [clearRemote] instead, which keeps the shared ledger the other member relies on.
    */
   suspend fun clearCloudWorkspace() {
     while (true) {
-      val result = transport.clearWorkspace(WORKSPACE_ID, EntityType.entries, CLEAR_PAGE)
+      val result = transport.clearWorkspace(
+        WORKSPACE_ID,
+        EntityType.entries,
+        CLEAR_PAGE,
+        includeSharedLends = true,
+      )
       if (!result.hasMore) return
     }
   }

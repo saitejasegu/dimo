@@ -10,6 +10,8 @@ import app.dimo.android.auth.AuthRedirectBus
 import app.dimo.android.email.gmail.GmailRedirectBus
 import app.dimo.android.notifications.ExpenseReminderRouter
 import app.dimo.android.notifications.ExpenseReminderScheduler
+import app.dimo.android.store.LendInviteLinkBus
+import app.dimo.android.sync.LendInviteLinks
 
 class MainActivity : ComponentActivity() {
   /** Set when `dimo://callback` was delivered this resume cycle. */
@@ -56,6 +58,13 @@ class MainActivity : ComponentActivity() {
 
   private fun handleIntent(intent: Intent?) {
     val uri = intent?.data
+    if (uri != null) {
+      LendInviteLinks.code(uri)?.let { code ->
+        LendInviteLinkBus.pendingCode = code
+        intent.data = null
+        return
+      }
+    }
     if (uri?.scheme == "dimo" && uri.host == "callback") {
       AuthRedirectBus.publish(uri)
       intent.data = null

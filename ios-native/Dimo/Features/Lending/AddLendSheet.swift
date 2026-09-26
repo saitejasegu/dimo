@@ -129,6 +129,11 @@ struct AddLendSheet: View {
               contactSuggestions
             }
           }
+          if isSharedContact && !contactSearchOpen {
+            Label("Shared ledger — \(store.lendDraft.contactName) sees this entry too", systemImage: "person.2.fill")
+              .font(DimoFont.body(12))
+              .foregroundStyle(Theme.green)
+          }
         }
 
         if !contactSearchOpen {
@@ -153,7 +158,7 @@ struct AddLendSheet: View {
 
           lendField(amountLabel) {
             HStack(spacing: 8) {
-              Text(Formatting.currencySymbol(store.currency))
+              Text(currencySymbol)
                 .foregroundStyle(Theme.muted)
               TextField("0", text: $store.lendDraft.amount)
                 .keyboardType(.decimalPad)
@@ -225,6 +230,19 @@ struct AddLendSheet: View {
     }
   }
 
+  /// An edited entry keeps the currency it was recorded in.
+  private var currencySymbol: String {
+    if let id = store.lendDraft.editingId,
+       let code = store.lends.first(where: { $0.id == id })?.currency {
+      return CurrencyMeta.symbol(code)
+    }
+    return Formatting.currencySymbol(store.currency)
+  }
+
+  private var isSharedContact: Bool {
+    store.lendDraft.contactId?.hasPrefix(sharedLendContactPrefix) == true
+  }
+
   private var canSave: Bool {
     let amount = Double(store.lendDraft.amount) ?? 0
     return store.lendDraft.contactId != nil
@@ -234,7 +252,16 @@ struct AddLendSheet: View {
   }
 
   private func refreshLendCaches() {
-    cachedRecentContacts = LendSelectors.recentContacts(store.lends)
+    // Shared ledgers are offered even before either side recorded anything.
+    var suggestions = LendSelectors.recentContacts(store.lends)
+    for connection in store.lendingSharing.connections where connection.isActive {
+      if !suggestions.contains(where: { $0.contactId == connection.contactId }) {
+        suggestions.append(
+          LendContactSuggestion(contactName: connection.contactName, contactId: connection.contactId)
+        )
+      }
+    }
+    cachedRecentContacts = suggestions
     refreshSettlementLimit()
   }
 

@@ -1,5 +1,8 @@
 package app.dimo.android.features.home
 
+import app.dimo.android.features.lending.LedgerSharingSheetHost
+import app.dimo.android.store.LedgerSharingSheet
+import app.dimo.android.store.LendInviteLinkBus
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -292,6 +295,17 @@ fun MainTabShell(
     OverlayKey.Category -> CategorySheet(store = store, onClose = { store.closeOverlay() })
     OverlayKey.Lend -> LendSheet(store = store, onClose = { store.closeOverlay() })
     null -> Unit
+  }
+
+  LedgerSharingSheetHost(store)
+  // An invite link opens the Lending tab with the join sheet, even when it
+  // arrived before sign-in finished.
+  LaunchedEffect(LendInviteLinkBus.pendingCode) {
+    val code = LendInviteLinkBus.pendingCode ?: return@LaunchedEffect
+    LendInviteLinkBus.pendingCode = null
+    store.closeOverlay()
+    store.setView(ViewKey.LENDING)
+    store.lendingSharing.sheet = LedgerSharingSheet.Join(code)
   }
 
   // Tapping a transaction row edits it in the same sheet as the add flow.

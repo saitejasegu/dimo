@@ -21,7 +21,10 @@ import app.dimo.android.data.model.EntityPayload
 import app.dimo.android.data.model.EntityType
 import app.dimo.android.data.model.Lend
 import app.dimo.android.data.model.LendEntity
+import app.dimo.android.data.model.LendActor
 import app.dimo.android.data.model.LendKind
+import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
+import app.dimo.android.sync.LendingSharingTransport
 import app.dimo.android.data.model.NotificationSettings
 import app.dimo.android.data.model.PaymentMethodEntity
 import app.dimo.android.data.model.PaymentMethodOption
@@ -105,6 +108,7 @@ class AppStore(
   var overlay by mutableStateOf<OverlayKey?>(null)
   var detailId by mutableStateOf<String?>(null)
   var toast by mutableStateOf<String?>(null)
+  val lendingSharing = LendingSharingStore()
   private var toastJob: Job? = null
 
   var transactions by mutableStateOf<List<Transaction>>(emptyList())
@@ -305,6 +309,10 @@ class AppStore(
       // analyzer only becomes available once sync login succeeds.
       emailController?.attachOpenRouterConvexTransport(OpenRouterConvexTransport(client))
 
+      lendingSharing.attach(LendingSharingTransport(client))
+      lendingSharing.onLedgerChanged = { viewModelScope.launch { coordinator?.request() } }
+      viewModelScope.launch { lendingSharing.refresh() }
+
       val transport = ConvexSyncTransport(client)
       val monitor = NetworkMonitor(getApplication())
       networkMonitor = monitor
@@ -338,6 +346,8 @@ class AppStore(
     writeListener = null
     emailController?.tearDown()
     emailController = null
+    lendingSharing.attach(null)
+    lendingSharing.onLedgerChanged = null
     coordinator?.stop()
     coordinator = null
     networkMonitor = null
@@ -671,6 +681,7 @@ class AppStore(
     } else {
       lendTimestamp(lendDraft.date)
     }
+    val shared = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)
     val entity = LendEntity(
       id = existing?.id ?: makeId("lend_"),
       contactName = contact,
@@ -679,6 +690,13 @@ class AppStore(
       occurredAt = occurredAt,
       comment = lendDraft.comment.trim(),
       kind = kind,
+      // Shared ledgers can span accounts with different display currencies.
+      currency = existing?.currency ?: currency.wire,
+      // The server assigns these; mirror what it will send back so the row
+      // reads correctly before the next pull.
+      connectionId = if (shared) contactId.removePrefix(SHARED_LEND_CONTACT_PREFIX) else null,
+      createdBy = if (shared) existing?.createdBy ?: LendActor.ME else existing?.createdBy,
+      lastEditedBy = if (shared) LendActor.ME else existing?.lastEditedBy,
     )
     viewModelScope.launch {
       repository?.saveEntity(EntityPayload.Lend(entity))
@@ -1298,6 +1316,9 @@ class AppStore(
           amountMinor = lend.amountMinor,
           occurredAt = lend.occurredAt,
           kind = lend.kind ?: LendKind.LENT,
+          currency = lend.currency,
+          createdBy = lend.createdBy,
+          lastEditedBy = lend.lastEditedBy,
         )
       }
 

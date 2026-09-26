@@ -19,6 +19,10 @@ private val PERMANENT_SYNC_ERROR = Regex(
     "Invalid minor-unit amount",
     "Invalid recurring anchor date",
     "A push may contain at most 50",
+    // Shared-ledger writes the server refuses for this account.
+    "Not a member of this lending connection",
+    "Unknown lending connection",
+    "Lend id collides",
   ).joinToString("|"),
 )
 

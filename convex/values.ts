@@ -32,6 +32,10 @@ export const lendKindValidator = v.union(
   v.literal("returned"),
 );
 
+/** Who created or last edited a shared lending entry, relative to the owner of
+ * the copy: `me` is the owner, `contact` is the other member. */
+export const lendActorValidator = v.union(v.literal("me"), v.literal("contact"));
+
 export const notificationValidator = v.object({
   bills: v.boolean(),
   budget: v.boolean(),
@@ -115,6 +119,12 @@ export const lendValidator = v.object({
   occurredAt: v.number(),
   comment: v.string(),
   kind: v.optional(lendKindValidator),
+  currency: v.optional(v.string()),
+  /** Server-assigned sharing metadata. Accepted so clients can echo pulled
+   * rows, but ignored on push. */
+  connectionId: v.optional(v.string()),
+  createdBy: v.optional(lendActorValidator),
+  lastEditedBy: v.optional(lendActorValidator),
 });
 
 /** Native-owned reviewed Gmail suggestion. Includes the full normalized body
@@ -270,6 +280,12 @@ export const lendOperationValidator = v.object({
   occurredAt: v.number(),
   comment: v.string(),
   kind: v.optional(lendKindValidator),
+  currency: v.optional(v.string()),
+  /** Server-assigned; ignored on push. A shared entry is identified by its
+   * `dimo:<connectionId>` contactId. */
+  connectionId: v.optional(v.string()),
+  createdBy: v.optional(lendActorValidator),
+  lastEditedBy: v.optional(lendActorValidator),
 });
 
 export const emailMessageOperationValidator = v.object({
