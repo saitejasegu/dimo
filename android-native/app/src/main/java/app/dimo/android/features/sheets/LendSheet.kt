@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.dimo.android.data.model.Lend
 import app.dimo.android.design.AvatarView
 import app.dimo.android.design.DimoColors
 import app.dimo.android.design.DimoFont
@@ -83,19 +84,7 @@ fun LendSheet(
 
   var confirmDelete by remember { mutableStateOf(false) }
 
-  // Shared people and invites are offered even before any entries.
-  val extraContacts = sharing.connections
-    .filter { it.isActive }
-    .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) } +
-    sharing.outgoingInvites.mapNotNull { invite ->
-      invite.contactId?.let { LendContactSuggestion(contactName = invite.contactName, contactId = it) }
-    }
-  fun withExtras(base: List<LendContactSuggestion>): List<LendContactSuggestion> =
-    base + extraContacts.filter { extra -> base.none { it.contactId == extra.contactId } }
-      .distinctBy { it.contactId }
-  val recentContacts = withExtras(LendSelectors.recentContacts(store.lends))
-  // Everyone in lend history plus shared and invited people, for matching.
-  val knownContacts = withExtras(LendSelectors.recentContacts(store.lends, limit = Int.MAX_VALUE))
+  val (recentContacts, knownContacts) = lendPeople(store.lends, sharing)
 
   // An edited entry keeps the currency it was recorded in.
   val currencySymbol = existing?.currency?.let(CurrencyMeta::symbol)
@@ -346,6 +335,29 @@ fun LendSheet(
 internal fun amountText(amount: Double): String =
   if (amount.roundToLong().toDouble() == amount) amount.toLong().toString() else String.format("%.2f", amount)
 
+/**
+ * People the user can record money with: recent contacts plus shared and
+ * invited people as one-tap picks (first), and everyone ever recorded, for
+ * matching what's typed (second).
+ */
+internal fun lendPeople(
+  lends: List<Lend>,
+  sharing: LendingSharingStore,
+): Pair<List<LendContactSuggestion>, List<LendContactSuggestion>> {
+  // Shared people and invites are offered even before any entries.
+  val extraContacts = sharing.connections
+    .filter { it.isActive }
+    .map { LendContactSuggestion(contactName = it.contactName, contactId = it.contactId) } +
+    sharing.outgoingInvites.mapNotNull { invite ->
+      invite.contactId?.let { LendContactSuggestion(contactName = invite.contactName, contactId = it) }
+    }
+  fun withExtras(base: List<LendContactSuggestion>): List<LendContactSuggestion> =
+    base + extraContacts.filter { extra -> base.none { it.contactId == extra.contactId } }
+      .distinctBy { it.contactId }
+  return withExtras(LendSelectors.recentContacts(lends)) to
+    withExtras(LendSelectors.recentContacts(lends, limit = Int.MAX_VALUE))
+}
+
 /** Short label for a Dimo user's relationship to you. */
 internal fun lendRelationLabel(user: LendUser): String = when (user.relation) {
   "connected" -> "Shared"
@@ -360,7 +372,7 @@ internal fun lendRelationLabel(user: LendUser): String = when (user.relation) {
  * them.
  */
 @Composable
-private fun LendContactField(
+internal fun LendContactField(
   name: String,
   /** False once someone is picked, which hides the results. */
   searching: Boolean,
@@ -369,6 +381,9 @@ private fun LendContactField(
   onEdit: (String) -> Unit,
   onPickContact: (LendContactSuggestion) -> Unit,
   onPickDimoUser: (LendUser) -> Unit,
+  placeholder: String = "Their name or Dimo email",
+  /** People already picked elsewhere in the form. */
+  excludedContactIds: Set<String> = emptySet(),
 ) {
   val query = name.trim()
   val searchQuery = query.takeIf { searching && sharing.isOnline && it.length >= 2 }
@@ -379,11 +394,16 @@ private fun LendContactField(
     runCatching { sharing.searchUsers(next) }.onSuccess { results = next to it }
   }
   val dimoUsers = results?.takeIf { it.first == searchQuery }?.second
+    ?.filter { user -> user.contactId?.let { it !in excludedContactIds } ?: true }
   // A Dimo result already stands for the contact it's shared or invited as.
   val linked = dimoUsers.orEmpty().mapNotNull { it.contactId }.toSet()
   val matchingContacts = if (searching && query.isNotEmpty()) {
     knownContacts
-      .filter { it.contactName.contains(query, ignoreCase = true) && it.contactId !in linked }
+      .filter {
+        it.contactName.contains(query, ignoreCase = true) &&
+          it.contactId !in linked &&
+          it.contactId !in excludedContactIds
+      }
       .take(5)
   } else {
     emptyList()
@@ -400,7 +420,7 @@ private fun LendContactField(
     DimoTextField(
       value = name,
       onValueChange = onEdit,
-      placeholder = "Their name or Dimo email",
+      placeholder = placeholder,
     )
     if (showsResults) {
       HorizontalDivider(color = DimoColors.line)

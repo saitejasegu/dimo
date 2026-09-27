@@ -233,6 +233,15 @@ from derived UI models.
 - Shared-ledger push errors (`Not a member of this lending connection`,
   `Unknown lending connection`, `Lend id collides`) are permanent and block
   the single operation on every client.
+- Splitting a new one-off expense (web `SplitSection` /
+  `features/transactions/split.ts`, iOS `SplitStep` / `SplitSelectors`,
+  Android `SplitStep.kt` / `SplitSelectors.kt`, and `saveSplitExpense` on
+  every store) records only the
+  user's share as the transaction, plus one lend per person, all in one atomic
+  batch. If the user paid, each person's share is recorded as "gave". If
+  someone else paid, the user's share is recorded as "got" from the payer. The kind comes
+  from `lendKindFor`, and the comment is the expense name. Nothing links the transaction and its
+  lends, so editing one never touches the other.
 - Native shared summaries use a plain-text share sheet
   (`UIActivityViewController` / Android `ACTION_SEND`), include only the
   current unsettled cycle, omit comments, show `+`/`-` amounts, and format

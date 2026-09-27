@@ -257,26 +257,9 @@ struct AddLendSheet: View {
   }
 
   private func refreshContacts() {
-    // Shared people and invites are offered even before any entries.
-    var recent = LendSelectors.recentContacts(store.lends)
-    var extra: [LendContactSuggestion] = []
-    for connection in sharing.connections where connection.isActive {
-      extra.append(LendContactSuggestion(contactName: connection.contactName, contactId: connection.contactId))
-    }
-    for invite in sharing.outgoingInvites {
-      if let contactId = invite.contactId {
-        extra.append(LendContactSuggestion(contactName: invite.contactName, contactId: contactId))
-      }
-    }
-    for item in extra where !recent.contains(where: { $0.contactId == item.contactId }) {
-      recent.append(item)
-    }
-    recentContacts = recent
-    var known = LendSelectors.recentContacts(store.lends, limit: .max)
-    for item in extra where !known.contains(where: { $0.contactId == item.contactId }) {
-      known.append(item)
-    }
-    knownContacts = known
+    let people = lendPeople(lends: store.lends, sharing: sharing)
+    recentContacts = people.recent
+    knownContacts = people.known
   }
 
   /// Recent people, offered as one-tap picks until someone is chosen.
@@ -373,6 +356,35 @@ struct LendFlowSwitcher: View {
   }
 }
 
+/// People the user can record money with: recent contacts plus shared and
+/// invited people as one-tap `recent` picks, and everyone ever recorded as
+/// `known`, for matching what's typed.
+@MainActor
+func lendPeople(
+  lends: [Lend],
+  sharing: LendingSharingStore
+) -> (recent: [LendContactSuggestion], known: [LendContactSuggestion]) {
+  // Shared people and invites are offered even before any entries.
+  var recent = LendSelectors.recentContacts(lends)
+  var extra: [LendContactSuggestion] = []
+  for connection in sharing.connections where connection.isActive {
+    extra.append(LendContactSuggestion(contactName: connection.contactName, contactId: connection.contactId))
+  }
+  for invite in sharing.outgoingInvites {
+    if let contactId = invite.contactId {
+      extra.append(LendContactSuggestion(contactName: invite.contactName, contactId: contactId))
+    }
+  }
+  for item in extra where !recent.contains(where: { $0.contactId == item.contactId }) {
+    recent.append(item)
+  }
+  var known = LendSelectors.recentContacts(lends, limit: .max)
+  for item in extra where !known.contains(where: { $0.contactId == item.contactId }) {
+    known.append(item)
+  }
+  return (recent, known)
+}
+
 /// Short label for a Dimo user's relationship to you.
 func lendRelationLabel(_ user: LendUser) -> String {
   switch user.relation {
@@ -386,8 +398,9 @@ func lendRelationLabel(_ user: LendUser) -> String {
 /// Typed name that searches your people as you type and, from two letters,
 /// Dimo accounts by name or email. Picking a Dimo account makes saving invite
 /// them.
-private struct LendContactField: View {
+struct LendContactField: View {
   var name: String
+  var placeholder = "Their name or Dimo email"
   /// False once someone is picked, which hides the results.
   var searching: Bool
   var knownContacts: [LendContactSuggestion]
@@ -395,6 +408,9 @@ private struct LendContactField: View {
   var onEdit: (String) -> Void
   var onPickContact: (LendContactSuggestion) -> Void
   var onPickDimoUser: (LendUser) -> Void
+  /// People already picked elsewhere in the form.
+  var excludedContactIds: Set<String> = []
+  var onSubmit: (() -> Void)?
 
   @State private var results: (query: String, users: [LendUser])?
 
@@ -404,7 +420,9 @@ private struct LendContactField: View {
   }
   private var dimoUsers: [LendUser]? {
     guard let results, results.query == searchQuery else { return nil }
-    return results.users
+    return results.users.filter { user in
+      user.contactId.map { !excludedContactIds.contains($0) } ?? true
+    }
   }
   private var matchingContacts: [LendContactSuggestion] {
     guard searching, !query.isEmpty else { return [] }
@@ -412,7 +430,11 @@ private struct LendContactField: View {
     let linked = Set((dimoUsers ?? []).compactMap(\.contactId))
     return Array(
       knownContacts
-        .filter { $0.contactName.localizedCaseInsensitiveContains(query) && !linked.contains($0.contactId) }
+        .filter {
+          $0.contactName.localizedCaseInsensitiveContains(query)
+            && !linked.contains($0.contactId)
+            && !excludedContactIds.contains($0.contactId)
+        }
         .prefix(5)
     )
   }
@@ -423,9 +445,10 @@ private struct LendContactField: View {
   var body: some View {
     VStack(spacing: 0) {
       TextField(
-        "Their name or Dimo email",
+        placeholder,
         text: Binding(get: { name }, set: { onEdit($0) })
       )
+      .onSubmit { onSubmit?() }
       .font(DimoFont.body(15))
       .foregroundStyle(Theme.ink)
       .textFieldStyle(.plain)

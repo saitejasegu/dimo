@@ -662,6 +662,123 @@ final class AppStore {
     )
   }
 
+  /// Someone sharing a split expense, with their share in the entry currency.
+  struct SplitPerson {
+    var contactId: String
+    var contactName: String
+    var share: Double
+    /// Picked from Dimo search without a shared ledger yet; saving invites them.
+    var invite: LendUser?
+  }
+
+  /// Records a one-off expense split with other people: only the user's share
+  /// becomes a transaction, and what's owed either way becomes lending entries,
+  /// all in one atomic batch. `paidBy` is nil when the user paid. Returns false
+  /// when nothing was saved.
+  @discardableResult
+  func saveSplitExpense(
+    name: String,
+    myShare: Double,
+    categoryName: String,
+    paymentMethodId: String?,
+    date: Date,
+    entryCurrency: String,
+    paidBy: String?,
+    people: [SplitPerson]
+  ) -> Bool {
+    guard let category = categories.first(where: { $0.name == categoryName }) else { return false }
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let label = trimmedName.isEmpty ? category.name : trimmedName
+    let resolvedMethodId = resolvedPaymentMethodId(paymentMethodId)
+    let occurredAt = min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000))
+    let defaultCurrency = currency.rawValue
+    var batch: [(EntityType, EntityPayload)] = []
+
+    if myShare > 0 {
+      guard let converted = transactionCurrencyFields(amount: myShare, entryCurrency: entryCurrency) else {
+        showToast("Exchange rates unavailable — try again once online")
+        return false
+      }
+      batch.append((.transaction, .transaction(TransactionEntity(
+        id: makeId(prefix: "tx_"),
+        name: label,
+        amountMinor: converted.amountMinor,
+        occurredAt: occurredAt,
+        categoryId: category.id,
+        paymentMethodId: resolvedMethodId,
+        currency: converted.currency,
+        sourceCurrency: converted.sourceCurrency,
+        sourceAmountMinor: converted.sourceAmountMinor,
+        exchangeRate: converted.exchangeRate
+      ))))
+    }
+
+    // When the user paid, everyone else owes them their share. When someone
+    // else paid, the user owes that person their own share; what the others
+    // owe the payer is between them.
+    let debts: [(person: SplitPerson, share: Double, flow: LendFlow)]
+    if let paidBy {
+      guard let payer = people.first(where: { $0.contactId == paidBy }) else { return false }
+      debts = [(payer, myShare, .got)]
+    } else {
+      debts = people.map { ($0, $0.share, .gave) }
+    }
+    for debt in debts where debt.share > 0 {
+      guard let shareMinor = ExchangeRates.convertMinor(
+        ExchangeRates.toMinorUnits(debt.share, entryCurrency),
+        from: entryCurrency,
+        to: defaultCurrency,
+        rates: rates
+      ) else {
+        showToast("Exchange rates unavailable — try again once online")
+        return false
+      }
+      let amount = ExchangeRates.toMajorUnits(shareMinor, defaultCurrency)
+      guard amount > 0 else { continue }
+      let contactId = debt.person.contactId
+      let shared = contactId.hasPrefix(sharedLendContactPrefix)
+      let balance = LendSelectors.netBalance(for: contactId, in: lends, excludingLendId: nil)
+      batch.append((.lend, .lend(LendEntity(
+        id: makeId(prefix: "lend_"),
+        contactName: debt.person.contactName.trimmingCharacters(in: .whitespacesAndNewlines),
+        contactId: contactId,
+        amountMinor: Int((amount * 100).rounded()),
+        occurredAt: occurredAt,
+        comment: label,
+        kind: LendSelectors.kind(for: debt.flow, amount: amount, balance: balance),
+        currency: defaultCurrency,
+        connectionId: shared ? String(contactId.dropFirst(sharedLendContactPrefix.count)) : nil,
+        createdBy: shared ? .me : nil,
+        lastEditedBy: shared ? .me : nil
+      ))))
+    }
+    guard !batch.isEmpty else { return false }
+
+    let entitiesToSave = batch
+    write { repository in
+      try repository.saveEntities(entitiesToSave)
+      try repository.setLastPaymentMethod(resolvedMethodId)
+    }
+    entities.lastPaymentMethodId = resolvedMethodId
+    closeOverlay()
+    setView(.home)
+    showToast("\(label) split with \(people.count) \(people.count == 1 ? "person" : "people")")
+    // Entries with someone found on Dimo stay private until they accept.
+    for person in people {
+      guard let user = person.invite else { continue }
+      let contactName = person.contactName
+      Task {
+        do {
+          try await lendingSharing.sendInvite(to: user, contactId: person.contactId, contactName: contactName)
+          showToast("Invite sent to \(contactName)")
+        } catch {
+          showToast("Saved, but the invite failed: \(error.localizedDescription)")
+        }
+      }
+    }
+    return true
+  }
+
   func saveLend() {
     guard let amount = Double(lendDraft.amount), amount > 0 else { return }
     let contact = lendDraft.contactName.trimmingCharacters(in: .whitespacesAndNewlines)

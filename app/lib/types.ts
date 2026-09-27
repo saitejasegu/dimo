@@ -128,6 +128,27 @@ export interface ExpenseSaveInput {
   occurrenceSelection: "all" | "selected";
 }
 
+/**
+ * A one-off expense split with other people. Only the user's share is recorded
+ * as an expense; what's owed either way becomes lending entries.
+ */
+export interface SplitExpenseSaveInput {
+  name: string;
+  /** Whole bill, in `currency`. */
+  amount: number;
+  /** The user's own share, in `currency`. Zero records no expense. */
+  myShare: number;
+  category: CategoryName;
+  paymentMethod: PaymentMethod;
+  currency: EnterableCurrency;
+  date: string;
+  time: string;
+  /** `null` when the user paid; otherwise the contactId of whoever did. */
+  paidBy: string | null;
+  /** Everyone else in the split, with their share in `currency`. */
+  people: Array<{ contactId: string; contactName: string; share: number }>;
+}
+
 /** Client-only input for editing an existing recurring entity. */
 export interface RecurringEditInput {
   name: string;
