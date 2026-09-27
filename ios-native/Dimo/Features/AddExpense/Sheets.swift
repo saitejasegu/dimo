@@ -174,6 +174,9 @@ struct ExpenseEditorSheet: View {
   @State private var sourceEmails: [EmailUIEmailDetail] = []
   @State private var showSourceEmails = false
   @State private var duplicateMatches: [EmailDuplicateTransactionMatch] = []
+  /// Splitting applies to new one-off expenses only.
+  @State private var split = SplitDraft()
+  @State private var splitOpen = false
   @FocusState private var merchantFieldFocused: Bool
 
   var body: some View {
@@ -183,6 +186,15 @@ struct ExpenseEditorSheet: View {
       titleHorizontalOffset: titleHorizontalOffset
     ) {
       VStack(alignment: .leading, spacing: 12) {
+        if splitOpen {
+          SplitStep(
+            store: store,
+            draft: $split,
+            totalMinor: totalMinor,
+            currency: entryCurrency,
+            onDone: { splitOpen = false }
+          )
+        } else {
         if let emailDraft {
           emailSuggestionContext(emailDraft)
         }
@@ -205,6 +217,10 @@ struct ExpenseEditorSheet: View {
             if let conversionCalculation {
               Text(conversionCalculation)
                 .foregroundStyle(conversionAvailable ? Theme.muted : Theme.danger)
+            } else if let myShareLabel {
+              Text(myShareLabel)
+                .fontWeight(.medium)
+                .foregroundStyle(Theme.green)
             } else {
               Color.clear
             }
@@ -279,7 +295,7 @@ struct ExpenseEditorSheet: View {
         datePicker
 
         if !mode.isTransactionEdit {
-          recurringControls
+          optionCards
         }
 
         AmountKeypad { pressAmountKey($0) }
@@ -296,6 +312,7 @@ struct ExpenseEditorSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(!canSave)
+        }
       }
       .padding(.horizontal, 20)
       .padding(.top, 10)
@@ -479,6 +496,105 @@ struct ExpenseEditorSheet: View {
     }
   }
 
+  /// Recurring and Split sit side by side; whichever is in use takes the row.
+  @ViewBuilder
+  private var optionCards: some View {
+    let canSplit = mode == .create && !isRecurring
+    HStack(spacing: 10) {
+      if !split.isActive || !canSplit {
+        recurringControls
+      }
+      if canSplit {
+        splitCard
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var splitCard: some View {
+    if split.isActive {
+      HStack(spacing: 4) {
+        Button { splitOpen = true } label: {
+          HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(split.title)
+                .font(DimoFont.body(15, weight: .medium))
+                .foregroundStyle(Theme.ink)
+              Text(splitBroken ? "Shares don't add up — tap to fix" : split.detail)
+                .font(DimoFont.body(12))
+                .foregroundStyle(splitBroken ? Theme.danger : Theme.muted)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right")
+              .font(.system(size: 12, weight: .semibold))
+              .foregroundStyle(Theme.muted)
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        Button { split = SplitDraft() } label: {
+          Image(systemName: "xmark")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.faint)
+            .frame(width: 32, height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Don't split")
+      }
+      .padding(.leading, 14)
+      .padding(.trailing, 6)
+      .frame(maxWidth: .infinity)
+      .frame(minHeight: 50)
+      .background(Theme.canvas)
+      .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+    } else {
+      Button { splitOpen = true } label: {
+        HStack {
+          Text("Split")
+            .font(DimoFont.body(15, weight: .medium))
+            .foregroundStyle(Theme.ink)
+          Spacer(minLength: 4)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Theme.muted)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Theme.line))
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+    }
+  }
+
+  private var splitting: Bool { mode == .create && !isRecurring && split.isActive }
+
+  private var totalMinor: Int {
+    let value = Double(amount) ?? 0
+    return value > 0 ? ExchangeRates.toMinorUnits(value, entryCurrency) : 0
+  }
+
+  private var splitShares: SplitShares? {
+    splitting ? split.shares(totalMinor: totalMinor, currency: entryCurrency) : nil
+  }
+
+  private var splitBroken: Bool { splitting && totalMinor > 0 && !split.isSavable(splitShares) }
+
+  private var myShareLabel: String? {
+    guard let splitShares else { return nil }
+    let share = Formatting.money(
+      ExchangeRates.toMajorUnits(splitShares.mine, entryCurrency),
+      currencyCode: entryCurrency
+    )
+    return "Your share \(share)"
+  }
+
   private var recurringControls: some View {
     HStack(spacing: 12) {
       Button {
@@ -528,6 +644,7 @@ struct ExpenseEditorSheet: View {
       }
     }
     .padding(.horizontal, 14)
+    .frame(maxWidth: .infinity)
     .frame(height: 50)
     .background(Theme.canvas)
     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -550,7 +667,7 @@ struct ExpenseEditorSheet: View {
 
   private var primaryButtonTitle: String {
     switch mode {
-    case .create: return isRecurring ? "Save recurring expense" : "Save expense"
+    case .create: return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
     case .transaction: return "Save expense"
     case .recurring: return hasChanges ? "Save recurring" : (paused ? "Resume" : "Pause")
     case .emailSuggestion: return isRecurring ? "Save recurring expense" : "Save expense"
@@ -563,6 +680,7 @@ struct ExpenseEditorSheet: View {
     if isRecurring {
       return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    if splitting, !split.isSavable(splitShares) { return false }
     return date <= Date()
   }
 
@@ -582,7 +700,9 @@ struct ExpenseEditorSheet: View {
     guard let value = Double(amount) else { return }
     switch mode {
     case .create:
-      if isRecurring && hasPastStartDate {
+      if splitting {
+        saveSplit()
+      } else if isRecurring && hasPastStartDate {
         historicalTransactionsPrompt = true
       } else {
         saveNew(selection: .selected)
@@ -680,6 +800,27 @@ struct ExpenseEditorSheet: View {
       recurringFrequency: isRecurring ? frequency : nil,
       occurrenceSelection: selection,
       entryCurrency: entryCurrency
+    )
+  }
+
+  private func saveSplit() {
+    guard let shares = splitShares else { return }
+    store.saveSplitExpense(
+      name: name,
+      myShare: ExchangeRates.toMajorUnits(shares.mine, entryCurrency),
+      categoryName: category,
+      paymentMethodId: paymentMethodId,
+      date: date,
+      entryCurrency: entryCurrency,
+      paidBy: split.paidBy,
+      people: split.people.map { person in
+        AppStore.SplitPerson(
+          contactId: person.contactId,
+          contactName: person.contactName,
+          share: ExchangeRates.toMajorUnits(shares.share(for: person.contactId) ?? 0, entryCurrency),
+          invite: person.invite
+        )
+      }
     )
   }
 

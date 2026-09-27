@@ -48,6 +48,7 @@ import {
   type ExpenseSaveInput,
   type Frequency,
   type ID,
+  type Lend,
   type LendKind,
   type LendSaveInput,
   type NotificationSettings,
@@ -56,6 +57,7 @@ import {
   type PaymentMethod,
   type PaymentMethodInput,
   type RecurringEditInput,
+  type SplitExpenseSaveInput,
   type StatsRange,
   type ThemePreference,
   type TransactionEditInput,
@@ -77,13 +79,14 @@ import {
 import {
   suggestedCategoryBudgetUpdates,
 } from "@/features/budgets/selectors";
-import { settlementLimit } from "@/features/lending/selectors";
+import { lendKindFor, netLendBalance, settlementLimit } from "@/features/lending/selectors";
 import {
   cacheRates,
   convertMinor,
   loadCachedRates,
   rateBetween,
   recurringEntryFields,
+  toMajorUnits,
   toMinorUnits,
   type RateTable,
 } from "@/features/currency/rates";
@@ -121,6 +124,8 @@ export interface AppActions {
   setExpenseCategory: (category: CategoryName) => void;
   setExpensePaymentMethod: (paymentMethod: PaymentMethod) => void;
   saveExpense: (input: ExpenseSaveInput) => void;
+  /** Records the user's share and who owes whom. Returns false when nothing was saved. */
+  saveSplitExpense: (input: SplitExpenseSaveInput) => boolean;
   managePaymentMethods: () => void; addPaymentMethod: (input: PaymentMethodInput) => void;
   editPaymentMethod: (id: ID, input: PaymentMethodInput) => void;
   setDefaultPaymentMethod: (id: ID) => void;
@@ -216,6 +221,40 @@ function convertEntry(
     sourceCurrency: currency,
     sourceAmountMinor: sourceMinor,
     exchangeRate: ratio,
+  };
+}
+
+/**
+ * A lend row as this account stores it. Shared ledgers get their sharing
+ * metadata from the server; it is mirrored here so the row reads correctly
+ * before the next pull.
+ */
+function lendEntityFor(
+  input: Omit<LendSaveInput, "id"> & { contactName: string; contactId: string },
+  defaultCurrency: Currency,
+  existing?: Lend,
+): LendEntity {
+  const shared = input.contactId.startsWith(SHARED_LEND_CONTACT_PREFIX);
+  return {
+    id: existing?.id ?? `lend_${crypto.randomUUID()}`,
+    contactName: input.contactName,
+    contactId: input.contactId,
+    amountMinor: Math.round(input.amount * 100),
+    occurredAt: input.occurredAt,
+    comment: input.comment.trim(),
+    kind: input.kind,
+    // Shared ledgers can span accounts with different display currencies.
+    currency: existing?.currency ?? defaultCurrency,
+    ...(shared
+      ? {
+          connectionId: input.contactId.slice(SHARED_LEND_CONTACT_PREFIX.length),
+          createdBy: existing?.createdBy ?? "me",
+          lastEditedBy: "me" as const,
+        }
+      : {
+          ...(existing?.createdBy ? { createdBy: existing.createdBy } : {}),
+          ...(existing?.lastEditedBy ? { lastEditedBy: existing.lastEditedBy } : {}),
+        }),
   };
 }
 
@@ -395,6 +434,71 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" });
         dispatch({ type: "SHOW_TOAST", message: transactionDates.length > 0 ? `${recurring.name} added · ${transactionDates.length} transaction${transactionDates.length === 1 ? "" : "s"}` : `${recurring.name} added` });
       });
+    },
+    saveSplitExpense: (input) => {
+      const state = getState();
+      const category = state.categories.find((c) => c.name === input.category);
+      if (!category || !(input.amount > 0)) return false;
+      const paymentMethodId = paymentMethodIdForLabel(input.paymentMethod, state.paymentMethods);
+      const name = input.name.trim() || input.category;
+      const occurredAt = localDateTimeTimestamp(input.date, input.time);
+      const ratesMissing = () => {
+        dispatch({ type: "SHOW_TOAST", message: "Exchange rates unavailable — try again once online" });
+        return false;
+      };
+      const entities: Parameters<typeof saveEntities>[0] = [];
+
+      if (input.myShare > 0) {
+        const converted = convertEntry(input.myShare, input.currency, state.currency, state.rates);
+        if (!converted) return ratesMissing();
+        entities.push({
+          entityType: "transaction",
+          payload: {
+            id: crypto.randomUUID(), name, ...converted, occurredAt,
+            categoryId: category.id, paymentMethodId,
+          } satisfies TransactionEntity,
+        });
+      }
+
+      // When the user paid, everyone else owes them their share. When someone
+      // else paid, the user owes that person their own share; what the others
+      // owe the payer is between them.
+      const payer = input.paidBy ? input.people.find((p) => p.contactId === input.paidBy) : undefined;
+      if (input.paidBy && !payer) return false;
+      const debts = payer
+        ? [{ ...payer, share: input.myShare, flow: "got" as const }]
+        : input.people.map((person) => ({ ...person, flow: "gave" as const }));
+      for (const debt of debts) {
+        if (!(debt.share > 0)) continue;
+        const shareMinor = convertMinor(
+          toMinorUnits(debt.share, input.currency), input.currency, state.currency, state.rates,
+        );
+        if (shareMinor == null) return ratesMissing();
+        const amount = toMajorUnits(shareMinor, state.currency);
+        if (!(amount > 0)) continue;
+        entities.push({
+          entityType: "lend",
+          payload: lendEntityFor(
+            {
+              contactId: debt.contactId,
+              contactName: debt.contactName.trim(),
+              kind: lendKindFor(debt.flow, amount, netLendBalance(debt.contactId, state.lends)),
+              amount,
+              occurredAt,
+              comment: name,
+            },
+            state.currency,
+          ),
+        });
+      }
+      if (entities.length === 0) return false;
+
+      const others = input.people.length;
+      persist(Promise.all([saveEntities(entities), setLastPaymentMethod(paymentMethodId)]), () => {
+        dispatch({ type: "CLOSE_OVERLAY" }); dispatch({ type: "SET_VIEW", view: "home" });
+        dispatch({ type: "SHOW_TOAST", message: `${name} split with ${others} ${others === 1 ? "person" : "people"}` });
+      });
+      return true;
     },
     managePaymentMethods: () => {
       dispatch({ type: "MANAGE_PAYMENT_METHODS" });
@@ -735,30 +839,11 @@ function createActions(dispatch: Dispatch<Action>, getState: () => AppState): Ap
         dispatch({ type: "SHOW_TOAST", message: "That is more than the outstanding balance" });
         return false;
       }
-      const shared = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX);
-      const entity: LendEntity = {
-        id: existing?.id ?? `lend_${crypto.randomUUID()}`,
-        contactName,
-        contactId,
-        amountMinor: Math.round(input.amount * 100),
-        occurredAt: input.occurredAt,
-        comment: input.comment.trim(),
-        kind,
-        // Shared ledgers can span accounts with different display currencies.
-        currency: existing?.currency ?? state.currency,
-        // The server assigns sharing metadata; mirror it so the row reads
-        // correctly before the next pull.
-        ...(shared
-          ? {
-              connectionId: contactId.slice(SHARED_LEND_CONTACT_PREFIX.length),
-              createdBy: existing?.createdBy ?? "me",
-              lastEditedBy: "me" as const,
-            }
-          : {
-              ...(existing?.createdBy ? { createdBy: existing.createdBy } : {}),
-              ...(existing?.lastEditedBy ? { lastEditedBy: existing.lastEditedBy } : {}),
-            }),
-      };
+      const entity = lendEntityFor(
+        { ...input, contactName, contactId, kind },
+        state.currency,
+        existing,
+      );
       persist(saveEntity("lend", entity), () =>
         dispatch({ type: "SHOW_TOAST", message: existing ? "Entry updated" : "Entry saved" }),
       );

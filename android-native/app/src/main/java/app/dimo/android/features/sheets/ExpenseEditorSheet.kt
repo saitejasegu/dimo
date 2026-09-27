@@ -18,7 +18,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -36,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.dimo.android.data.model.RecurringFrequency
 import app.dimo.android.design.AmountKeypad
@@ -111,11 +114,20 @@ fun ExpenseEditorSheet(
   var confirmDelete by remember { mutableStateOf(false) }
   var showHistoricalPrompt by remember { mutableStateOf(false) }
   var merchantFocused by remember { mutableStateOf(false) }
+  // Splitting applies to new one-off expenses only.
+  var split by remember { mutableStateOf(SplitDraft()) }
+  var splitOpen by remember { mutableStateOf(false) }
 
   val parsedAmount = amount.toDoubleOrNull() ?: 0.0
   val categoryExists = store.categories.any { it.name == categoryName }
   val recurringNeedsName = frequency != null && name.trim().isEmpty()
-  val canSave = parsedAmount > 0 && categoryExists && !recurringNeedsName
+  val canSplit = mode == ExpenseEditorMode.Add && frequency == null
+  val splitting = canSplit && split.isActive
+  val totalMinor = if (parsedAmount > 0) ExchangeRates.toMinorUnits(parsedAmount, entryCurrency) else 0L
+  val splitShares = if (splitting) split.shares(totalMinor, entryCurrency) else null
+  val splitBroken = splitting && totalMinor > 0 && !split.isSavable(splitShares)
+  val canSave = parsedAmount > 0 && categoryExists && !recurringNeedsName &&
+    (!splitting || split.isSavable(splitShares))
   val suggestions = remember(name, store.transactions) {
     TransactionSelectors.merchantSuggestions(store.transactions, name)
   }
@@ -134,6 +146,27 @@ fun ExpenseEditorSheet(
       recurringFrequency = frequency,
       occurrenceSelection = selection,
       entryCurrency = entryCurrency,
+    )
+  }
+
+  fun saveSplit() {
+    val shares = splitShares ?: return
+    store.saveSplitExpense(
+      name = name,
+      myShare = ExchangeRates.toMajorUnits(shares.mine, entryCurrency),
+      categoryName = categoryName,
+      paymentMethodId = paymentMethodId,
+      date = Instant.ofEpochMilli(dateMillis),
+      entryCurrency = entryCurrency,
+      paidBy = split.paidBy,
+      people = split.people.map { person ->
+        AppStore.SplitPerson(
+          contactId = person.contactId,
+          contactName = person.contactName,
+          share = ExchangeRates.toMajorUnits(shares.shareFor(person.contactId) ?: 0L, entryCurrency),
+          invite = person.invite,
+        )
+      },
     )
   }
 
@@ -159,6 +192,17 @@ fun ExpenseEditorSheet(
         .padding(top = 10.dp, bottom = 12.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+      if (splitOpen) {
+        SplitStep(
+          store = store,
+          draft = split,
+          onChange = { split = it },
+          totalMinor = totalMinor,
+          currency = entryCurrency,
+          onDone = { splitOpen = false },
+        )
+        return@Column
+      }
       AmountDisplay(
         amount = amount,
         currencyCode = entryCurrency,
@@ -169,6 +213,9 @@ fun ExpenseEditorSheet(
           to = defaultCurrency,
           store = store,
         ),
+        shareCaption = splitShares?.let {
+          "Your share ${Formatting.money(ExchangeRates.toMajorUnits(it.mine, entryCurrency), entryCurrency)}"
+        },
       )
 
       Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -265,10 +312,28 @@ fun ExpenseEditorSheet(
       )
 
       if (mode == ExpenseEditorMode.Add) {
-        RecurringControl(
-          frequency = frequency,
-          onFrequencyChange = { frequency = it },
-        )
+        // Recurring and Split sit side by side; whichever is in use takes the row.
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          if (!split.isActive || !canSplit) {
+            RecurringControl(
+              frequency = frequency,
+              onFrequencyChange = { frequency = it },
+              modifier = Modifier.weight(1f),
+            )
+          }
+          if (canSplit) {
+            SplitCard(
+              split = split,
+              broken = splitBroken,
+              onOpen = { splitOpen = true },
+              onClear = { split = SplitDraft() },
+              modifier = Modifier.weight(1f),
+            )
+          }
+        }
       }
 
       AmountKeypad(
@@ -281,15 +346,17 @@ fun ExpenseEditorSheet(
       )
 
       PrimaryButton(
-        title = if (mode == ExpenseEditorMode.Add && frequency != null) {
-          "Save recurring expense"
-        } else {
-          "Save expense"
+        title = when {
+          mode == ExpenseEditorMode.Add && frequency != null -> "Save recurring expense"
+          splitting -> "Save split"
+          else -> "Save expense"
         },
         enabled = canSave,
         onClick = {
           if (mode == ExpenseEditorMode.Add) {
-            if (frequency != null && hasPastStartDate) {
+            if (splitting) {
+              saveSplit()
+            } else if (frequency != null && hasPastStartDate) {
               showHistoricalPrompt = true
             } else {
               saveNew(RecurringOccurrenceSelection.SELECTED)
@@ -393,6 +460,8 @@ private fun AmountDisplay(
   onCurrencyChange: (String) -> Unit,
   convertedCaption: String?,
   modifier: Modifier = Modifier,
+  /** The user's share of a split expense, shown when there's no conversion. */
+  shareCaption: String? = null,
 ) {
   var currencyExpanded by remember { mutableStateOf(false) }
   Column(
@@ -464,9 +533,17 @@ private fun AmountDisplay(
       )
     }
     Text(
-      text = convertedCaption.orEmpty(),
-      style = DimoFont.body(12f),
-      color = if (convertedCaption == "Rates unavailable") DimoColors.danger else DimoColors.muted,
+      text = convertedCaption ?: shareCaption.orEmpty(),
+      style = if (convertedCaption == null && shareCaption != null) {
+        DimoFont.body(12f, FontWeight.Medium)
+      } else {
+        DimoFont.body(12f)
+      },
+      color = when {
+        convertedCaption == "Rates unavailable" -> DimoColors.danger
+        convertedCaption == null && shareCaption != null -> DimoColors.green
+        else -> DimoColors.muted
+      },
       textAlign = TextAlign.Center,
       modifier = Modifier.height(16.dp),
     )
@@ -477,11 +554,12 @@ private fun AmountDisplay(
 private fun RecurringControl(
   frequency: RecurringFrequency?,
   onFrequencyChange: (RecurringFrequency?) -> Unit,
+  modifier: Modifier = Modifier,
 ) {
   var frequencyExpanded by remember { mutableStateOf(false) }
   val isRecurring = frequency != null
   Row(
-    modifier = Modifier
+    modifier = modifier
       .fillMaxWidth()
       .height(50.dp)
       .clip(RoundedCornerShape(12.dp))
@@ -569,6 +647,76 @@ private fun RecurringControl(
             )
           }
         }
+      }
+    }
+  }
+}
+
+@Composable
+private fun SplitCard(
+  split: SplitDraft,
+  broken: Boolean,
+  onOpen: () -> Unit,
+  onClear: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  Row(
+    modifier = modifier
+      .fillMaxWidth()
+      .heightIn(min = 50.dp)
+      .clip(RoundedCornerShape(12.dp))
+      .background(DimoColors.canvas)
+      .border(1.dp, DimoColors.line, RoundedCornerShape(12.dp))
+      .clickable(onClick = onOpen)
+      .padding(start = 14.dp, end = if (split.isActive) 6.dp else 14.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    if (split.isActive) {
+      Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+        Text(
+          text = split.title,
+          style = DimoFont.body(15f, FontWeight.Medium),
+          color = DimoColors.ink,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          text = if (broken) "Shares don't add up — tap to fix" else split.detail,
+          style = DimoFont.body(12f),
+          color = if (broken) DimoColors.danger else DimoColors.muted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    } else {
+      Text(
+        text = "Split",
+        style = DimoFont.body(15f, FontWeight.Medium),
+        color = DimoColors.ink,
+        modifier = Modifier.weight(1f),
+      )
+    }
+    Icon(
+      imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+      contentDescription = null,
+      tint = DimoColors.muted,
+      modifier = Modifier.size(18.dp),
+    )
+    if (split.isActive) {
+      Box(
+        modifier = Modifier
+          .size(32.dp)
+          .clip(RoundedCornerShape(50))
+          .clickable(onClick = onClear),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          imageVector = Icons.Filled.Close,
+          contentDescription = "Don't split",
+          tint = DimoColors.faint,
+          modifier = Modifier.size(14.dp),
+        )
       }
     }
   }

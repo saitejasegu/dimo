@@ -4764,3 +4764,44 @@ final class StatsPeriodNavigationTests: XCTestCase {
     XCTAssertNotEqual(base, shifted)
   }
 }
+
+final class SplitSelectorsTests: XCTestCase {
+  private func people(_ values: Double...) -> [SplitShareInput] {
+    values.enumerated().map { SplitShareInput(contactId: "c\($0.offset)", value: $0.element) }
+  }
+
+  private func total(_ shares: SplitShares) -> Int {
+    shares.mine + shares.others.reduce(0) { $0 + $1.share }
+  }
+
+  func testEqualSplitGivesLeftoverToUserFirst() {
+    XCTAssertEqual(
+      SplitSelectors.shares(totalMinor: 90_000, mode: .equal, people: people(0)),
+      SplitShares(mine: 45_000, others: [.init(contactId: "c0", share: 45_000)])
+    )
+    let uneven = SplitSelectors.shares(totalMinor: 101, mode: .equal, people: people(0, 0))
+    XCTAssertEqual(uneven?.mine, 34)
+    XCTAssertEqual(uneven?.others.map(\.share), [34, 33])
+    XCTAssertEqual(uneven.map(total), 101)
+  }
+
+  func testExactAmountsLeaveRemainderToUser() {
+    XCTAssertEqual(SplitSelectors.shares(totalMinor: 1_000, mode: .exact, people: people(300, 200))?.mine, 500)
+    XCTAssertEqual(SplitSelectors.shares(totalMinor: 1_000, mode: .exact, people: people(1_000))?.mine, 0)
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .exact, people: people(600, 401)))
+  }
+
+  func testPercentagesRoundDownSoSharesAddUp() {
+    let shares = SplitSelectors.shares(totalMinor: 1_001, mode: .percent, people: people(33.33, 33.33))
+    XCTAssertEqual(shares?.others.map(\.share), [333, 333])
+    XCTAssertEqual(shares.map(total), 1_001)
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .percent, people: people(60, 50)))
+  }
+
+  func testRejectsEmptySplitZeroTotalOrBadValues() {
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .equal, people: []))
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 0, mode: .equal, people: people(0)))
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .exact, people: people(-1)))
+    XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .percent, people: people(.nan)))
+  }
+}

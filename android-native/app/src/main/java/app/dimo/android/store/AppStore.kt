@@ -24,6 +24,7 @@ import app.dimo.android.data.model.LendEntity
 import app.dimo.android.data.model.LendActor
 import app.dimo.android.data.model.LendKind
 import app.dimo.android.data.model.SHARED_LEND_CONTACT_PREFIX
+import app.dimo.android.sync.LendUser
 import app.dimo.android.sync.LendingSharingTransport
 import app.dimo.android.data.model.NotificationSettings
 import app.dimo.android.data.model.PaymentMethodEntity
@@ -658,6 +659,122 @@ class AppStore(
         },
       )
     }
+  }
+
+  /** Someone sharing a split expense, with their share in the entry currency. */
+  data class SplitPerson(
+    val contactId: String,
+    val contactName: String,
+    val share: Double,
+    /** Picked from Dimo search without a shared ledger yet; saving invites them. */
+    val invite: LendUser? = null,
+  )
+
+  /**
+   * Records a one-off expense split with other people: only the user's share
+   * becomes a transaction, and what's owed either way becomes lending entries,
+   * all in one atomic batch. [paidBy] is null when the user paid. Returns false
+   * when nothing was saved. Port of `AppStore.saveSplitExpense` on iOS.
+   */
+  fun saveSplitExpense(
+    name: String,
+    myShare: Double,
+    categoryName: String,
+    paymentMethodId: String?,
+    date: Instant,
+    entryCurrency: String,
+    paidBy: String?,
+    people: List<SplitPerson>,
+  ): Boolean {
+    val category = categories.firstOrNull { it.name == categoryName } ?: return false
+    val label = name.trim().ifEmpty { category.name }
+    val resolvedMethodId = resolvedPaymentMethodId(paymentMethodId)
+    val occurredAt = minOf(date.toEpochMilli(), System.currentTimeMillis())
+    val defaultCurrency = currency.wire
+    val batch = mutableListOf<EntityPayload>()
+
+    if (myShare > 0) {
+      val converted = transactionCurrencyFields(myShare, entryCurrency)
+      if (converted == null) {
+        showToast("Exchange rates unavailable — try again once online")
+        return false
+      }
+      batch += EntityPayload.Transaction(
+        TransactionEntity(
+          id = makeId("tx_"),
+          name = label,
+          amountMinor = converted.amountMinor,
+          occurredAt = occurredAt,
+          categoryId = category.id,
+          paymentMethodId = resolvedMethodId,
+          currency = converted.currency,
+          sourceCurrency = converted.sourceCurrency,
+          sourceAmountMinor = converted.sourceAmountMinor,
+          exchangeRate = converted.exchangeRate,
+        ),
+      )
+    }
+
+    // When the user paid, everyone else owes them their share. When someone
+    // else paid, the user owes that person their own share; what the others
+    // owe the payer is between them.
+    val debts: List<Triple<SplitPerson, Double, LendFlow>> = if (paidBy != null) {
+      val payer = people.firstOrNull { it.contactId == paidBy } ?: return false
+      listOf(Triple(payer, myShare, LendFlow.GOT))
+    } else {
+      people.map { Triple(it, it.share, LendFlow.GAVE) }
+    }
+    for ((person, share, flow) in debts) {
+      if (share <= 0) continue
+      val shareMinor = ExchangeRates.convertMinor(
+        ExchangeRates.toMinorUnits(share, entryCurrency),
+        from = entryCurrency,
+        to = defaultCurrency,
+        rates = rates,
+      )
+      if (shareMinor == null) {
+        showToast("Exchange rates unavailable — try again once online")
+        return false
+      }
+      val amount = ExchangeRates.toMajorUnits(shareMinor, defaultCurrency)
+      if (amount <= 0) continue
+      val contactId = person.contactId
+      val shared = contactId.startsWith(SHARED_LEND_CONTACT_PREFIX)
+      val balance = LendSelectors.netBalance(contactId, lends)
+      batch += EntityPayload.Lend(
+        LendEntity(
+          id = makeId("lend_"),
+          contactName = person.contactName.trim(),
+          contactId = contactId,
+          amountMinor = (amount * 100).roundToLong(),
+          occurredAt = occurredAt,
+          comment = label,
+          kind = LendSelectors.kindFor(flow, amount, balance),
+          currency = defaultCurrency,
+          connectionId = if (shared) contactId.removePrefix(SHARED_LEND_CONTACT_PREFIX) else null,
+          createdBy = if (shared) LendActor.ME else null,
+          lastEditedBy = if (shared) LendActor.ME else null,
+        ),
+      )
+    }
+    if (batch.isEmpty()) return false
+
+    viewModelScope.launch {
+      repository?.saveEntities(batch)
+      repository?.setLastPaymentMethod(resolvedMethodId)
+      cachedLastPaymentMethodId = resolvedMethodId
+      closeOverlay()
+      setView(ViewKey.HOME)
+      showToast("$label split with ${people.size} ${if (people.size == 1) "person" else "people"}")
+      // Entries with someone found on Dimo stay private until they accept.
+      for (person in people) {
+        val user = person.invite ?: continue
+        runCatching { lendingSharing.sendInvite(user, person.contactId, person.contactName) }
+          .onSuccess { showToast("Invite sent to ${person.contactName}") }
+          .onFailure { showToast("Saved, but the invite failed: ${it.message}") }
+      }
+    }
+    return true
   }
 
   fun saveLend() {

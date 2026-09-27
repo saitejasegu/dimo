@@ -27,14 +27,24 @@ import {
   type Transaction,
 } from "@/lib/types";
 import { useAppActions, useAppState } from "@/store/app-store";
+import { sharingErrorText, useLendingSharing } from "@/store/lending-sharing";
 import { pickerCategoryNames, suggestionCategory } from "@/features/transactions/selectors";
 import { AmountKeypad } from "@/components/forms/AmountKeypad";
 import { CategoryChips } from "@/components/forms/CategoryChips";
 import { ExpenseDateTimeFields } from "@/components/forms/ExpenseDateTimeFields";
 import { MerchantField } from "@/components/forms/MerchantField";
 import { PaymentMethodSelect } from "@/components/forms/PaymentMethodSelect";
+import {
+  EMPTY_SPLIT,
+  SplitSection,
+  draftShares,
+  splitIsSavable,
+  splitSummary,
+  type SplitDraft,
+} from "@/components/forms/SplitSection";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { ChevronIcon } from "@/components/ui/icons";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export type ExpenseEditorMode = "create" | "transaction" | "recurring";
@@ -262,6 +272,7 @@ export function ExpenseEditorForm({
     weekStart,
   } = useAppState("expenseDraft", "currency", "rates", "paymentMethods", "categories", "transactions", "weekStart");
   const actions = useAppActions();
+  const sharing = useLendingSharing();
   const now = new Date();
   const today = localDateKey(now);
   const defaultMethod =
@@ -320,6 +331,9 @@ export function ExpenseEditorForm({
     recurring?.frequency === "yearly" ? "Yearly" : "Monthly",
   );
   const [backfillOpen, setBackfillOpen] = useState(false);
+  // Splitting applies to new one-off expenses only.
+  const [split, setSplit] = useState<SplitDraft>(EMPTY_SPLIT);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   const selectedArchived = paymentMethods.find(
     (method) => method.archived && paymentMethodLabel(method) === paymentMethod,
@@ -342,8 +356,12 @@ export function ExpenseEditorForm({
       : "Rates unavailable"
     : null;
   const normalDateValid = isRecurring || date <= today;
+  const splitting = mode === "create" && !isRecurring && split.people.length > 0;
+  const totalMinor = amountValue > 0 ? toMinorUnits(amountValue, entryCurrency) : 0;
+  const shares = splitting ? draftShares(split, totalMinor, entryCurrency) : null;
   const valid =
     amountValue > 0 &&
+    (!splitting || splitIsSavable(split, shares)) &&
     normalDateValid &&
     Boolean(category) &&
     (!isRecurring || (name.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date)));
@@ -414,6 +432,38 @@ export function ExpenseEditorForm({
       }
       return;
     }
+    if (splitting && shares) {
+      const saved = actions.saveSplitExpense({
+        name,
+        amount: amountValue,
+        myShare: toMajorUnits(shares.mine, entryCurrency),
+        currency: entryCurrency,
+        category,
+        paymentMethod,
+        date,
+        time,
+        paidBy: split.paidBy,
+        people: split.people.map((person) => ({
+          contactId: person.contactId,
+          contactName: person.contactName,
+          share: toMajorUnits(
+            shares.others.find((other) => other.contactId === person.contactId)?.share ?? 0,
+            entryCurrency,
+          ),
+        })),
+      });
+      if (!saved) return;
+      // Entries with someone found on Dimo stay private until they accept.
+      for (const person of split.people) {
+        if (!person.invite) continue;
+        const inviteeName = person.contactName;
+        sharing
+          .sendInvite({ userId: person.invite.userId, contactId: person.contactId, contactName: inviteeName })
+          .then(() => actions.showToast(`Invite sent to ${inviteeName}`))
+          .catch((cause) => actions.showToast(`Saved, but the invite failed: ${sharingErrorText(cause)}`));
+      }
+      return;
+    }
     if (isRecurring && date < today) {
       setBackfillOpen(true);
       return;
@@ -435,7 +485,27 @@ export function ExpenseEditorForm({
         : "Pause"
     : mode === "create" && isRecurring
       ? "Save recurring expense"
-      : "Save expense";
+      : splitting
+        ? "Save split"
+        : "Save expense";
+
+  if (splitOpen) {
+    return (
+      <SplitSection
+        draft={split}
+        onChange={setSplit}
+        totalMinor={totalMinor}
+        currency={entryCurrency}
+        onDone={() => setSplitOpen(false)}
+      />
+    );
+  }
+
+  const splitText = splitting ? splitSummary(split) : null;
+  const splitBroken = splitting && amountValue > 0 && !splitIsSavable(split, shares);
+  const myShareLabel = splitting && shares
+    ? `Your share ${money(toMajorUnits(shares.mine, entryCurrency), entryCurrency)}`
+    : null;
 
   return (
     <div>
@@ -484,6 +554,8 @@ export function ExpenseEditorForm({
           >
             {conversionLabel}
           </span>
+        ) : myShareLabel ? (
+          <span className="text-xs font-medium text-green">{myShareLabel}</span>
         ) : null}
       </div>
 
@@ -539,18 +611,63 @@ export function ExpenseEditorForm({
       />
 
       {mode !== "transaction" ? (
-        <div className="mb-5 flex min-h-[50px] items-center justify-between gap-3 rounded-[14px] border border-line bg-canvas px-4 py-2.5">
-          <Checkbox
-            checked={isRecurring}
-            onChange={setIsRecurring}
-            label="Recurring"
-            disabled={mode === "recurring"}
-          />
-          {isRecurring ? (
-            <FrequencySelect
-              value={frequency}
-              onChange={setFrequency}
-            />
+        <div className="mb-5 grid grid-cols-2 gap-3">
+          {splitText ? null : (
+            <div
+              className={cn(
+                "flex min-h-[50px] items-center justify-between gap-3 rounded-[14px] border border-line bg-canvas px-4 py-2.5",
+                (isRecurring || mode !== "create") && "col-span-2",
+              )}
+            >
+              <Checkbox
+                checked={isRecurring}
+                onChange={setIsRecurring}
+                label="Recurring"
+                disabled={mode === "recurring"}
+              />
+              {isRecurring ? (
+                <FrequencySelect
+                  value={frequency}
+                  onChange={setFrequency}
+                />
+              ) : null}
+            </div>
+          )}
+          {mode === "create" && !isRecurring ? (
+            splitText ? (
+              <div className="col-span-2 flex min-h-[50px] items-center gap-2 rounded-[14px] border border-line bg-canvas py-2.5 pl-4 pr-2">
+                <button
+                  type="button"
+                  onClick={() => setSplitOpen(true)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-ink">{splitText.title}</span>
+                    <span className={cn("block truncate text-xs", splitBroken ? "text-danger" : "text-muted")}>
+                      {splitBroken ? "Shares don't add up — tap to fix" : splitText.detail}
+                    </span>
+                  </span>
+                  <ChevronIcon className="shrink-0 text-muted" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Don't split"
+                  onClick={() => setSplit(EMPTY_SPLIT)}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs text-faint hover:bg-surface hover:text-ink"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSplitOpen(true)}
+                className="flex min-h-[50px] items-center justify-between gap-3 rounded-[14px] border border-line bg-canvas px-4 py-2.5 text-left transition-colors hover:bg-canvas-deep"
+              >
+                <span className="text-sm font-medium text-ink">Split</span>
+                <ChevronIcon className="text-muted" />
+              </button>
+            )
           ) : null}
         </div>
       ) : null}

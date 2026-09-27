@@ -1474,3 +1474,45 @@ class ExpenseReminderTests {
     assertEquals(59, settings.minute)
   }
 }
+
+class SplitSelectorsTests {
+  private fun people(vararg values: Double) =
+    values.mapIndexed { index, value -> SplitShareInput("c$index", value) }
+
+  private fun total(shares: SplitShares) = shares.mine + shares.others.sumOf { it.share }
+
+  @Test
+  fun equalSplitGivesLeftoverToUserFirst() {
+    assertEquals(
+      SplitShares(45_000, listOf(SplitShares.Share("c0", 45_000))),
+      SplitSelectors.shares(90_000, SplitMode.EQUAL, people(0.0)),
+    )
+    val uneven = SplitSelectors.shares(101, SplitMode.EQUAL, people(0.0, 0.0))!!
+    assertEquals(34L, uneven.mine)
+    assertEquals(listOf(34L, 33L), uneven.others.map { it.share })
+    assertEquals(101L, total(uneven))
+  }
+
+  @Test
+  fun exactAmountsLeaveRemainderToUser() {
+    assertEquals(500L, SplitSelectors.shares(1_000, SplitMode.EXACT, people(300.0, 200.0))?.mine)
+    assertEquals(0L, SplitSelectors.shares(1_000, SplitMode.EXACT, people(1_000.0))?.mine)
+    assertNull(SplitSelectors.shares(1_000, SplitMode.EXACT, people(600.0, 401.0)))
+  }
+
+  @Test
+  fun percentagesRoundDownSoSharesAddUp() {
+    val shares = SplitSelectors.shares(1_001, SplitMode.PERCENT, people(33.33, 33.33))!!
+    assertEquals(listOf(333L, 333L), shares.others.map { it.share })
+    assertEquals(1_001L, total(shares))
+    assertNull(SplitSelectors.shares(1_000, SplitMode.PERCENT, people(60.0, 50.0)))
+  }
+
+  @Test
+  fun rejectsEmptySplitZeroTotalOrBadValues() {
+    assertNull(SplitSelectors.shares(1_000, SplitMode.EQUAL, emptyList()))
+    assertNull(SplitSelectors.shares(0, SplitMode.EQUAL, people(0.0)))
+    assertNull(SplitSelectors.shares(1_000, SplitMode.EXACT, people(-1.0)))
+    assertNull(SplitSelectors.shares(1_000, SplitMode.PERCENT, people(Double.NaN)))
+  }
+}
