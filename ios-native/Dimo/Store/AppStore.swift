@@ -691,7 +691,6 @@ final class AppStore {
     let label = trimmedName.isEmpty ? category.name : trimmedName
     let resolvedMethodId = resolvedPaymentMethodId(paymentMethodId)
     let occurredAt = min(Int(date.timeIntervalSince1970 * 1000), Int(Date().timeIntervalSince1970 * 1000))
-    let defaultCurrency = currency.rawValue
     var batch: [(EntityType, EntityPayload)] = []
 
     if myShare > 0 {
@@ -713,45 +712,15 @@ final class AppStore {
       ))))
     }
 
-    // When the user paid, everyone else owes them their share. When someone
-    // else paid, the user owes that person their own share; what the others
-    // owe the payer is between them.
-    let debts: [(person: SplitPerson, share: Double, flow: LendFlow)]
-    if let paidBy {
-      guard let payer = people.first(where: { $0.contactId == paidBy }) else { return false }
-      debts = [(payer, myShare, .got)]
-    } else {
-      debts = people.map { ($0, $0.share, .gave) }
-    }
-    for debt in debts where debt.share > 0 {
-      guard let shareMinor = ExchangeRates.convertMinor(
-        ExchangeRates.toMinorUnits(debt.share, entryCurrency),
-        from: entryCurrency,
-        to: defaultCurrency,
-        rates: rates
-      ) else {
-        showToast("Exchange rates unavailable — try again once online")
-        return false
-      }
-      let amount = ExchangeRates.toMajorUnits(shareMinor, defaultCurrency)
-      guard amount > 0 else { continue }
-      let contactId = debt.person.contactId
-      let shared = contactId.hasPrefix(sharedLendContactPrefix)
-      let balance = LendSelectors.netBalance(for: contactId, in: lends, excludingLendId: nil)
-      batch.append((.lend, .lend(LendEntity(
-        id: makeId(prefix: "lend_"),
-        contactName: debt.person.contactName.trimmingCharacters(in: .whitespacesAndNewlines),
-        contactId: contactId,
-        amountMinor: Int((amount * 100).rounded()),
-        occurredAt: occurredAt,
-        comment: label,
-        kind: LendSelectors.kind(for: debt.flow, amount: amount, balance: balance),
-        currency: defaultCurrency,
-        connectionId: shared ? String(contactId.dropFirst(sharedLendContactPrefix.count)) : nil,
-        createdBy: shared ? .me : nil,
-        lastEditedBy: shared ? .me : nil
-      ))))
-    }
+    guard let splitEntries = splitLends(
+      label: label,
+      myShare: myShare,
+      occurredAt: occurredAt,
+      entryCurrency: entryCurrency,
+      paidBy: paidBy,
+      people: people
+    ) else { return false }
+    batch += splitEntries.map { (.lend, .lend($0)) }
     guard !batch.isEmpty else { return false }
 
     let entitiesToSave = batch
@@ -763,7 +732,99 @@ final class AppStore {
     closeOverlay()
     setView(.home)
     showToast("\(label) split with \(people.count) \(people.count == 1 ? "person" : "people")")
-    // Entries with someone found on Dimo stay private until they accept.
+    sendSplitInvites(people)
+    return true
+  }
+
+  /// Accepts an email purchase as a split: the transaction is only the user's
+  /// share, and the lends commit in the same write that marks the email added.
+  func acceptEmailSplit(
+    _ draft: EmailUIPurchaseReviewDraft,
+    myShare: Double,
+    paidBy: String?,
+    people: [SplitPerson]
+  ) {
+    guard myShare > 0,
+          let category = categories.first(where: { $0.id == draft.categoryID }) else { return }
+    let trimmedName = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+    let label = trimmedName.isEmpty ? category.name : trimmedName
+    let occurredAt = min(
+      Int(draft.occurredAt.timeIntervalSince1970 * 1000),
+      Int(Date().timeIntervalSince1970 * 1000)
+    )
+    guard let splitEntries = splitLends(
+      label: label,
+      myShare: myShare,
+      occurredAt: occurredAt,
+      entryCurrency: currency.rawValue,
+      paidBy: paidBy,
+      people: people
+    ) else { return }
+    var accepted = draft
+    accepted.amount = String(format: "%.2f", myShare)
+    accepted.isRecurring = false
+    accepted.splitLends = splitEntries
+    emailFeatureStore.acceptPurchase(accepted) { [weak self] in
+      self?.showToast("\(label) split with \(people.count) \(people.count == 1 ? "person" : "people")")
+      self?.sendSplitInvites(people)
+    }
+  }
+
+  /// When the user paid, everyone else owes them their share. When someone
+  /// else paid, the user owes that person their own share; what the others
+  /// owe the payer is between them. Returns nil (after a toast) when exchange
+  /// rates are missing.
+  private func splitLends(
+    label: String,
+    myShare: Double,
+    occurredAt: Int,
+    entryCurrency: String,
+    paidBy: String?,
+    people: [SplitPerson]
+  ) -> [LendEntity]? {
+    let defaultCurrency = currency.rawValue
+    let debts: [(person: SplitPerson, share: Double, flow: LendFlow)]
+    if let paidBy {
+      guard let payer = people.first(where: { $0.contactId == paidBy }) else { return nil }
+      debts = [(payer, myShare, .got)]
+    } else {
+      debts = people.map { ($0, $0.share, .gave) }
+    }
+    var entries: [LendEntity] = []
+    for debt in debts where debt.share > 0 {
+      guard let shareMinor = ExchangeRates.convertMinor(
+        ExchangeRates.toMinorUnits(debt.share, entryCurrency),
+        from: entryCurrency,
+        to: defaultCurrency,
+        rates: rates
+      ) else {
+        showToast("Exchange rates unavailable — try again once online")
+        return nil
+      }
+      let amount = ExchangeRates.toMajorUnits(shareMinor, defaultCurrency)
+      guard amount > 0 else { continue }
+      let contactId = debt.person.contactId
+      let shared = contactId.hasPrefix(sharedLendContactPrefix)
+      let balance = LendSelectors.netBalance(for: contactId, in: lends, excludingLendId: nil)
+      entries.append(LendEntity(
+        id: makeId(prefix: "lend_"),
+        contactName: debt.person.contactName.trimmingCharacters(in: .whitespacesAndNewlines),
+        contactId: contactId,
+        amountMinor: Int((amount * 100).rounded()),
+        occurredAt: occurredAt,
+        comment: label,
+        kind: LendSelectors.kind(for: debt.flow, amount: amount, balance: balance),
+        currency: defaultCurrency,
+        connectionId: shared ? String(contactId.dropFirst(sharedLendContactPrefix.count)) : nil,
+        createdBy: shared ? .me : nil,
+        lastEditedBy: shared ? .me : nil
+      ))
+    }
+    return entries
+  }
+
+  /// Entries with someone found on Dimo stay private until they accept.
+  private func sendSplitInvites(_ people: [SplitPerson]) {
     for person in people {
       guard let user = person.invite else { continue }
       let contactName = person.contactName
@@ -776,7 +837,6 @@ final class AppStore {
         }
       }
     }
-    return true
   }
 
   func saveLend() {

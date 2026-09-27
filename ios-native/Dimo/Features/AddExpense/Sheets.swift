@@ -174,7 +174,7 @@ struct ExpenseEditorSheet: View {
   @State private var sourceEmails: [EmailUIEmailDetail] = []
   @State private var showSourceEmails = false
   @State private var duplicateMatches: [EmailDuplicateTransactionMatch] = []
-  /// Splitting applies to new one-off expenses only.
+  /// Splitting applies to new one-off expenses and email purchases only.
   @State private var split = SplitDraft()
   @State private var splitOpen = false
   @FocusState private var merchantFieldFocused: Bool
@@ -192,6 +192,7 @@ struct ExpenseEditorSheet: View {
             draft: $split,
             totalMinor: totalMinor,
             currency: entryCurrency,
+            requiresOwnShare: mode.isEmailSuggestion,
             onDone: { splitOpen = false }
           )
         } else {
@@ -499,7 +500,7 @@ struct ExpenseEditorSheet: View {
   /// Recurring and Split sit side by side; whichever is in use takes the row.
   @ViewBuilder
   private var optionCards: some View {
-    let canSplit = mode == .create && !isRecurring
+    let canSplit = mode.canSplit && !isRecurring
     HStack(spacing: 10) {
       if !split.isActive || !canSplit {
         recurringControls
@@ -573,7 +574,11 @@ struct ExpenseEditorSheet: View {
     }
   }
 
-  private var splitting: Bool { mode == .create && !isRecurring && split.isActive }
+  private var splitting: Bool { mode.canSplit && !isRecurring && split.isActive }
+
+  private var splitSavable: Bool {
+    split.isSavable(splitShares, requiresOwnShare: mode.isEmailSuggestion)
+  }
 
   private var totalMinor: Int {
     let value = Double(amount) ?? 0
@@ -584,7 +589,7 @@ struct ExpenseEditorSheet: View {
     splitting ? split.shares(totalMinor: totalMinor, currency: entryCurrency) : nil
   }
 
-  private var splitBroken: Bool { splitting && totalMinor > 0 && !split.isSavable(splitShares) }
+  private var splitBroken: Bool { splitting && totalMinor > 0 && !splitSavable }
 
   private var myShareLabel: String? {
     guard let splitShares else { return nil }
@@ -670,7 +675,7 @@ struct ExpenseEditorSheet: View {
     case .create: return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
     case .transaction: return "Save expense"
     case .recurring: return hasChanges ? "Save recurring" : (paused ? "Resume" : "Pause")
-    case .emailSuggestion: return isRecurring ? "Save recurring expense" : "Save expense"
+    case .emailSuggestion: return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
     }
   }
 
@@ -680,7 +685,7 @@ struct ExpenseEditorSheet: View {
     if isRecurring {
       return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    if splitting, !split.isSavable(splitShares) { return false }
+    if splitting, !splitSavable { return false }
     return date <= Date()
   }
 
@@ -742,6 +747,10 @@ struct ExpenseEditorSheet: View {
       draft.recurringFrequency = frequency
       store.emailFeatureStore.purchaseReview = draft
 
+      if splitting {
+        acceptEmailSplit(draft)
+        return
+      }
       let matches = existingTransactionMatches(amount: value)
       if matches.isEmpty {
         acceptEmailDraft()
@@ -813,15 +822,31 @@ struct ExpenseEditorSheet: View {
       date: date,
       entryCurrency: entryCurrency,
       paidBy: split.paidBy,
-      people: split.people.map { person in
-        AppStore.SplitPerson(
-          contactId: person.contactId,
-          contactName: person.contactName,
-          share: ExchangeRates.toMajorUnits(shares.share(for: person.contactId) ?? 0, entryCurrency),
-          invite: person.invite
-        )
-      }
+      people: splitPeople(shares)
     )
+  }
+
+  /// Linking a split email to an existing expense would drop the split, so
+  /// splits skip the duplicate check.
+  private func acceptEmailSplit(_ draft: EmailUIPurchaseReviewDraft) {
+    guard let shares = splitShares else { return }
+    store.acceptEmailSplit(
+      draft,
+      myShare: ExchangeRates.toMajorUnits(shares.mine, entryCurrency),
+      paidBy: split.paidBy,
+      people: splitPeople(shares)
+    )
+  }
+
+  private func splitPeople(_ shares: SplitShares) -> [AppStore.SplitPerson] {
+    split.people.map { person in
+      AppStore.SplitPerson(
+        contactId: person.contactId,
+        contactName: person.contactName,
+        share: ExchangeRates.toMajorUnits(shares.share(for: person.contactId) ?? 0, entryCurrency),
+        invite: person.invite
+      )
+    }
   }
 
   private func close() {
@@ -1011,6 +1036,18 @@ private extension ExpenseEditorMode {
   var isRecurringEdit: Bool {
     if case .recurring = self { return true }
     return false
+  }
+
+  var isEmailSuggestion: Bool {
+    if case .emailSuggestion = self { return true }
+    return false
+  }
+
+  var canSplit: Bool {
+    switch self {
+    case .create, .emailSuggestion: return true
+    case .transaction, .recurring: return false
+    }
   }
 
   var canToggleRecurring: Bool {

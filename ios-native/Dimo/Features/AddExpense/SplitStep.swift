@@ -35,9 +35,11 @@ struct SplitDraft: Equatable {
   }
 
   /// Someone else paying needs the user to have a share; the user paying needs
-  /// someone else to owe part of it.
-  func isSavable(_ shares: SplitShares?) -> Bool {
+  /// someone else to owe part of it. An email purchase always needs the user's
+  /// share, since that's the expense the email is linked to.
+  func isSavable(_ shares: SplitShares?, requiresOwnShare: Bool = false) -> Bool {
     guard let shares, isActive else { return false }
+    if requiresOwnShare, shares.mine == 0 { return false }
     return paidBy == nil ? shares.others.contains { $0.share > 0 } : shares.mine > 0
   }
 
@@ -63,6 +65,8 @@ struct SplitStep: View {
   @Binding var draft: SplitDraft
   var totalMinor: Int
   var currency: String
+  /// Set for an email purchase, which is saved as the user's share.
+  var requiresOwnShare = false
   var onDone: () -> Void
 
   @State private var query = ""
@@ -76,7 +80,7 @@ struct SplitStep: View {
     totalMinor > 0 ? draft.shares(totalMinor: totalMinor, currency: currency) : nil
   }
   private var payer: SplitPersonDraft? { draft.people.first { $0.contactId == draft.paidBy } }
-  private var savable: Bool { draft.isSavable(shares) }
+  private var savable: Bool { draft.isSavable(shares, requiresOwnShare: requiresOwnShare) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -232,6 +236,9 @@ struct SplitStep: View {
       return draft.mode == .percent
         ? "Shares add up to more than 100%."
         : "Shares add up to more than \(format(totalMinor))."
+    }
+    if requiresOwnShare, shares.mine == 0 {
+      return "Keep a share for yourself to add this email as an expense."
     }
     return payer != nil && shares.mine == 0
       ? "Your share is zero — nothing to record."

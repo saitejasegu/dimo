@@ -1371,7 +1371,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     guard let amount = Decimal(string: draft.amount, locale: Locale(identifier: "en_US_POSIX")),
           let amountMinor = Self.minorUnits(amount), amountMinor > 0,
           let categoryId = draft.categoryID,
-          let category = categories.first(where: { $0.id == categoryId }) else {
+          let category = categories.first(where: { $0.id == categoryId }),
+          draft.splitLends.isEmpty || !draft.isRecurring else {
       throw EmailFeatureControllerError.invalidSuggestion
     }
     let merchant = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1406,7 +1407,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     try repository.acceptEmailSuggestions(
       messageKeys: sourceIds,
       transaction: transaction,
-      recurring: recurring
+      recurring: recurring,
+      lends: draft.splitLends
     )
   }
 

@@ -282,6 +282,9 @@ struct EmailUIPurchaseReviewDraft: Identifiable, Equatable, Sendable {
   var currency: Currency?
   var currencyWarning: String?
   var possibleDuplicateDescriptions: [String]
+  /// Other people's shares when the purchase is split; `amount` is then only
+  /// the user's share.
+  var splitLends: [LendEntity] = []
 
   var id: String { suggestionID }
 }
@@ -633,8 +636,14 @@ final class EmailFeatureStore {
     run { try await self.actions.keepLateSuggestionSeparate(suggestion.id) }
   }
 
-  func acceptPurchase(_ draft: EmailUIPurchaseReviewDraft) {
-    run(onSuccess: { self.purchaseReview = nil }) {
+  func acceptPurchase(
+    _ draft: EmailUIPurchaseReviewDraft,
+    onSuccess: @escaping @MainActor () -> Void = {}
+  ) {
+    run(onSuccess: {
+      self.purchaseReview = nil
+      onSuccess()
+    }) {
       try await self.actions.acceptPurchase(draft)
     }
   }
