@@ -74,3 +74,42 @@ enum SplitSelectors {
     return mine < 0 ? nil : SplitShares(mine: mine, others: others)
   }
 }
+
+/// Splitting one purchase across several categories, e.g. a grocery order that
+/// also covers household items. The extra categories get the typed amounts and
+/// the main category keeps whatever is left, so the parts always add up to the
+/// purchase exactly. All amounts are integer minor units.
+enum CategorySplitSelectors {
+  /// What's left for the main category, or `nil` when a part isn't positive or
+  /// the parts leave nothing for the main category.
+  static func remainder(totalMinor: Int, partsMinor: [Int]) -> Int? {
+    guard totalMinor > 0, !partsMinor.isEmpty, partsMinor.allSatisfy({ $0 > 0 }) else { return nil }
+    let rest = totalMinor - partsMinor.reduce(0, +)
+    return rest > 0 ? rest : nil
+  }
+
+  /// Keeps a typed part amount to what the expense keypad allows: digits, one
+  /// decimal point, at most two decimals and seven whole digits. That keeps the
+  /// value exact in minor units and far from `Int` overflow. A comma only
+  /// counts as the decimal point where the keyboard's locale uses one.
+  static func sanitizedAmount(
+    _ text: String,
+    decimalSeparator: String = Locale.current.decimalSeparator ?? "."
+  ) -> String {
+    var whole = ""
+    var fraction: String?
+    for character in text {
+      if character == "." || String(character) == decimalSeparator {
+        if fraction == nil { fraction = "" }
+      } else if character.isASCII, character.isNumber {
+        if fraction == nil {
+          if whole.count < 7 { whole.append(character) }
+        } else if fraction!.count < 2 {
+          fraction!.append(character)
+        }
+      }
+    }
+    guard let fraction else { return whole }
+    return (whole.isEmpty ? "0" : whole) + "." + fraction
+  }
+}

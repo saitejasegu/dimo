@@ -3024,6 +3024,85 @@ final class EmailLinkedTransactionRetentionTests: XCTestCase {
     XCTAssertEqual(restored.normalizedBodyText, "Paid ₹10.00 at Merchant")
   }
 
+  func testCategorySplitAcceptsEveryCategoryAtomicallyAndLinksTheMainOne() throws {
+    let userId = "email-category-split-\(UUID().uuidString)"
+    let queue = try AppDatabase.activate(userId: userId)
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repository = Repository(db: queue)
+    try repository.initializeLocalDatabase()
+    try repository.saveEmailAccount(EmailAccountRecordModel(
+      id: "gmail-subject",
+      emailAddress: "person@example.com"
+    ))
+    for (id, name) in [("category-groceries", "Groceries"), ("category-fruit", "Fruit")] {
+      try repository.saveEntity(entityType: .category, payload: .category(CategoryEntity(
+        id: id,
+        name: name,
+        emoji: "🛒",
+        monthlyBudgetMinor: nil,
+        tint: .neutral,
+        sortOrder: 1,
+        system: false
+      )))
+    }
+    let message = PendingEmailMessage(
+      accountId: "gmail-subject",
+      gmailMessageId: "order",
+      threadId: "thread",
+      senderAddress: "orders@example.com",
+      subject: "Order delivered",
+      snippet: "Order total",
+      internalDate: 1_000,
+      normalizedBodyText: "Paid ₹30.00"
+    )
+    _ = try repository.insertPendingEmailMessages([message])
+    try repository.saveEmailAnalysis(messageKey: message.key, analysis: PersistedEmailAnalysis(
+      analyzerType: .gemma,
+      modelVersion: "test-gemma",
+      promptVersion: 1,
+      classification: .purchase,
+      merchant: "Shop",
+      amount: "30.00",
+      currency: .INR,
+      occurredAt: nil,
+      categoryId: "category-groceries",
+      paymentMethodId: nil,
+      paymentLastFour: nil,
+      reference: nil
+    ))
+
+    let main = TransactionEntity(
+      id: "tx_main", name: "Shop", amountMinor: 2_000, occurredAt: 1_000,
+      categoryId: "category-groceries", paymentMethodId: nil
+    )
+    let missingCategory = TransactionEntity(
+      id: "tx_bad", name: "Shop", amountMinor: 1_000, occurredAt: 1_000,
+      categoryId: "category-missing", paymentMethodId: nil
+    )
+    XCTAssertThrowsError(try repository.acceptEmailSuggestions(
+      messageKeys: [message.key],
+      transaction: main,
+      categoryTransactions: [missingCategory]
+    ))
+    // A rejected part rolls back the whole write.
+    XCTAssertTrue(try repository.activeEntities(type: .transaction).isEmpty)
+    XCTAssertEqual(try repository.emailMessage(key: message.key)?.state, .pendingPurchase)
+
+    let fruit = TransactionEntity(
+      id: "tx_fruit", name: "Shop", amountMinor: 1_000, occurredAt: 1_000,
+      categoryId: "category-fruit", paymentMethodId: nil
+    )
+    try repository.acceptEmailSuggestions(
+      messageKeys: [message.key],
+      transaction: main,
+      categoryTransactions: [fruit]
+    )
+    let saved = try repository.activeEntities(type: .transaction).map(\.entityId)
+    XCTAssertEqual(Set(saved), ["tx_main", "tx_fruit"])
+    XCTAssertEqual(try repository.emailMessage(linkedTransactionId: main.id)?.key, message.key)
+    XCTAssertNil(try repository.emailMessage(linkedTransactionId: fruit.id))
+  }
+
   func testDisconnectRemovesLocalEmailDataAndReconnectMaterializesSyncedReview() throws {
     let userId = "email-disconnect-\(UUID().uuidString)"
     let queue = try AppDatabase.activate(userId: userId)
@@ -4796,6 +4875,47 @@ final class SplitSelectorsTests: XCTestCase {
     XCTAssertEqual(shares?.others.map(\.share), [333, 333])
     XCTAssertEqual(shares.map(total), 1_001)
     XCTAssertNil(SplitSelectors.shares(totalMinor: 1_000, mode: .percent, people: people(60, 50)))
+  }
+
+  func testCategorySplitLeavesRemainderToMainCategory() {
+    XCTAssertEqual(CategorySplitSelectors.remainder(totalMinor: 1_240, partsMinor: [300, 140]), 800)
+    XCTAssertNil(CategorySplitSelectors.remainder(totalMinor: 1_000, partsMinor: [600, 400]))
+    XCTAssertNil(CategorySplitSelectors.remainder(totalMinor: 1_000, partsMinor: [1_200]))
+    XCTAssertNil(CategorySplitSelectors.remainder(totalMinor: 1_000, partsMinor: [0]))
+    XCTAssertNil(CategorySplitSelectors.remainder(totalMinor: 1_000, partsMinor: []))
+    XCTAssertNil(CategorySplitSelectors.remainder(totalMinor: 0, partsMinor: [100]))
+  }
+
+  func testCategorySplitKeepsThePickedMainCategoryAmongSameNames() {
+    func category(_ id: String, _ name: String, archived: Bool = false) -> CategoryEntity {
+      CategoryEntity(
+        id: id, name: name, emoji: "🛒", monthlyBudgetMinor: nil, tint: .neutral,
+        sortOrder: 1, system: false, archived: archived
+      )
+    }
+    let categories = [category("food-1", "Food"), category("food-2", "Food"), category("old", "Old", archived: true)]
+    var draft = CategorySplitDraft(parts: [CategorySplitPartDraft(categoryId: "food-1", value: "10")])
+    XCTAssertEqual(draft.resolvedMainId(name: "Food", in: categories), "food-1")
+    XCTAssertFalse(draft.hasValidCategories(mainId: "food-1", in: categories))
+
+    draft.mainCategoryId = "food-2"
+    XCTAssertEqual(draft.resolvedMainId(name: "Food", in: categories), "food-2")
+    XCTAssertTrue(draft.hasValidCategories(mainId: "food-2", in: categories))
+    // Renaming the sheet's category away from the picked one falls back to the name.
+    XCTAssertNil(draft.resolvedMainId(name: "Groceries", in: categories))
+
+    draft.parts = [CategorySplitPartDraft(categoryId: "old", value: "10")]
+    XCTAssertFalse(draft.hasValidCategories(mainId: "food-2", in: categories))
+  }
+
+  func testCategorySplitAmountKeepsKeypadLimits() {
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("1.005"), "1.00")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("123456789"), "1234567")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("₹1,2.3.4", decimalSeparator: "."), "12.34")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("12,5", decimalSeparator: ","), "12.5")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount(".5"), "0.5")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("1e9"), "19")
+    XCTAssertEqual(CategorySplitSelectors.sanitizedAmount("٣"), "")
   }
 
   func testRejectsEmptySplitZeroTotalOrBadValues() {

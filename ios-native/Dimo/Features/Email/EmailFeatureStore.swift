@@ -285,8 +285,17 @@ struct EmailUIPurchaseReviewDraft: Identifiable, Equatable, Sendable {
   /// Other people's shares when the purchase is split; `amount` is then only
   /// the user's share.
   var splitLends: [LendEntity] = []
+  /// Extra categories when the purchase is split by category. `amount` stays
+  /// the whole purchase and `categoryID` gets whatever these parts leave.
+  var categoryParts: [EmailUICategoryPart] = []
 
   var id: String { suggestionID }
+}
+
+struct EmailUICategoryPart: Equatable, Sendable {
+  var categoryID: String
+  /// Decimal string in the purchase currency, like `amount`.
+  var amount: String
 }
 
 struct EmailUIRefundReview: Identifiable, Equatable, Sendable {

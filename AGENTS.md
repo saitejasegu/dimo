@@ -258,6 +258,15 @@ from derived UI models.
 - Never put WorkOS API keys or client secrets in iOS config. Convex URL and
   public WorkOS client ID are expected to be public.
 - Native domain tests live in `ios-native/DimoTests/DomainTests.swift`.
+- An email purchase can be split by category (iOS `CategorySplitStep`,
+  `CategorySplitSelectors`). The parts are saved as one transaction per
+  category in the same write that marks the email added. The main category gets
+  the remainder, and only its transaction is the email's `linkedTransactionId`.
+  This split can't be combined with a split between people or with recurring.
+  Nothing links the parts, so a full email refund of the whole order matches
+  none of them (refund matching needs an exact amount), and the user removes
+  the parts by hand. Matching a refund against the parts together would need a
+  persisted split-group id across every client.
 
 ## Native Android
 

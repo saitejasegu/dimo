@@ -1551,13 +1551,16 @@ extension Repository {
     )
   }
 
-  /// `lends` are the other people's shares when the purchase was split; they
-  /// commit in the same write as the transaction.
+  /// `lends` are the other people's shares when the purchase was split, and
+  /// `categoryTransactions` the other categories when it was split by
+  /// category; both commit in the same write as the transaction. The emails
+  /// link to `transaction` only.
   func acceptEmailSuggestions(
     messageKeys: [String],
     transaction: TransactionEntity,
     recurring: RecurringEntity? = nil,
-    lends: [LendEntity] = []
+    lends: [LendEntity] = [],
+    categoryTransactions: [TransactionEntity] = []
   ) throws {
     guard transaction.amountMinor > 0 else { throw EmailRepositoryError.invalidAnalysis }
     try db.write { db in
@@ -1605,6 +1608,21 @@ extension Repository {
         throw EmailRepositoryError.duplicateTransaction
       }
       try putInTransaction(db, entityType: .transaction, payload: .transaction(transaction))
+
+      for part in categoryTransactions {
+        guard part.amountMinor > 0,
+              part.paymentMethodId == transaction.paymentMethodId,
+              try EntityRecord.fetchOne(db, key: entityKey(type: .transaction, id: part.id)) == nil else {
+          throw EmailRepositoryError.invalidAnalysis
+        }
+        try validateEmailSuggestionIdentifiers(
+          db,
+          categoryId: part.categoryId,
+          paymentMethodId: part.paymentMethodId,
+          requireCategory: true
+        )
+        try putInTransaction(db, entityType: .transaction, payload: .transaction(part))
+      }
 
       for lend in lends {
         guard lend.amountMinor > 0,

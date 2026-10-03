@@ -177,6 +177,9 @@ struct ExpenseEditorSheet: View {
   /// Splitting applies to new one-off expenses and email purchases only.
   @State private var split = SplitDraft()
   @State private var splitOpen = false
+  /// Splitting by category applies to email purchases only.
+  @State private var categorySplit = CategorySplitDraft()
+  @State private var categorySplitOpen = false
   @FocusState private var merchantFieldFocused: Bool
 
   var body: some View {
@@ -194,6 +197,15 @@ struct ExpenseEditorSheet: View {
             currency: entryCurrency,
             requiresOwnShare: mode.isEmailSuggestion,
             onDone: { splitOpen = false }
+          )
+        } else if categorySplitOpen {
+          CategorySplitStep(
+            categories: store.categories,
+            mainCategory: $category,
+            draft: $categorySplit,
+            totalMinor: totalMinor,
+            currency: entryCurrency,
+            onDone: { categorySplitOpen = false }
           )
         } else {
         if let emailDraft {
@@ -259,16 +271,35 @@ struct ExpenseEditorSheet: View {
 
         HStack(alignment: .top, spacing: 10) {
           VStack(alignment: .leading, spacing: 6) {
-            Text("Category")
-              .font(DimoFont.body(12))
-              .foregroundStyle(Theme.muted)
-            CategoryDropdown(
-              categories: TransactionSelectors.pickerCategories(store.categories, selectedName: category),
-              selected: category,
-              onSelect: { category = $0 },
-              onAdd: openCategoryCreator,
-              flyoutWidth: fieldRowWidth > 0 ? fieldRowWidth : nil
-            )
+            HStack(spacing: 6) {
+              Text("Category")
+                .font(DimoFont.body(12))
+                .foregroundStyle(Theme.muted)
+              Spacer(minLength: 4)
+              if canSplitCategories && !categorySplit.isActive {
+                Button("Multiple") {
+                  // Starts from the suggestion's category, which a name can't
+                  // single out when two categories share it.
+                  categorySplit.mainCategoryId = emailDraft?.categoryID
+                  categorySplitOpen = true
+                }
+                  .font(DimoFont.body(12, weight: .semibold))
+                  .foregroundStyle(Theme.green)
+                  .buttonStyle(.plain)
+                  .accessibilityLabel("Split across categories")
+              }
+            }
+            if categorySplitting {
+              categorySplitCard
+            } else {
+              CategoryDropdown(
+                categories: TransactionSelectors.pickerCategories(store.categories, selectedName: category),
+                selected: category,
+                onSelect: { category = $0 },
+                onAdd: openCategoryCreator,
+                flyoutWidth: fieldRowWidth > 0 ? fieldRowWidth : nil
+              )
+            }
           }
           .frame(maxWidth: .infinity, alignment: .topLeading)
 
@@ -295,7 +326,7 @@ struct ExpenseEditorSheet: View {
 
         datePicker
 
-        if !mode.isTransactionEdit {
+        if !mode.isTransactionEdit && !categorySplitting {
           optionCards
         }
 
@@ -576,6 +607,66 @@ struct ExpenseEditorSheet: View {
 
   private var splitting: Bool { mode.canSplit && !isRecurring && split.isActive }
 
+  /// A purchase is split one way at a time: by people or by category.
+  private var canSplitCategories: Bool { mode.isEmailSuggestion && !isRecurring && !split.isActive }
+
+  private var categorySplitting: Bool { canSplitCategories && categorySplit.isActive }
+
+  private var categorySplitSavable: Bool {
+    categorySplit.remainder(totalMinor: totalMinor, currency: entryCurrency) != nil
+      && categorySplit.hasValidCategories(mainId: categorySplitMainId, in: store.categories)
+  }
+
+  private var categorySplitMainId: String? {
+    categorySplit.resolvedMainId(name: category, in: store.categories)
+  }
+
+  /// Stands in for the category field while the purchase is split by category.
+  private var categorySplitCard: some View {
+    let broken = totalMinor > 0 && !categorySplitSavable
+    let main = store.categories.first { $0.id == categorySplitMainId }
+    return HStack(spacing: 4) {
+      Button { categorySplitOpen = true } label: {
+        HStack(spacing: 6) {
+          VStack(alignment: .leading, spacing: 1) {
+            Text(main.map { "\($0.emoji) \($0.name)" } ?? "Categories")
+              .font(DimoFont.body(14, weight: .semibold))
+              .foregroundStyle(Theme.ink)
+            Text(broken ? "Doesn't add up" : "+ \(categorySplit.parts.count) more")
+              .font(DimoFont.body(11))
+              .foregroundStyle(broken ? Theme.danger : Theme.muted)
+          }
+          .lineLimit(1)
+          Spacer(minLength: 2)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.muted)
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Split across \(categorySplit.parts.count + 1) categories")
+      Button { categorySplit = CategorySplitDraft() } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(Theme.faint)
+          .frame(width: 28, height: 32)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Use one category")
+    }
+    .padding(.leading, 14)
+    .padding(.trailing, 4)
+    .frame(height: 50)
+    .background(Theme.canvas)
+    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .stroke(broken ? Theme.danger : Theme.line)
+    )
+  }
+
   private var splitSavable: Bool {
     split.isSavable(splitShares, requiresOwnShare: mode.isEmailSuggestion)
   }
@@ -675,7 +766,9 @@ struct ExpenseEditorSheet: View {
     case .create: return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
     case .transaction: return "Save expense"
     case .recurring: return hasChanges ? "Save recurring" : (paused ? "Resume" : "Pause")
-    case .emailSuggestion: return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
+    case .emailSuggestion:
+      if categorySplitting { return "Save \(categorySplit.parts.count + 1) expenses" }
+      return isRecurring ? "Save recurring expense" : (splitting ? "Save split" : "Save expense")
     }
   }
 
@@ -686,6 +779,7 @@ struct ExpenseEditorSheet: View {
       return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     if splitting, !splitSavable { return false }
+    if categorySplitting, !categorySplitSavable { return false }
     return date <= Date()
   }
 
@@ -741,12 +835,19 @@ struct ExpenseEditorSheet: View {
       draft.merchant = name
       draft.amount = amount
       draft.occurredAt = date
-      draft.categoryID = store.categories.first(where: { $0.name == category })?.id
+      draft.categoryID = categorySplitting
+        ? categorySplitMainId
+        : store.categories.first(where: { $0.name == category })?.id
       draft.paymentMethodID = paymentMethodId
       draft.isRecurring = isRecurring
       draft.recurringFrequency = frequency
+      draft.categoryParts = categorySplitting ? categoryParts : []
       store.emailFeatureStore.purchaseReview = draft
 
+      if categorySplitting {
+        acceptEmailCategorySplit(draft)
+        return
+      }
       if splitting {
         acceptEmailSplit(draft)
         return
@@ -836,6 +937,20 @@ struct ExpenseEditorSheet: View {
       paidBy: split.paidBy,
       people: splitPeople(shares)
     )
+  }
+
+  private var categoryParts: [EmailUICategoryPart] {
+    categorySplit.parts.map { EmailUICategoryPart(categoryID: $0.categoryId, amount: $0.value) }
+  }
+
+  /// Linking to an existing expense would drop the other categories, so
+  /// category splits skip the duplicate check too.
+  private func acceptEmailCategorySplit(_ draft: EmailUIPurchaseReviewDraft) {
+    let label = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
+    let count = draft.categoryParts.count + 1
+    store.emailFeatureStore.acceptPurchase(draft) { [store] in
+      store.showToast("\(label.isEmpty ? "Purchase" : label) added across \(count) categories")
+    }
   }
 
   private func splitPeople(_ shares: SplitShares) -> [AppStore.SplitPerson] {

@@ -1372,7 +1372,25 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
           let amountMinor = Self.minorUnits(amount), amountMinor > 0,
           let categoryId = draft.categoryID,
           let category = categories.first(where: { $0.id == categoryId }),
-          draft.splitLends.isEmpty || !draft.isRecurring else {
+          draft.splitLends.isEmpty || !draft.isRecurring,
+          draft.categoryParts.isEmpty || (draft.splitLends.isEmpty && !draft.isRecurring) else {
+      throw EmailFeatureControllerError.invalidSuggestion
+    }
+    let parts: [(categoryId: String, amountMinor: Int)] = try draft.categoryParts.map { part in
+      guard let partAmount = Decimal(string: part.amount, locale: Locale(identifier: "en_US_POSIX")),
+            let partMinor = Self.minorUnits(partAmount), partMinor > 0,
+            part.categoryID != categoryId,
+            categories.contains(where: { $0.id == part.categoryID && !$0.archived }) else {
+        throw EmailFeatureControllerError.invalidSuggestion
+      }
+      return (part.categoryID, partMinor)
+    }
+    // The main category keeps whatever the other categories leave.
+    guard Set(parts.map(\.categoryId)).count == parts.count,
+          let mainAmountMinor = parts.isEmpty
+            ? Optional(amountMinor)
+            : CategorySplitSelectors.remainder(totalMinor: amountMinor, partsMinor: parts.map(\.amountMinor))
+    else {
       throw EmailFeatureControllerError.invalidSuggestion
     }
     let merchant = draft.merchant.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1380,18 +1398,32 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       draft.paymentMethodID,
       paymentMethods: paymentMethods
     )
+    let occurredAt = min(
+      Int(draft.occurredAt.timeIntervalSince1970 * 1_000),
+      Int(Date().timeIntervalSince1970 * 1_000)
+    )
     let transaction = TransactionEntity(
       id: "tx_\(UUID().uuidString.lowercased())",
       name: merchant.isEmpty ? category.name : merchant,
-      amountMinor: amountMinor,
-      occurredAt: min(
-        Int(draft.occurredAt.timeIntervalSince1970 * 1_000),
-        Int(Date().timeIntervalSince1970 * 1_000)
-      ),
+      amountMinor: mainAmountMinor,
+      occurredAt: occurredAt,
       categoryId: categoryId,
       paymentMethodId: paymentMethodId,
       currency: currency.rawValue
     )
+    let categoryTransactions = parts.map { part in
+      TransactionEntity(
+        id: "tx_\(UUID().uuidString.lowercased())",
+        name: merchant.isEmpty
+          ? categories.first(where: { $0.id == part.categoryId })?.name ?? category.name
+          : merchant,
+        amountMinor: part.amountMinor,
+        occurredAt: occurredAt,
+        categoryId: part.categoryId,
+        paymentMethodId: paymentMethodId,
+        currency: currency.rawValue
+      )
+    }
     let recurring = draft.isRecurring ? RecurringEntity(
       id: "rec_\(UUID().uuidString.lowercased())",
       name: transaction.name,
@@ -1408,7 +1440,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       messageKeys: sourceIds,
       transaction: transaction,
       recurring: recurring,
-      lends: draft.splitLends
+      lends: draft.splitLends,
+      categoryTransactions: categoryTransactions
     )
   }
 
