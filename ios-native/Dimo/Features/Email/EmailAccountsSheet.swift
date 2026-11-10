@@ -44,7 +44,7 @@ struct EmailSettingsSection: View {
       Button("Reanalyse all emails") { store.reanalyzeAllEmails() }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Dimo will rerun OpenRouter for every unreviewed email whose content is still retained. Reviewed suggestions and existing Dimo transactions are unchanged.")
+      Text("Dimo will rerun \(serviceName) for every unreviewed email whose content is still retained. Reviewed suggestions and existing Dimo transactions are unchanged.")
     }
     .alert(
       "Allow non-ZDR analysis?",
@@ -241,7 +241,7 @@ struct EmailSettingsSection: View {
 
       if store.selectedProvider == nil {
         Label(
-          "Email analysis is not configured. Connect OpenRouter with a valid key and choose a model. Fetched emails wait on this iPhone until analyzed; analyzed suggestions then sync through Dimo for restore.",
+          "Email analysis is not configured. Use OpenRouter free models, your own OpenRouter key, or any OpenAI-compatible API, and choose a model. Fetched emails wait on this iPhone until analyzed; analyzed suggestions then sync through Dimo for restore.",
           systemImage: "exclamationmark.triangle.fill"
         )
         .font(DimoFont.body(12))
@@ -255,7 +255,7 @@ struct EmailSettingsSection: View {
         Text("Reanalyse email suggestions")
           .font(DimoFont.body(13, weight: .semibold))
           .foregroundStyle(Theme.ink)
-        Text("Resets every eligible unreviewed email, updates the UI, then reruns OpenRouter analysis.")
+        Text("Resets every eligible unreviewed email, updates the UI, then reruns \(serviceName) analysis.")
           .font(DimoFont.body(11))
           .foregroundStyle(Theme.muted)
           .fixedSize(horizontal: false, vertical: true)
@@ -281,7 +281,7 @@ struct EmailSettingsSection: View {
           .background(store.selectedProvider == .openRouter ? Theme.greenSoft : Theme.canvasDeep)
           .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         VStack(alignment: .leading, spacing: 4) {
-          Text("OpenRouter")
+          Text(isOpenAICompatible ? "OpenAI-compatible API" : "OpenRouter")
             .font(DimoFont.body(14, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Text(openRouterSubtitle)
@@ -299,8 +299,9 @@ struct EmailSettingsSection: View {
           set: { store.selectOpenRouterAccessMode($0) }
         )
       ) {
-        Text("Free models").tag(OpenRouterAccessMode.freeShared)
-        Text("Bring your own key").tag(OpenRouterAccessMode.bringYourOwnKey)
+        Text("Free").tag(OpenRouterAccessMode.freeShared)
+        Text("Own key").tag(OpenRouterAccessMode.bringYourOwnKey)
+        Text("Custom API").tag(OpenRouterAccessMode.openAICompatible)
       }
       .pickerStyle(.segmented)
 
@@ -309,6 +310,8 @@ struct EmailSettingsSection: View {
         freeOpenRouterBody
       case .bringYourOwnKey:
         byokOpenRouterBody
+      case .openAICompatible:
+        openAICompatibleBody
       }
     }
     .emailSettingsCard()
@@ -320,7 +323,74 @@ struct EmailSettingsSection: View {
       return "Free models via Dimo · no personal key · suggestions sync through Dimo"
     case .bringYourOwnKey:
       return "Bring your own key · Analysis via OpenRouter · suggestions sync through Dimo"
+    case .openAICompatible:
+      return "Any OpenAI-compatible API · your URL and key · suggestions sync through Dimo"
     }
+  }
+
+  private var isOpenAICompatible: Bool {
+    store.openRouterAccessMode == .openAICompatible
+  }
+
+  private var serviceName: String {
+    isOpenAICompatible ? "the OpenAI-compatible endpoint" : "OpenRouter"
+  }
+
+  @ViewBuilder
+  private var openAICompatibleBody: some View {
+    switch store.openRouterConnectionState {
+    case .validating:
+      HStack { ProgressView().controlSize(.small); Text("Connecting to the endpoint…") }
+        .font(DimoFont.body(11))
+        .foregroundStyle(Theme.muted)
+    case .connected:
+      openRouterConnectedControls(showRemoveKey: false)
+    case .disconnected, .failed:
+      if case .failed(let message) = store.openRouterConnectionState {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+          .font(DimoFont.body(10, weight: .medium))
+          .foregroundStyle(Theme.danger)
+          .fixedSize(horizontal: false, vertical: true)
+        if store.openAICompatibleBaseURL != nil {
+          HStack(spacing: 10) {
+            compactAction("Retry", tint: Theme.green) { store.retryOpenRouterConnection() }
+            compactAction("Disconnect", tint: Theme.danger) { store.removeOpenAICompatibleEndpoint() }
+          }
+        }
+      }
+      settingsTextField("https://api.openai.com/v1", text: $store.openAICompatibleBaseURLInput)
+        .keyboardType(.URL)
+        .textContentType(.URL)
+      SecureField("API key (optional for local servers)", text: $store.openAICompatibleAPIKeyInput)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+        .font(DimoFont.body(12))
+        .padding(12)
+        .background(Theme.canvasDeep)
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+      settingsTextField("Model ID, e.g. gpt-4.1-mini (optional if listed)", text: $store.openAICompatibleModelInput)
+      Text("Works with OpenAI, Groq, Together, Mistral, DeepSeek and self-hosted servers such as Ollama, LM Studio or vLLM. The base URL usually ends in /v1. Plain http works only for servers on your local network. The URL and key stay in this iPhone's Keychain; analysis goes from this iPhone straight to the endpoint.")
+        .font(DimoFont.body(10))
+        .foregroundStyle(Theme.muted)
+        .fixedSize(horizontal: false, vertical: true)
+      ActionButton(
+        title: "Connect endpoint",
+        variant: .accent,
+        enabled: !store.openAICompatibleBaseURLInput.trimmingCharacters(in: .whitespaces).isEmpty
+      ) {
+        store.saveOpenAICompatibleEndpoint()
+      }
+    }
+  }
+
+  private func settingsTextField(_ prompt: String, text: Binding<String>) -> some View {
+    TextField(prompt, text: text)
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
+      .font(DimoFont.body(12))
+      .padding(12)
+      .background(Theme.canvasDeep)
+      .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
   }
 
   @ViewBuilder
@@ -408,7 +478,7 @@ struct EmailSettingsSection: View {
         .font(DimoFont.body(10, weight: .medium))
         .foregroundStyle(Theme.danger)
         .fixedSize(horizontal: false, vertical: true)
-      ActionButton(title: "Retry OpenRouter analysis", variant: .accent) {
+      ActionButton(title: isOpenAICompatible ? "Retry analysis" : "Retry OpenRouter analysis", variant: .accent) {
         store.retryOpenRouterAnalysis()
       }
     }
@@ -418,7 +488,8 @@ struct EmailSettingsSection: View {
     } label: {
       HStack {
         VStack(alignment: .leading, spacing: 3) {
-          Text(store.selectedOpenRouterModel?.name ?? "Choose an OpenRouter model")
+          Text(store.selectedOpenRouterModel?.name
+            ?? (isOpenAICompatible ? "Choose a model" : "Choose an OpenRouter model"))
             .font(DimoFont.body(12, weight: .semibold))
             .foregroundStyle(Theme.ink)
           Text(store.selectedOpenRouterModelID ?? defaultModelIDForMode)
@@ -437,8 +508,8 @@ struct EmailSettingsSection: View {
 
     if store.selectedProvider != .openRouter,
        let selectedModel = store.selectedOpenRouterModel {
-      ActionButton(title: "Use OpenRouter", variant: .accent) {
-        if selectedModel.hasZDREndpoint {
+      ActionButton(title: isOpenAICompatible ? "Use this endpoint" : "Use OpenRouter", variant: .accent) {
+        if isOpenAICompatible || selectedModel.hasZDREndpoint {
           store.selectOpenRouterModel(selectedModel.id, allowNonZDR: false)
         } else {
           confirmSelectedModelNonZDR = true
@@ -446,7 +517,15 @@ struct EmailSettingsSection: View {
       }
     }
 
-    if store.openRouterPrivacyMode == .allowNonZDR {
+    if isOpenAICompatible {
+      Label(
+        "Email text goes to \(store.openAICompatibleBaseURL ?? "this endpoint"). Its retention depends on that server or provider. Analyzed suggestions still sync through Dimo with their email text.",
+        systemImage: "server.rack"
+      )
+      .font(DimoFont.body(10, weight: .medium))
+      .foregroundStyle(Theme.muted)
+      .fixedSize(horizontal: false, vertical: true)
+    } else if store.openRouterPrivacyMode == .allowNonZDR {
       Label(
         "Non-ZDR enabled for analysis. Analyzed suggestions still sync through Dimo with their email text.",
         systemImage: "exclamationmark.shield.fill"
@@ -464,7 +543,7 @@ struct EmailSettingsSection: View {
       .fixedSize(horizontal: false, vertical: true)
     }
 
-    if let selectedModel = store.selectedOpenRouterModel {
+    if !isOpenAICompatible, let selectedModel = store.selectedOpenRouterModel {
       Toggle(
         "Zero-data-retention routes only",
         isOn: Binding(
@@ -492,6 +571,9 @@ struct EmailSettingsSection: View {
       compactAction("Refresh models", tint: Theme.green) { store.refreshOpenRouterModels() }
       if showRemoveKey {
         compactAction("Remove key", tint: Theme.danger) { store.removeOpenRouterKey() }
+      }
+      if isOpenAICompatible {
+        compactAction("Disconnect", tint: Theme.danger) { store.removeOpenAICompatibleEndpoint() }
       }
     }
   }
@@ -543,6 +625,7 @@ struct EmailSettingsSection: View {
     switch store.openRouterAccessMode {
     case .freeShared: return OpenRouterClient.defaultFreeModelID
     case .bringYourOwnKey: return OpenRouterClient.defaultBYOKModelID
+    case .openAICompatible: return "Pick a listed model or type its ID"
     }
   }
 
@@ -554,9 +637,11 @@ struct EmailSettingsSection: View {
         return "Selected email content is sent from this iPhone through Dimo’s servers to OpenRouter for free-model analysis. Analyzed suggestions, including the full email text, then sync through Dimo. No personal OpenRouter key is stored on this iPhone."
       case .bringYourOwnKey:
         return "Selected email content is sent from this iPhone to OpenRouter and the chosen model provider for analysis. Analyzed suggestions, including the full email text, then sync through Dimo. OpenRouter keys stay in this iPhone's Keychain."
+      case .openAICompatible:
+        return "Selected email content is sent from this iPhone directly to your OpenAI-compatible endpoint for analysis, and is retained under that server's or provider's policy. Analyzed suggestions, including the full email text, then sync through Dimo. The endpoint URL and key stay in this iPhone's Keychain."
       }
     case nil:
-      return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you configure OpenRouter; analyzed suggestions later sync through Dimo for restore."
+      return "Gmail is contacted directly from this iPhone. Credentials stay on-device. Email content stays local until you configure an analyzer; analyzed suggestions later sync through Dimo for restore."
     }
   }
 

@@ -198,6 +198,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
   var openRouterModelID: String?
   var lastFreeOpenRouterModelID: String?
   var lastBYOKOpenRouterModelID: String?
+  var lastOpenAICompatibleModelID: String?
   var openRouterPrivacyMode: String
   var nonZDRConsentVersion: Int?
   var lastFreeOpenRouterPrivacyMode: String?
@@ -235,6 +236,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
       openRouterModelID: openRouterModelID,
       lastFreeOpenRouterModelID: lastFreeOpenRouterModelID,
       lastBYOKOpenRouterModelID: lastBYOKOpenRouterModelID,
+      lastOpenAICompatibleModelID: lastOpenAICompatibleModelID,
       openRouterPrivacyMode: privacyMode,
       nonZDRConsentVersion: nonZDRConsentVersion,
       lastFreeOpenRouterPrivacyMode: freePrivacy,
@@ -258,6 +260,7 @@ struct EmailAnalysisSettingsRecord: Codable, FetchableRecord, PersistableRecord 
       openRouterModelID: value.openRouterModelID,
       lastFreeOpenRouterModelID: value.lastFreeOpenRouterModelID,
       lastBYOKOpenRouterModelID: value.lastBYOKOpenRouterModelID,
+      lastOpenAICompatibleModelID: value.lastOpenAICompatibleModelID,
       openRouterPrivacyMode: value.openRouterPrivacyMode.rawValue,
       nonZDRConsentVersion: value.nonZDRConsentVersion,
       lastFreeOpenRouterPrivacyMode: value.lastFreeOpenRouterPrivacyMode.rawValue,

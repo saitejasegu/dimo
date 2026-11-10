@@ -52,6 +52,14 @@
 		<string>app.dimo.ios.email-refresh</string>
 		<string>app.dimo.ios.email-analysis</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Self-hosted OpenAI-compatible servers (Ollama, LM Studio) often serve plain http on the LAN. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Dimo connects to the OpenAI-compatible AI server you enter in Email settings when it runs on your local network.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIAppFonts</key>

@@ -29,6 +29,8 @@ enum OpenRouterAccessMode: String, Codable, CaseIterable, Hashable, Sendable {
   case freeShared
   /// User-supplied OpenRouter key stored in Keychain.
   case bringYourOwnKey
+  /// Any OpenAI-compatible `/chat/completions` server; URL and optional key in Keychain.
+  case openAICompatible
 }
 
 enum OpenRouterPrivacyMode: String, Codable, CaseIterable, Hashable, Sendable {
@@ -98,6 +100,8 @@ struct EmailAnalysisSettings: Codable, Hashable, Sendable {
   var lastFreeOpenRouterModelID: String?
   /// Last BYOK model, restored when switching back from Free.
   var lastBYOKOpenRouterModelID: String?
+  /// Last OpenAI-compatible model, restored when switching back to that mode.
+  var lastOpenAICompatibleModelID: String?
   /// Active privacy mode for the current access mode.
   var openRouterPrivacyMode: OpenRouterPrivacyMode
   var nonZDRConsentVersion: Int?
@@ -117,6 +121,7 @@ struct EmailAnalysisSettings: Codable, Hashable, Sendable {
       openRouterModelID: nil,
       lastFreeOpenRouterModelID: nil,
       lastBYOKOpenRouterModelID: nil,
+      lastOpenAICompatibleModelID: nil,
       openRouterPrivacyMode: .zdrOnly,
       nonZDRConsentVersion: nil,
       lastFreeOpenRouterPrivacyMode: .zdrOnly,

@@ -127,11 +127,9 @@ struct EmailMessageStatusCard: View {
   private var isFailed: Bool { email.analysisState == .failed }
 
   private var retryTitle: String {
-    switch email.analyzer {
-    case .openRouter: return "Retry with OpenRouter"
-    case .gemma: return "Retry analysis"
-    case nil: return "Retry analysis"
-    }
+    // Retries use whichever analyzer is configured now, which may differ
+    // from the one that failed (OpenRouter or an OpenAI-compatible endpoint).
+    "Retry analysis"
   }
 
   private var statusIcon: String {

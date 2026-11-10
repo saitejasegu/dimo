@@ -22,9 +22,9 @@ enum EmailFeatureControllerError: LocalizedError {
     case .invalidSuggestion:
       return "The email suggestion is missing a valid amount, date, or category."
     case .analysisNotConfigured:
-      return "Email analysis is not configured. Choose Free models or Bring your own key in Email settings."
+      return "Email analysis is not configured. Choose Free models, Bring your own key, or an OpenAI-compatible endpoint in Email settings."
     case .openRouterNotConfigured:
-      return "Configure OpenRouter in Email settings before analyzing."
+      return "Configure OpenRouter or an OpenAI-compatible endpoint in Email settings before analyzing."
     case .nonZDRConsentRequired:
       return "This model has no zero-data-retention route. Confirm non-ZDR use before selecting it."
     }
@@ -55,6 +55,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
   private let openRouterThrottle = EmailAnalysisStartThrottle.openRouter
   private let openRouterVault = OpenRouterCredentialVault()
   private let openRouterClient = OpenRouterClient()
+  private let openAICompatibleVault = OpenAICompatibleCredentialVault()
+  private let openAICompatibleClient = OpenAICompatibleClient()
   private let analysisCoordinator = EmailAnalysisCoordinator()
 
   private var analysisSettings: EmailAnalysisSettings = .defaults
@@ -364,6 +366,18 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         guard let self else { return }
         try await self.removeOpenRouterKey()
       },
+      saveOpenAICompatibleEndpoint: { [weak self] baseURL, apiKey, modelID in
+        guard let self else { return }
+        try await self.saveOpenAICompatibleEndpoint(
+          baseURL: baseURL,
+          apiKey: apiKey,
+          modelID: modelID
+        )
+      },
+      removeOpenAICompatibleEndpoint: { [weak self] in
+        guard let self else { return }
+        try await self.removeOpenAICompatibleEndpoint()
+      },
       refreshOpenRouterModels: { [weak self] in
         guard let self else { return }
         try await self.refreshOpenRouterModels()
@@ -611,7 +625,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       if let retry = try repository.emailAnalysisRetryState(),
          let notBefore = retry.notBefore,
          notBefore > Int(Date().timeIntervalSince1970 * 1_000) {
-        store.analysisStatusDetail = retry.reason ?? "OpenRouter analysis is waiting to retry."
+        store.analysisStatusDetail = retry.reason ?? "\(analysisService.displayName) analysis is waiting to retry."
         return .paused
       }
       guard let analyzer = try await preparedOpenRouterAnalyzer() else {
@@ -641,7 +655,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
         "Transient OpenRouter analysis failure; message: \(message.key, privacy: .private(mask: .hash)); model: \(self.analysisSettings.openRouterModelID ?? "none", privacy: .public); error: \(String(reflecting: error), privacy: .public)"
       )
       try scheduleOpenRouterRetry(for: error)
-      store.analysisStatusDetail = error.localizedDescription
+      store.analysisStatusDetail = error.description(for: analysisService)
       return .paused
     } catch let error as OpenRouterClientError {
       emailAnalysisLogger.error(
@@ -649,16 +663,16 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       )
       switch error {
       case .invalidKey:
-        store.analysisStatusDetail = error.localizedDescription
-        store.openRouterConnectionState = .failed(error.localizedDescription)
+        store.analysisStatusDetail = error.description(for: analysisService)
+        store.openRouterConnectionState = .failed(error.description(for: analysisService))
         return .paused
       case .forbidden, .insufficientCredits:
-        store.analysisStatusDetail = error.localizedDescription
+        store.analysisStatusDetail = error.description(for: analysisService)
         return .paused
       case .modelUnavailable:
         try repository.clearEmailAnalysisRetryState()
         store.analysisStatusDetail =
-          "The selected OpenRouter model is unavailable. Choose another model in Email settings."
+          "The selected \(analysisService.displayName) model is unavailable. Choose another model in Email settings."
         return .paused
       default:
         try repository.markEmailAnalysisFailed(
@@ -789,7 +803,23 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       )
       await analysisCoordinator.set(analyzer, for: .openRouter)
       return analyzer
+    case .openAICompatible:
+      guard let endpoint = try await openAICompatibleVault.endpoint(dimoUserId: userId) else {
+        return nil
+      }
+      let analyzer = OpenAICompatibleEmailAnalyzer(
+        client: openAICompatibleClient,
+        modelID: model.id,
+        endpoint: endpoint
+      )
+      await analysisCoordinator.set(analyzer, for: .openRouter)
+      return analyzer
     }
+  }
+
+  /// The service behind the current access mode, for user-facing wording.
+  private var analysisService: EmailLLMService {
+    EmailLLMService(accessMode: analysisSettings.openRouterAccessMode)
   }
 
   private func restoreOpenRouterConfiguration() async {
@@ -798,7 +828,65 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       await restoreFreeOpenRouterConfiguration()
     case .bringYourOwnKey:
       await restoreBYOKOpenRouterConfiguration()
+    case .openAICompatible:
+      do {
+        guard try await loadOpenAICompatibleModels() else {
+          store.openRouterConnectionState = .disconnected
+          return
+        }
+      } catch {
+        let message = describe(error)
+        store.openRouterConnectionState = .failed(message)
+        if analysisSettings.selectedProvider == .openRouter {
+          store.analysisStatusDetail = message
+        }
+      }
     }
+  }
+
+  /// Loads the saved endpoint's catalog and marks it connected. Returns
+  /// `false` when no endpoint is saved. The selected model is kept in the
+  /// catalog even when the server does not list it (or lists nothing), since
+  /// many servers have no `/models` route and the ID was typed by hand.
+  @discardableResult
+  private func loadOpenAICompatibleModels() async throws -> Bool {
+    guard let endpoint = try await openAICompatibleVault.endpoint(dimoUserId: userId) else {
+      return false
+    }
+    store.openAICompatibleBaseURL = endpoint.baseURL.absoluteString
+    if store.openAICompatibleBaseURLInput.isEmpty {
+      store.openAICompatibleBaseURLInput = endpoint.baseURL.absoluteString
+    }
+    store.openRouterConnectionState = .validating
+    let listed = try await openAICompatibleClient.models(endpoint: endpoint)
+    publishOpenAICompatibleCatalog(listed ?? [], endpoint: endpoint)
+    return true
+  }
+
+  private func publishOpenAICompatibleCatalog(
+    _ listed: [OpenRouterModel],
+    endpoint: OpenAICompatibleEndpoint
+  ) {
+    var models = listed
+    if let selected = analysisSettings.openRouterModelID,
+       !models.contains(where: { $0.id == selected }) {
+      models.insert(OpenAICompatibleClient.model(id: selected), at: 0)
+    }
+    openRouterModels = models
+    store.openRouterModels = models
+    store.openAICompatibleBaseURL = endpoint.baseURL.absoluteString
+    store.openRouterConnectionState = .connected(
+      label: endpoint.hostLabel,
+      creditLimit: nil,
+      limitRemaining: nil
+    )
+  }
+
+  private func describe(_ error: Error) -> String {
+    if let error = error as? OpenRouterClientError {
+      return error.description(for: analysisService)
+    }
+    return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
   }
 
   private func restoreFreeOpenRouterConfiguration() async {
@@ -901,6 +989,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       analysisSettings.lastFreeOpenRouterModelID = modelID
     case .bringYourOwnKey:
       analysisSettings.lastBYOKOpenRouterModelID = modelID
+    case .openAICompatible:
+      analysisSettings.lastOpenAICompatibleModelID = modelID
     }
   }
 
@@ -916,6 +1006,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     case .bringYourOwnKey:
       analysisSettings.lastBYOKOpenRouterPrivacyMode = privacyMode
       analysisSettings.lastBYOKNonZDRConsentVersion = consentVersion
+    case .openAICompatible:
+      // Zero-data-retention routing is an OpenRouter feature; nothing to remember.
+      break
     }
   }
 
@@ -927,6 +1020,9 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     case .bringYourOwnKey:
       analysisSettings.openRouterPrivacyMode = analysisSettings.lastBYOKOpenRouterPrivacyMode
       analysisSettings.nonZDRConsentVersion = analysisSettings.lastBYOKNonZDRConsentVersion
+    case .openAICompatible:
+      analysisSettings.openRouterPrivacyMode = .allowNonZDR
+      analysisSettings.nonZDRConsentVersion = nil
     }
   }
 
@@ -961,6 +1057,8 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       analysisSettings.openRouterModelID = analysisSettings.lastFreeOpenRouterModelID
     case .bringYourOwnKey:
       analysisSettings.openRouterModelID = analysisSettings.lastBYOKOpenRouterModelID
+    case .openAICompatible:
+      analysisSettings.openRouterModelID = analysisSettings.lastOpenAICompatibleModelID
     }
     restorePrivacySelection(for: mode)
 
@@ -1056,6 +1154,65 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     }
   }
 
+  private func saveOpenAICompatibleEndpoint(
+    baseURL: String,
+    apiKey: String,
+    modelID: String
+  ) async throws {
+    if analysisSettings.openRouterAccessMode != .openAICompatible {
+      try await selectOpenRouterAccessMode(.openAICompatible)
+    }
+    let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedModel = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let endpoint = OpenAICompatibleEndpoint(
+      baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL(baseURL),
+      apiKey: trimmedKey.isEmpty ? nil : trimmedKey
+    )
+    store.openRouterConnectionState = .validating
+    do {
+      let listed = try await openAICompatibleClient.models(endpoint: endpoint)
+      if listed?.isEmpty ?? true, trimmedModel.isEmpty {
+        throw OpenAICompatibleEndpointError.missingModel
+      }
+      try await openAICompatibleVault.save(endpoint, dimoUserId: userId)
+      if !trimmedModel.isEmpty {
+        analysisSettings.openRouterModelID = trimmedModel
+      } else if analysisSettings.openRouterModelID == nil,
+                let remembered = analysisSettings.lastOpenAICompatibleModelID,
+                listed?.contains(where: { $0.id == remembered }) == true {
+        analysisSettings.openRouterModelID = remembered
+      } else if analysisSettings.openRouterModelID == nil, listed?.count == 1 {
+        analysisSettings.openRouterModelID = listed?.first?.id
+      }
+      rememberModelSelection(analysisSettings.openRouterModelID, for: .openAICompatible)
+      restorePrivacySelection(for: .openAICompatible)
+      try saveAnalysisSettings()
+      publishOpenAICompatibleCatalog(listed ?? [], endpoint: endpoint)
+      publishAnalysisSettings()
+      // A model typed alongside the URL is an explicit choice: start using it.
+      if !trimmedModel.isEmpty {
+        try await selectOpenRouterModel(trimmedModel, allowNonZDR: true)
+      }
+    } catch {
+      store.openRouterConnectionState = .failed(describe(error))
+      throw error
+    }
+  }
+
+  private func removeOpenAICompatibleEndpoint() async throws {
+    if analysisSettings.openRouterAccessMode == .openAICompatible {
+      try await switchProvider(to: nil)
+    }
+    try await openAICompatibleVault.remove(dimoUserId: userId)
+    if analysisSettings.openRouterAccessMode == .openAICompatible {
+      openRouterModels = []
+      store.openRouterModels = []
+      store.openAICompatibleBaseURL = nil
+      store.openRouterConnectionState = .disconnected
+    }
+    await analysisCoordinator.set(nil, for: .openRouter)
+  }
+
   private func removeOpenRouterKey() async throws {
     try await switchProvider(to: analysisSettings.selectedProvider == .openRouter ? nil : analysisSettings.selectedProvider)
     try await openRouterVault.remove(dimoUserId: userId)
@@ -1104,23 +1261,41 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
          !openRouterModels.contains(where: { $0.id == selected }) {
         store.analysisStatusDetail = "The selected OpenRouter model is no longer available."
       }
+    case .openAICompatible:
+      guard try await loadOpenAICompatibleModels() else {
+        throw EmailFeatureControllerError.openRouterNotConfigured
+      }
     }
   }
 
   private func selectOpenRouterModel(_ modelID: String, allowNonZDR: Bool) async throws {
+    let isOpenAICompatible = analysisSettings.openRouterAccessMode == .openAICompatible
+    if isOpenAICompatible, !openRouterModels.contains(where: { $0.id == modelID }) {
+      // OpenAI-compatible servers accept model IDs they don't list.
+      let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty, case .connected = store.openRouterConnectionState else {
+        throw EmailFeatureControllerError.openRouterNotConfigured
+      }
+      openRouterModels.insert(OpenAICompatibleClient.model(id: trimmed), at: 0)
+      store.openRouterModels = openRouterModels
+      return try await selectOpenRouterModel(trimmed, allowNonZDR: allowNonZDR)
+    }
     guard let model = openRouterModels.first(where: { $0.id == modelID }) else {
       throw EmailFeatureControllerError.openRouterNotConfigured
     }
     if analysisSettings.openRouterAccessMode == .freeShared, !model.isFree {
       throw EmailFeatureControllerError.openRouterNotConfigured
     }
-    if !model.hasZDREndpoint, !allowNonZDR {
+    if !isOpenAICompatible, !model.hasZDREndpoint, !allowNonZDR {
       throw EmailFeatureControllerError.nonZDRConsentRequired
     }
 
-    let privacyMode: OpenRouterPrivacyMode =
-      model.hasZDREndpoint && !allowNonZDR ? .zdrOnly : .allowNonZDR
-    let consentVersion: Int? = allowNonZDR ? 1 : nil
+    // ZDR routing is OpenRouter-only; a custom endpoint's retention is the
+    // user's own server or provider policy, shown in settings instead.
+    let privacyMode: OpenRouterPrivacyMode = isOpenAICompatible
+      ? .allowNonZDR
+      : (model.hasZDREndpoint && !allowNonZDR ? .zdrOnly : .allowNonZDR)
+    let consentVersion: Int? = !isOpenAICompatible && allowNonZDR ? 1 : nil
     let alreadyOnOpenRouter = analysisSettings.selectedProvider == .openRouter
     let unchanged =
       alreadyOnOpenRouter
@@ -1234,7 +1409,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       publishAnalysisSettings()
       try await resumeOpenRouterAnalysisQueue()
     } catch {
-      let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      let message = describe(error)
       store.openRouterConnectionState = .failed(message)
       if analysisSettings.selectedProvider == .openRouter {
         store.analysisStatusDetail = message
@@ -1251,7 +1426,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
       throw EmailFeatureControllerError.openRouterNotConfigured
     }
     try repository.clearEmailAnalysisRetryState()
-    store.analysisStatusDetail = "Retrying OpenRouter analysis…"
+    store.analysisStatusDetail = "Retrying \(analysisService.displayName) analysis…"
     try await resumeOpenRouterAnalysisQueue()
   }
 
@@ -1332,12 +1507,15 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     store.syncWindow = analysisSettings.syncWindow
     switch analysisSettings.selectedProvider {
     case .openRouter:
-      let modeLabel = analysisSettings.openRouterAccessMode == .freeShared
-        ? "OpenRouter Free"
-        : "OpenRouter"
+      let modeLabel: String
+      switch analysisSettings.openRouterAccessMode {
+      case .freeShared: modeLabel = "OpenRouter Free"
+      case .bringYourOwnKey: modeLabel = "OpenRouter"
+      case .openAICompatible: modeLabel = "OpenAI-compatible"
+      }
       store.analysisStatusDetail = analysisSettings.openRouterModelID.map {
         "\(modeLabel) · \($0)"
-      } ?? "Choose an OpenRouter model."
+      } ?? "Choose a \(analysisService.displayName) model."
     case nil:
       store.analysisStatusDetail = EmailFeatureControllerError.analysisNotConfigured.localizedDescription
     }
@@ -1353,7 +1531,7 @@ final class EmailFeatureController: EmailBackgroundWorkProviding {
     try repository.saveEmailAnalysisRetryState(EmailAnalysisRetryState(
       attempt: attempt,
       notBefore: Int(notBeforeDate.timeIntervalSince1970 * 1_000),
-      reason: error.localizedDescription,
+      reason: error.description(for: analysisService),
       lastHTTPStatus: error.statusCode,
       updatedAt: Int(Date().timeIntervalSince1970 * 1_000)
     ))

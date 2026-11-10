@@ -577,6 +577,11 @@ enum AppDatabase {
         t.column("snapshot", .blob).notNull()
       }
     }
+    migrator.registerMigration("v18-openai-compatible-model-memory") { db in
+      try db.alter(table: "emailAnalysisSettings") { t in
+        t.add(column: "lastOpenAICompatibleModelID", .text)
+      }
+    }
     return migrator
   }
 }

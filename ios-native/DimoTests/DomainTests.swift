@@ -4138,6 +4138,28 @@ final class EmailAnalysisProviderPersistenceTests: XCTestCase {
     XCTAssertEqual(restored.syncWindow, .threeMonths)
   }
 
+  func testOpenAICompatibleModeAndModelMemoryRoundTrip() throws {
+    let queue = try AppDatabase.activate(userId: "openai-compatible-settings-\(UUID().uuidString)")
+    defer { try? AppDatabase.deleteAllLocalDatabases() }
+    let repository = Repository(db: queue)
+    try repository.initializeLocalDatabase()
+
+    var settings = try repository.emailAnalysisSettings()
+    XCTAssertNil(settings.lastOpenAICompatibleModelID)
+    settings.selectedProvider = .openRouter
+    settings.openRouterAccessMode = .openAICompatible
+    settings.openRouterModelID = "llama3.1:8b"
+    settings.lastOpenAICompatibleModelID = "llama3.1:8b"
+    settings.lastBYOKOpenRouterModelID = "openai/gpt-4o-mini"
+    try repository.saveEmailAnalysisSettings(settings)
+
+    let restored = try repository.emailAnalysisSettings()
+    XCTAssertEqual(restored.openRouterAccessMode, .openAICompatible)
+    XCTAssertEqual(restored.openRouterModelID, "llama3.1:8b")
+    XCTAssertEqual(restored.lastOpenAICompatibleModelID, "llama3.1:8b")
+    XCTAssertEqual(restored.lastBYOKOpenRouterModelID, "openai/gpt-4o-mini")
+  }
+
   func testExplicitProviderOverrideIsClearedByReanalyseAll() throws {
     let queue = try AppDatabase.activate(userId: "provider-override-\(UUID().uuidString)")
     defer { try? AppDatabase.deleteAllLocalDatabases() }
@@ -4572,6 +4594,248 @@ final class OpenRouterPolicyTests: XCTestCase {
     }
     return result
   }
+}
+
+final class OpenAICompatibleClientTests: XCTestCase {
+  private static let irrelevantAnalysis = #"{"schemaVersion":1,"kind":"irrelevant","merchant":null,"amount":null,"currency":null,"occurredAt":null,"categoryId":null,"paymentMethodId":null,"paymentLastFour":null,"reference":null}"#
+
+  func testNormalizesBaseURLs() throws {
+    XCTAssertEqual(
+      try OpenAICompatibleEndpoint.normalizedBaseURL(" https://api.openai.com/v1/ ").absoluteString,
+      "https://api.openai.com/v1"
+    )
+    XCTAssertEqual(
+      try OpenAICompatibleEndpoint.normalizedBaseURL("api.groq.com/openai/v1").absoluteString,
+      "https://api.groq.com/openai/v1"
+    )
+    XCTAssertEqual(
+      try OpenAICompatibleEndpoint.normalizedBaseURL(
+        "HTTP://192.168.1.20:11434/v1/chat/completions"
+      ).absoluteString,
+      "http://192.168.1.20:11434/v1"
+    )
+    XCTAssertThrowsError(try OpenAICompatibleEndpoint.normalizedBaseURL(""))
+    XCTAssertThrowsError(try OpenAICompatibleEndpoint.normalizedBaseURL("ftp://example.com/v1"))
+    let endpoint = OpenAICompatibleEndpoint(
+      baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("http://localhost:1234/v1"),
+      apiKey: nil
+    )
+    XCTAssertEqual(endpoint.hostLabel, "localhost:1234")
+  }
+
+  func testRelaxesOnlyTheRejectedParameter() {
+    let full = OpenAICompatibleClient.RequestShape()
+    let noMaxTokens = OpenAICompatibleClient.relaxed(
+      full,
+      afterRejection: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."
+    )
+    XCTAssertEqual(noMaxTokens?.tokenLimit, .maxCompletionTokens)
+    XCTAssertEqual(noMaxTokens?.structuredOutput, .jsonSchema)
+    XCTAssertEqual(noMaxTokens?.sendsTemperature, true)
+
+    let noTemperature = OpenAICompatibleClient.relaxed(
+      full,
+      afterRejection: "Unsupported value: 'temperature' does not support 0 with this model."
+    )
+    XCTAssertEqual(noTemperature?.sendsTemperature, false)
+
+    let jsonObject = OpenAICompatibleClient.relaxed(
+      full,
+      afterRejection: "response_format json_schema is not supported"
+    )
+    XCTAssertEqual(jsonObject?.structuredOutput, .jsonObject)
+    let promptOnly = jsonObject.flatMap {
+      OpenAICompatibleClient.relaxed($0, afterRejection: "response_format is not supported")
+    }
+    XCTAssertEqual(promptOnly?.structuredOutput, .promptOnly)
+    XCTAssertNil(promptOnly.flatMap {
+      OpenAICompatibleClient.relaxed($0, afterRejection: "response_format is not supported")
+    })
+    XCTAssertNil(OpenAICompatibleClient.relaxed(full, afterRejection: "Something else went wrong"))
+  }
+
+  func testAnalysisPostsToEndpointAndFallsBackWhenSchemaIsRejected() async throws {
+    let log = OpenAICompatibleRequestLog()
+    let client = OpenAICompatibleClient(session: Self.stubbedSession { request in
+      let body = try XCTUnwrap(Self.bodyData(from: request))
+      let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+      let format = (payload["response_format"] as? [String: Any])?["type"] as? String
+      let attempt = log.record(
+        url: request.url?.absoluteString,
+        authorization: request.value(forHTTPHeaderField: "Authorization"),
+        format: format
+      )
+      if attempt == 1 {
+        return Self.response(
+          for: request,
+          status: 400,
+          json: #"{"error":{"message":"response_format type json_schema is not supported"}}"#
+        )
+      }
+      let content = "<think>The email is a newsletter.</think>\n" + Self.irrelevantAnalysis
+      let data = try JSONSerialization.data(withJSONObject: [
+        "id": "local-1",
+        "model": "llama3.1:8b",
+        "choices": [["message": ["content": content], "finish_reason": "stop"]],
+      ])
+      return (Self.httpResponse(for: request, status: 200), data)
+    })
+    let endpoint = OpenAICompatibleEndpoint(
+      baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("http://192.168.1.20:11434/v1"),
+      apiKey: nil
+    )
+
+    let envelope = try await client.analyze(Self.request, modelID: "llama3.1:8b", endpoint: endpoint)
+
+    XCTAssertEqual(envelope.result.kind, .irrelevant)
+    XCTAssertEqual(envelope.modelID, "llama3.1:8b")
+    XCTAssertEqual(log.urls, [String?](repeating: "http://192.168.1.20:11434/v1/chat/completions", count: 2))
+    XCTAssertEqual(log.authorizations, [nil, nil])
+    XCTAssertEqual(log.formats, ["json_schema", "json_object"])
+  }
+
+  func testModelsSendsBearerKeyAndReturnsNilWithoutModelsRoute() async throws {
+    let log = OpenAICompatibleRequestLog()
+    let client = OpenAICompatibleClient(session: Self.stubbedSession { request in
+      _ = log.record(
+        url: request.url?.absoluteString,
+        authorization: request.value(forHTTPHeaderField: "Authorization"),
+        format: nil
+      )
+      if request.url?.host == "no-models.example.com" {
+        return Self.response(for: request, status: 404, json: #"{"error":"Not Found"}"#)
+      }
+      return Self.response(
+        for: request,
+        status: 200,
+        json: #"{"object":"list","data":[{"id":"gpt-4.1-mini"},{"id":"gpt-4.1"}]}"#
+      )
+    })
+    let listed = try await client.models(endpoint: OpenAICompatibleEndpoint(
+      baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("https://api.example.com/v1"),
+      apiKey: "sk-test"
+    ))
+    XCTAssertEqual(listed?.map(\.id), ["gpt-4.1", "gpt-4.1-mini"])
+    XCTAssertEqual(log.authorizations.first, "Bearer sk-test")
+    XCTAssertEqual(log.urls.first, "https://api.example.com/v1/models")
+
+    let unlisted = try await client.models(endpoint: OpenAICompatibleEndpoint(
+      baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("https://no-models.example.com/v1"),
+      apiKey: nil
+    ))
+    XCTAssertNil(unlisted)
+  }
+
+  func testUnauthorizedModelsRequestThrowsInvalidKey() async throws {
+    let client = OpenAICompatibleClient(session: Self.stubbedSession { request in
+      Self.response(for: request, status: 401, json: #"{"error":{"message":"Incorrect API key"}}"#)
+    })
+    do {
+      _ = try await client.models(endpoint: OpenAICompatibleEndpoint(
+        baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("https://api.example.com/v1"),
+        apiKey: "bad"
+      ))
+      XCTFail("Expected invalid key")
+    } catch OpenRouterClientError.invalidKey {
+      XCTAssertEqual(
+        OpenRouterClientError.invalidKey.description(for: .openAICompatible),
+        "The endpoint rejected the API key. Check the key, or disconnect and enter it again."
+      )
+    }
+  }
+
+  func testEmptyContentAtTokenLimitIsReportedAsIncomplete() async throws {
+    let client = OpenAICompatibleClient(session: Self.stubbedSession { request in
+      Self.response(
+        for: request,
+        status: 200,
+        json: #"{"choices":[{"message":{"content":""},"finish_reason":"length"}]}"#
+      )
+    })
+    do {
+      _ = try await client.analyze(
+        Self.request,
+        modelID: "o4-mini",
+        endpoint: OpenAICompatibleEndpoint(
+          baseURL: try OpenAICompatibleEndpoint.normalizedBaseURL("https://api.example.com/v1"),
+          apiKey: "sk-test"
+        )
+      )
+      XCTFail("Expected incomplete output")
+    } catch OpenRouterClientError.invalidOutput(let message) {
+      XCTAssertTrue(message.localizedCaseInsensitiveContains("incomplete"))
+    }
+  }
+
+  private static let request = EmailAnalysisRequest(
+    messageId: "message",
+    accountSubject: "account",
+    senderAddress: "newsletter@example.com",
+    subject: "Weekly newsletter",
+    receivedAt: .now,
+    normalizedBody: "This is a newsletter without a transaction.",
+    categories: [],
+    paymentMethods: [],
+    merchantHistory: [],
+    activeCurrency: .INR
+  )
+
+  private static func stubbedSession(
+    _ handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+  ) -> URLSession {
+    OpenRouterStubURLProtocol.handler = handler
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [OpenRouterStubURLProtocol.self]
+    return URLSession(configuration: configuration)
+  }
+
+  private static func httpResponse(for request: URLRequest, status: Int) -> HTTPURLResponse {
+    HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+  }
+
+  private static func response(
+    for request: URLRequest,
+    status: Int,
+    json: String
+  ) -> (HTTPURLResponse, Data) {
+    (httpResponse(for: request, status: status), Data(json.utf8))
+  }
+
+  private static func bodyData(from request: URLRequest) -> Data? {
+    if let body = request.httpBody { return body }
+    guard let stream = request.httpBodyStream else { return nil }
+    stream.open()
+    defer { stream.close() }
+    var result = Data()
+    var buffer = [UInt8](repeating: 0, count: 4_096)
+    while stream.hasBytesAvailable {
+      let count = stream.read(&buffer, maxLength: buffer.count)
+      if count < 0 { return nil }
+      if count == 0 { break }
+      result.append(buffer, count: count)
+    }
+    return result
+  }
+}
+
+private final class OpenAICompatibleRequestLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedURLs: [String?] = []
+  private var storedAuthorizations: [String?] = []
+  private var storedFormats: [String?] = []
+
+  func record(url: String?, authorization: String?, format: String?) -> Int {
+    lock.lock()
+    defer { lock.unlock() }
+    storedURLs.append(url)
+    storedAuthorizations.append(authorization)
+    storedFormats.append(format)
+    return storedURLs.count
+  }
+
+  var urls: [String?] { lock.lock(); defer { lock.unlock() }; return storedURLs }
+  var authorizations: [String?] { lock.lock(); defer { lock.unlock() }; return storedAuthorizations }
+  var formats: [String?] { lock.lock(); defer { lock.unlock() }; return storedFormats }
 }
 
 final class ExpenseReminderTests: XCTestCase {

@@ -60,6 +60,7 @@ final class SessionController {
     if let signedOutUserId {
       try await GmailCredentialVault().removeAll(dimoUserId: signedOutUserId)
       try await OpenRouterCredentialVault().remove(dimoUserId: signedOutUserId)
+      try await OpenAICompatibleCredentialVault().remove(dimoUserId: signedOutUserId)
       ExpenseReminderStore.clear(userId: signedOutUserId)
     }
     try AppDatabase.deleteAllLocalDatabases()

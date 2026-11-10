@@ -197,7 +197,7 @@ struct EmailScreen: View {
         .font(DimoFont.display(20, weight: .semibold))
         .foregroundStyle(Theme.ink)
 
-      Text("Connect one or more Gmail accounts. Dimo reads the latest \(store.syncWindow.title) directly on this iPhone. Configure OpenRouter in settings for analysis; analyzed suggestions sync through Dimo for restore.")
+      Text("Connect one or more Gmail accounts. Dimo reads the latest \(store.syncWindow.title) directly on this iPhone. Configure OpenRouter or an OpenAI-compatible API in settings for analysis; analyzed suggestions sync through Dimo for restore.")
         .font(DimoFont.body(14))
         .foregroundStyle(Theme.body)
         .fixedSize(horizontal: false, vertical: true)
@@ -439,9 +439,11 @@ struct EmailScreen: View {
         return "Free-model analysis goes from this iPhone through Dimo’s servers to OpenRouter. Analyzed suggestions and their email text then sync through Dimo so they restore across your devices. You still approve every transaction change."
       case .bringYourOwnKey:
         return "Analysis goes from this iPhone to OpenRouter and the selected provider. Analyzed suggestions and their email text then sync through Dimo so they restore across your devices. You still approve every transaction change."
+      case .openAICompatible:
+        return "Analysis goes from this iPhone to your OpenAI-compatible endpoint. Analyzed suggestions and their email text then sync through Dimo so they restore across your devices. You still approve every transaction change."
       }
     case nil:
-      return "Gmail credentials and pending email content stay on this iPhone until you configure OpenRouter. Analyzed suggestions later sync through Dimo for restore."
+      return "Gmail credentials and pending email content stay on this iPhone until you configure an analyzer. Analyzed suggestions later sync through Dimo for restore."
     }
   }
 

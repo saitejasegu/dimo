@@ -331,6 +331,10 @@ struct EmailFeatureActions {
   var reanalyzeAllEmails: () async throws -> Void = {}
   var saveOpenRouterKey: (_ apiKey: String) async throws -> Void = { _ in }
   var removeOpenRouterKey: () async throws -> Void = {}
+  var saveOpenAICompatibleEndpoint: (
+    _ baseURL: String, _ apiKey: String, _ modelID: String
+  ) async throws -> Void = { _, _, _ in }
+  var removeOpenAICompatibleEndpoint: () async throws -> Void = {}
   var refreshOpenRouterModels: () async throws -> Void = {}
   var selectOpenRouterModel: (_ modelID: String, _ allowNonZDR: Bool) async throws -> Void = { _, _ in }
   var selectOpenRouterAccessMode: (_ mode: OpenRouterAccessMode) async throws -> Void = { _ in }
@@ -374,6 +378,11 @@ final class EmailFeatureStore {
   var openRouterPrivacyMode: OpenRouterPrivacyMode = .zdrOnly
   var syncWindow: EmailSyncWindow = .defaultValue
   var openRouterAPIKeyInput = ""
+  /// Base URL of the saved OpenAI-compatible endpoint, once connected.
+  var openAICompatibleBaseURL: String?
+  var openAICompatibleBaseURLInput = ""
+  var openAICompatibleAPIKeyInput = ""
+  var openAICompatibleModelInput = ""
   var isRefreshingOpenRouterModels = false
   var isUpdatingSyncWindow = false
   var analysisStatusDetail = "Email analysis is not configured. Choose Free models or Bring your own key in Email settings."
@@ -483,7 +492,8 @@ final class EmailFeatureStore {
 
   var activeAnalyzerTitle: String {
     switch selectedProvider {
-    case .openRouter: return "OpenRouter"
+    case .openRouter:
+      return openRouterAccessMode == .openAICompatible ? "OpenAI-compatible" : "OpenRouter"
     case nil: return "Analysis not configured"
     }
   }
@@ -696,6 +706,22 @@ final class EmailFeatureStore {
 
   func removeOpenRouterKey() {
     run { try await self.actions.removeOpenRouterKey() }
+  }
+
+  func saveOpenAICompatibleEndpoint() {
+    let baseURL = openAICompatibleBaseURLInput
+    let apiKey = openAICompatibleAPIKeyInput
+    let modelID = openAICompatibleModelInput
+    run(onSuccess: {
+      self.openAICompatibleAPIKeyInput = ""
+      self.openAICompatibleModelInput = ""
+    }) {
+      try await self.actions.saveOpenAICompatibleEndpoint(baseURL, apiKey, modelID)
+    }
+  }
+
+  func removeOpenAICompatibleEndpoint() {
+    run { try await self.actions.removeOpenAICompatibleEndpoint() }
   }
 
   func refreshOpenRouterModels() {

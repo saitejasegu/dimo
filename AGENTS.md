@@ -258,6 +258,15 @@ from derived UI models.
 - Never put WorkOS API keys or client secrets in iOS config. Convex URL and
   public WorkOS client ID are expected to be public.
 - Native domain tests live in `ios-native/DimoTests/DomainTests.swift`.
+- Email analysis can use any OpenAI-compatible API (`Email/OpenAICompatible/`)
+  as a third `OpenRouterAccessMode` (`openAICompatible`) beside Free and BYOK,
+  so it shares the OpenRouter queue, retry and pacing path. Its base URL and
+  optional key live in Keychain (`OpenAICompatibleCredentialVault`, cleared on
+  sign-out), and requests go straight from the device. The client drops a
+  rejected `response_format`/`temperature`/`max_tokens` and retries. ATS
+  allows plain http only for local-network servers. Analyses are persisted
+  and synced with `analyzerType == "openRouter"`, because Android rejects
+  unknown analyzer values. That is why provenance still reads "OpenRouter".
 - An email purchase can be split by category (iOS `CategorySplitStep`,
   `CategorySplitSelectors`). The parts are saved as one transaction per
   category in the same write that marks the email added. The main category gets

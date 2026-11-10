@@ -16,10 +16,25 @@ struct OpenRouterModelPicker: View {
     store.openRouterAccessMode == .freeShared
   }
 
+  /// Custom endpoints list bare model IDs, with no pricing or ZDR data, and
+  /// accept IDs they don't list.
+  private var isOpenAICompatible: Bool {
+    store.openRouterAccessMode == .openAICompatible
+  }
+
+  /// A typed model ID that isn't in the catalog, offered as a custom choice.
+  private var typedModelID: String? {
+    guard isOpenAICompatible else { return nil }
+    let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty,
+          !store.openRouterModels.contains(where: { $0.id == trimmed }) else { return nil }
+    return trimmed
+  }
+
   var body: some View {
     NavigationStack {
       VStack(spacing: 12) {
-        if !isFreeAccessMode {
+        if !isFreeAccessMode && !isOpenAICompatible {
           Picker("Model filter", selection: $filter) {
             ForEach(OpenRouterModelFilter.allCases) { option in
               Text(option.title).tag(option)
@@ -29,6 +44,20 @@ struct OpenRouterModelPicker: View {
           .padding(.horizontal, 16)
         }
 
+        if let typedModelID {
+          Button {
+            store.selectOpenRouterModel(typedModelID, allowNonZDR: true)
+            dismiss()
+          } label: {
+            Label("Use model “\(typedModelID)”", systemImage: "plus.circle.fill")
+              .font(DimoFont.body(13, weight: .semibold))
+              .foregroundStyle(Theme.green)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal, 16)
+          }
+          .buttonStyle(.plain)
+        }
+
         if isPreparingCatalog, visibleRows.isEmpty {
           ProgressView("Preparing models…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -36,7 +65,11 @@ struct OpenRouterModelPicker: View {
           ContentUnavailableView(
             "No matching models",
             systemImage: "magnifyingglass",
-            description: Text("Refresh the catalog or change the search and privacy filters.")
+            description: Text(
+              isOpenAICompatible
+                ? "Type the model ID in search to use a model the endpoint doesn't list."
+                : "Refresh the catalog or change the search and privacy filters."
+            )
           )
         } else {
           List(visibleRows) { row in
@@ -51,9 +84,12 @@ struct OpenRouterModelPicker: View {
         }
       }
       .background(Theme.canvas.ignoresSafeArea())
-      .navigationTitle("OpenRouter model")
+      .navigationTitle(isOpenAICompatible ? "Model" : "OpenRouter model")
       .navigationBarTitleDisplayMode(.inline)
-      .searchable(text: $search, prompt: "Search models")
+      .searchable(
+        text: $search,
+        prompt: isOpenAICompatible ? "Search or type a model ID" : "Search models"
+      )
       .toolbar {
         ToolbarItem(placement: .topBarLeading) {
           Button {
@@ -196,22 +232,26 @@ struct OpenRouterModelPicker: View {
         Text(model.name)
           .font(DimoFont.body(13, weight: .semibold))
           .foregroundStyle(Theme.ink)
-        Text(model.id)
-          .font(DimoFont.body(10))
-          .foregroundStyle(Theme.muted)
-          .lineLimit(1)
-        HStack(spacing: 6) {
-          badge(model.isFree ? "Free" : "Paid", green: model.isFree)
-          badge(model.hasZDREndpoint ? "ZDR" : "Non-ZDR", green: model.hasZDREndpoint)
-          Text(row.contextDescription)
-            .font(DimoFont.body(9))
-            .foregroundStyle(Theme.faint)
-        }
-        if let priceDescription = row.priceDescription {
-          Text(priceDescription)
-            .font(DimoFont.body(9))
+        if model.name != model.id {
+          Text(model.id)
+            .font(DimoFont.body(10))
             .foregroundStyle(Theme.muted)
-            .lineLimit(2)
+            .lineLimit(1)
+        }
+        if !isOpenAICompatible {
+          HStack(spacing: 6) {
+            badge(model.isFree ? "Free" : "Paid", green: model.isFree)
+            badge(model.hasZDREndpoint ? "ZDR" : "Non-ZDR", green: model.hasZDREndpoint)
+            Text(row.contextDescription)
+              .font(DimoFont.body(9))
+              .foregroundStyle(Theme.faint)
+          }
+          if let priceDescription = row.priceDescription {
+            Text(priceDescription)
+              .font(DimoFont.body(9))
+              .foregroundStyle(Theme.muted)
+              .lineLimit(2)
+          }
         }
       }
       Spacer(minLength: 0)
@@ -230,6 +270,10 @@ struct OpenRouterModelPicker: View {
   }
 
   private func beginSelection(_ model: OpenRouterModel) {
+    if isOpenAICompatible {
+      select(model)
+      return
+    }
     if isFreeAccessMode, !model.isFree { return }
     // Free access mode never offers paid models; skip paid pricing alerts.
     let needsPriceConfirm = !isFreeAccessMode && model.requiresPriceConfirmation

@@ -67,6 +67,31 @@ struct OpenRouterModel: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
+/// The remote LLM service behind email analysis.
+enum EmailLLMService: Sendable, Equatable {
+  case openRouter
+  case openAICompatible
+
+  init(accessMode: OpenRouterAccessMode) {
+    self = accessMode == .openAICompatible ? .openAICompatible : .openRouter
+  }
+
+  var displayName: String {
+    switch self {
+    case .openRouter: return "OpenRouter"
+    case .openAICompatible: return "OpenAI-compatible"
+    }
+  }
+
+  /// Subject for sentences such as "… could not be reached."
+  var sentenceSubject: String {
+    switch self {
+    case .openRouter: return "OpenRouter"
+    case .openAICompatible: return "The OpenAI-compatible endpoint"
+    }
+  }
+}
+
 enum OpenRouterClientError: LocalizedError, Sendable {
   case invalidKey
   case forbidden
@@ -80,19 +105,36 @@ enum OpenRouterClientError: LocalizedError, Sendable {
   case transport(String)
   case timedOut
 
-  var errorDescription: String? {
+  var errorDescription: String? { description(for: .openRouter) }
+
+  /// Wording for the service that produced the error. OpenAI-compatible
+  /// endpoints reuse these cases so the analysis queue treats both alike.
+  func description(for service: EmailLLMService) -> String {
+    let name = service.displayName
     switch self {
-    case .invalidKey: return "The OpenRouter key is invalid or has been revoked."
-    case .forbidden: return "The OpenRouter key or guardrail blocked this request."
-    case .insufficientCredits: return "The OpenRouter key has insufficient credits or reached its spending limit."
-    case .rateLimited: return "OpenRouter is rate limiting requests. Analysis will retry automatically."
-    case .temporarilyUnavailable: return "The selected OpenRouter model is temporarily unavailable."
-    case .modelUnavailable: return "The selected OpenRouter model is unavailable for the current privacy settings."
+    case .invalidKey:
+      return service == .openRouter
+        ? "The OpenRouter key is invalid or has been revoked."
+        : "The endpoint rejected the API key. Check the key, or disconnect and enter it again."
+    case .forbidden:
+      return service == .openRouter
+        ? "The OpenRouter key or guardrail blocked this request."
+        : "The endpoint refused this request (HTTP 403). Check the key's permissions."
+    case .insufficientCredits:
+      return service == .openRouter
+        ? "The OpenRouter key has insufficient credits or reached its spending limit."
+        : "The endpoint account has insufficient credits or reached its quota."
+    case .rateLimited: return "\(service.sentenceSubject) is rate limiting requests. Analysis will retry automatically."
+    case .temporarilyUnavailable: return "The selected \(name) model is temporarily unavailable."
+    case .modelUnavailable:
+      return service == .openRouter
+        ? "The selected OpenRouter model is unavailable for the current privacy settings."
+        : "The endpoint does not have the selected model. Check the model ID."
     case .invalidRequest(let message): return message
-    case .invalidResponse: return "OpenRouter returned an invalid response."
+    case .invalidResponse: return "\(service.sentenceSubject) returned an invalid response."
     case .invalidOutput: return "Analysis failed."
-    case .transport: return "OpenRouter could not be reached. Analysis will retry automatically."
-    case .timedOut: return "OpenRouter analysis timed out."
+    case .transport: return "\(service.sentenceSubject) could not be reached. Analysis will retry automatically."
+    case .timedOut: return "\(name) analysis timed out."
     }
   }
 
